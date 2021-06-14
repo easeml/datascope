@@ -1,0 +1,29 @@
+{
+    "_meta": {
+        "hash": {
+            "sha256": "42aebe973001feafd9171fc871b8735ab66e120affad983b80cb7ba7fd2a0d51"
+        },
+        "pipfile-spec": 6,
+        "requires": {
+            "python_version": "3.8"
+        },
+        "sources": [
+            {
+                "name": "pypi",
+                "url": "https://pypi.org/simple",
+                "verify_ssl": true
+            }
+        ]
+    },
+    "default": {
+        "datascope": {
+            "editable": true,
+            "path": "."
+        },
+        "e1839a8": {
+            "editable": true,
+            "path": "."
+        }
+    },
+    "develop": {}
+}
