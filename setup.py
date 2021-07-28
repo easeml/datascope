@@ -10,7 +10,7 @@ reqs = parse_requirements("requirements.txt")
 setup(
     name="datascope",
     version="0.1",
-    packages=["datascope",],
+    packages=["datascope","datascope.algorithms", "datascope.utils","datascope.inspection"],
     license="MIT",
     description="Measuring data importance over ML pipelines using the Shapley value",
     long_description=open("README.md").read(),
