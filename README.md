@@ -6,7 +6,22 @@ This is a tool for inspecting ML pipelines by measuring how important is each tr
 
 ### Setup
 
-Assuming [pipenv](https://pipenv.pypa.io/) is installed, execute command: `pipenv install -e .`
+#### Install libGL.so for opencv
+```
+apt-get install ffmpeg libsm6 libxext6  -y
+```
+
+#### Create a new conda virtual environment
+```
+conda env create -f datascope.yml
+```
+
+#### Install datascope
+```
+python setup.py install
+```
+
+#### Install datascope-pipelines
 
 ### Repo Structure
 
