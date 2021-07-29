@@ -146,7 +146,8 @@ class DShap(object):
 
         self.restart_model()
         self.model.fit(self.X, self.y)
-        return self.measure.score(self.X, self.y, self.X_test, self.y_test, self.model_family, self.model, sources=self.sources)
+        print(self.measure)
+        return self.measure.score(self.X, self.y, self.X_test, self.y_test, model_family=self.model_family, model=self.model, sources=self.sources)
 
     def restart_model(self):
         try:

@@ -53,7 +53,7 @@ class KNN_Shapley(Measure):
                 cur -= 1 
         return np.mean(s, axis=1)
 
-    def score(self, X_train, y_train, X_test, y_test, model=None, sources=None, use_torch=False, **kwargs):
+    def score(self, X_train, y_train, X_test, y_test, model=None, use_torch=False, **kwargs):
         """
         Run the model on the test data and calculate the Shapley value.
         """

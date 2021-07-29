@@ -27,6 +27,7 @@ class Experiment:
     def __init__(self, name, pipeline, dataset_name="FashionMNIST"):
         self.name = name
         self.pipeline = pipeline
+        self.base_path = ''
         self.dataset_name = dataset_name #UCI, FashionMNIST, Text
 
         if self.pipeline is None:
@@ -39,6 +40,7 @@ class Experiment:
         name = self.name
         now = datetime.now()
         dt_string = now.strftime("%d-%m-%Y-%H-%M-%S")
+        self.base_path = f'./results/{self.name}/i-{iterations}-time-{dt_string}'
 
         def create_dirs(path):
             if (not os.path.exists(path)):
@@ -51,20 +53,18 @@ class Experiment:
 
         print(f'Initiate experiment {name}-i-{iterations}-time-{dt_string}')
 
-        # create folder structure
-        for exp in ['label', 'poisoning', 'fairness']:
-            for folder in ['shapley', 'data', 'time', 'plots']:
-                create_dirs(f'./results/{name}/i-{iterations}-time-{dt_string}/{exp}/{folder}')
-
         if run_label:
             print('Running label noise experiment')
+            create_dirs(f'./results/{name}/i-{iterations}-time-{dt_string}/label/')
             print(flatten)
             self.run_label_experiment(iterations, dt_string, ray, truncated, flatten=flatten)
         if run_poisoning:
             print('Running poisoning experiment')
+            create_dirs(f'./results/{name}/i-{iterations}-time-{dt_string}/poisoning/')
             self.run_poisoning_experiment(iterations, dt_string, ray, truncated, flatten=flatten)
         if run_fairness:
             print('Running fairness experiment')
+            create_dirs(f'./results/{name}/i-{iterations}-time-{dt_string}/fairness/')
             self.run_fairness_experiment(iterations, dt_string, ray, truncated)
 
         print('done!')
@@ -120,30 +120,30 @@ class Experiment:
         time_pipe = end - start
 
         # datetime object containing current date and time
-        # np.savez_compressed(f'./results/{self.name}/i-{iterations}-time-{dt_string}/label/shapley/{name}-i-{iterations}-time-{dt_string}-shapley',condknn=res_label_condknn, condpipe=res_label_condpipe, knn=res_label_knn, pipe=res_label_pipe)
-        # np.savez_compressed(f'./results/{self.name}/i-{iterations}-time-{dt_string}/label/data/{name}-i-{iterations}-time-{dt_string}-data', X=X_train, y=y_train, X_test=X_test, y_test=y_test, flip_indices=app_label.flip_indices)
-        # np.savez_compressed(f'./results/{self.name}/i-{iterations}-time-{dt_string}/label/time/{name}-i-{iterations}-time-{dt_string}-time', time_condknn=time_condknn, time_condpipe=time_condpipe, time_knn=time_knn, time_pipe=time_pipe)
+        # np.savez_compressed(f'{self.base_path}/label/shapley/{name}-i-{iterations}-time-{dt_string}-shapley',condknn=res_label_condknn, condpipe=res_label_condpipe, knn=res_label_knn, pipe=res_label_pipe)
+        # np.savez_compressed(f'{self.base_path}/label/data/{name}-i-{iterations}-time-{dt_string}-data', X=X_train, y=y_train, X_test=X_test, y_test=y_test, flip_indices=app_label.flip_indices)
+        # np.savez_compressed(f'{self.base_path}/label/time/{name}-i-{iterations}-time-{dt_string}-time', time_condknn=time_condknn, time_condpipe=time_condpipe, time_knn=time_knn, time_pipe=time_pipe)
 
         # # save figures
         # figure(num=None, figsize=(6, 4), dpi=80, facecolor='w', edgecolor='k')
-        RuntimePlotter( 
-                    ('KNN-Shapley (cond)', time_condknn), 
-                    ('TMC-Shapley (cond)', time_condpipe), 
-                    ('KNN-Shapley', time_knn), 
-                    ('TMC-Shapley', time_pipe)).plot(save_path=f'./results/{self.name}/i-{iterations}-time-{dt_string}/label/plots/LabelRuntime-{name}-i-{iterations}-time-{dt_string}.png')
+        # RuntimePlotter( 
+        #             ('KNN-Shapley (cond)', time_condknn), 
+        #             ('TMC-Shapley (cond)', time_condpipe), 
+        #             ('KNN-Shapley', time_knn), 
+        #             ('TMC-Shapley', time_pipe)).plot(save_path=f'{self.base_path}/label/LabelRuntime')
 
         LabelPlotter(app_label, 
                     ('KNN-Shapley (cond)', res_label_condknn), 
                     ('TMC-Shapley (cond)', res_label_condpipe), 
                     ('KNN-Shapley', res_label_knn), 
-                    ('TMC-Shapley', res_label_pipe)).plot(save_path=f'./results/{self.name}/i-{iterations}-time-{dt_string}/label/plots/Label-{name}-i-{iterations}-time-{dt_string}.png')
+                    ('TMC-Shapley', res_label_pipe)).plot(save_path=f'{self.base_path}/label/Label')
         
         LabelCleaningPlotter(app_label, 
                      ('KNN-Shapley (cond)', res_label_condknn), 
                      ('TMC-Shapley (cond)', res_label_condpipe), 
                      ('KNN-Shapley', res_label_knn), 
                      ('TMC-Shapley', res_label_pipe)
-                    ).plot(ray=ray, model_family='custom', pipeline=pipeline, save_path=f'./results/{self.name}/i-{iterations}-time-{dt_string}/label/plots/LabelCleaning-{name}-i-{iterations}-time-{dt_string}.png')
+                    ).plot(ray=ray, model_family='custom', pipeline=pipeline, save_path=f'{self.base_path}/label/LabelCleaning')
 
     def run_poisoning_experiment(self, iterations, dt_string, ray, truncated, flatten=True):
         '''
@@ -189,30 +189,30 @@ class Experiment:
         time_pipe = end - start
 
         # datetime object containing current date and time
-        np.savez_compressed(f'./results/{self.name}/i-{iterations}-time-{dt_string}/poisoning/shapley/{name}-i-{iterations}-time-{dt_string}-shapley',condknn=res_poisoning_condknn, condpipe=res_poisoning_condpipe, knn=res_poisoning_knn, pipe=res_poisoning_pipe)
-        np.savez_compressed(f'./results/{self.name}/i-{iterations}-time-{dt_string}/poisoning/data/{name}-i-{iterations}-time-{dt_string}-data', X=X_train, y=y_train, X_test=X_test, y_test=y_test, poison_indices=app_poisoning.poison_indices)
-        np.savez_compressed(f'./results/{self.name}/i-{iterations}-time-{dt_string}/poisoning/time/{name}-i-{iterations}-time-{dt_string}-time', time_condknn=time_condknn, time_condpipe=time_condpipe, time_knn=time_knn, time_pipe=time_pipe)
+        # np.savez_compressed(f'{self.base_path}/poisoning/shapley/{name}-i-{iterations}-time-{dt_string}-shapley',condknn=res_poisoning_condknn, condpipe=res_poisoning_condpipe, knn=res_poisoning_knn, pipe=res_poisoning_pipe)
+        # np.savez_compressed(f'{self.base_path}/poisoning/data/{name}-i-{iterations}-time-{dt_string}-data', X=X_train, y=y_train, X_test=X_test, y_test=y_test, poison_indices=app_poisoning.poison_indices)
+        # np.savez_compressed(f'{self.base_path}/poisoning/time/{name}-i-{iterations}-time-{dt_string}-time', time_condknn=time_condknn, time_condpipe=time_condpipe, time_knn=time_knn, time_pipe=time_pipe)
 
         # save figures
         figure(num=None, figsize=(6, 4), dpi=80, facecolor='w', edgecolor='k')
-        RuntimePlotter( 
-                    ('KNN-Shapley (cond)', time_condknn), 
-                    ('TMC-Shapley (cond)', time_condpipe), 
-                    ('KNN-Shapley', time_knn), 
-                    ('TMC-Shapley', time_pipe)).plot(save_path=f'./results/{self.name}/i-{iterations}-time-{dt_string}/poisoning/plots/PoisoningRuntime-{name}-i-{iterations}-time-{dt_string}.png')
+        # RuntimePlotter( 
+        #             ('KNN-Shapley (cond)', time_condknn), 
+        #             ('TMC-Shapley (cond)', time_condpipe), 
+        #             ('KNN-Shapley', time_knn), 
+        #             ('TMC-Shapley', time_pipe)).plot(save_path=f'{self.base_path}/poisoning/PoisoningRuntime')
 
         PoisoningPlotter(app_poisoning, 
                     ('KNN-Shapley (cond)', res_poisoning_condknn), 
                     ('TMC-Shapley (cond)', res_poisoning_condpipe), 
                     ('KNN-Shapley', res_poisoning_knn), 
-                    ('TMC-Shapley', res_poisoning_pipe)).plot(save_path=f'./results/{self.name}/i-{iterations}-time-{dt_string}/poisoning/plots/Poisoning-{name}-i-{iterations}-time-{dt_string}.png')
+                    ('TMC-Shapley', res_poisoning_pipe)).plot(save_path=f'{self.base_path}/poisoning/Poisoning')
         
         PoisoningCleaningPlotter(app_poisoning, 
                      ('KNN-Shapley (cond)', res_poisoning_condknn), 
                      ('TMC-Shapley (cond)', res_poisoning_condpipe), 
                      ('KNN-Shapley', res_poisoning_knn), 
                      ('TMC-Shapley', res_poisoning_pipe)
-                     ).plot(model_family='custom', pipeline=pipeline, save_path=f'./results/{self.name}/i-{iterations}-time-{dt_string}/poisoning/plots/PoisoningCleaning-{name}-i-{iterations}-time-{dt_string}.png')
+                     ).plot(model_family='custom', pipeline=pipeline, save_path=f'{self.base_path}/poisoning/PoisoningCleaning')
 
     def run_fairness_experiment(self, iterations, dt_string, ray, truncated):
 
@@ -289,7 +289,7 @@ class Experiment:
         eo_score = equal_odds(y_test, pipeline.predict(X_test))
         print(f"Initial demographic ratio parity is {dpr_score}!")
         print(f"Initial equalized odds ratio is {eo_score}!")
-        np.savez_compressed(f'./results/{self.name}/i-{iterations}-time-{dt_string}/fairness/data/{name}-i-{iterations}-time-{dt_string}-data', X=X_train, y=y_train, X_test=X_test, y_test=y_test)
+        #np.savez_compressed(f'{self.base_path}/fairness/{name}-i-{iterations}-time-{dt_string}-data', X=X_train, y=y_train, X_test=X_test, y_test=y_test)
 
         transform_condknn, pipeline_condknn = process_pipe_condknn(pipeline)
         transform_condpipe, pipeline_condpipe = process_pipe_condpipe(pipeline)
@@ -311,8 +311,8 @@ class Experiment:
         time_pipe = end - start
 
         # datetime object containing current date and time
-        np.savez_compressed(f'./results/{self.name}/i-{iterations}-time-{dt_string}/fairness/shapley/{name}-i-{iterations}-time-{dt_string}-shapley', condpipe=res_fairness_condpipe, knn=res_fairness_knn, pipe=res_fairness_pipe)
-        np.savez_compressed(f'./results/{self.name}/i-{iterations}-time-{dt_string}/fairness/time/{name}-i-{iterations}-time-{dt_string}-time', time_condpipe=time_condpipe, time_knn=time_knn, time_pipe=time_pipe)
+        # np.savez_compressed(f'{self.base_path}/fairness/shapley/{name}-i-{iterations}-time-{dt_string}-shapley', condpipe=res_fairness_condpipe, knn=res_fairness_knn, pipe=res_fairness_pipe)
+        # np.savez_compressed(f'{self.base_path}/fairness/time/{name}-i-{iterations}-time-{dt_string}-time', time_condpipe=time_condpipe, time_knn=time_knn, time_pipe=time_pipe)
 
         figure(num=None, figsize=(6, 4), dpi=80, facecolor='w', edgecolor='k')
 
@@ -320,21 +320,21 @@ class Experiment:
              ('TMC-Shapley (cond)', res_fairness_condpipe), 
              ('KNN-Shapley', res_fairness_knn), 
              ('TMC-Shapley', res_fairness_pipe)
-                ).plot(metric=eo_sex, metric_name="Equalized Odds Ratio", model_family='custom', pipeline=pipeline, save_path=f'./results/{self.name}/i-{iterations}-time-{dt_string}/fairness/plots/FairnessEO-{name}-i-{iterations}-time-{dt_string}.png')
+                ).plot(metric=eo_sex, metric_name="Equalized Odds Ratio", model_family='custom', pipeline=pipeline, save_path=f'{self.base_path}/fairness/FairnessEO')
 
         FairnessPlotter(app_fairness, 
              ('TMC-Shapley (cond)', res_fairness_condpipe), 
              ('KNN-Shapley', res_fairness_knn), 
              ('TMC-Shapley', res_fairness_pipe)
-                ).plot(metric=dpr_sex, metric_name="Demographic Parity Ratio", model_family='custom', pipeline=pipeline, save_path=f'./results/{self.name}/i-{iterations}-time-{dt_string}/fairness/plots/FairnessDPR-{name}-i-{iterations}-time-{dt_string}.png')
+                ).plot(metric=dpr_sex, metric_name="Demographic Parity Ratio", model_family='custom', pipeline=pipeline, save_path=f'{self.base_path}/fairness/FairnessDPR')
 
         FairnessPlotter(app_fairness, 
              ('TMC-Shapley (cond)', res_fairness_condpipe), 
              ('KNN-Shapley', res_fairness_knn), 
              ('TMC-Shapley', res_fairness_pipe)
-                ).plot(metric=accuracy_score, metric_name='Accuracy', model_family='custom', pipeline=pipeline, save_path=f'./results/{self.name}/i-{iterations}-time-{dt_string}/fairness/plots/FairnessAccuracy-{name}-i-{iterations}-time-{dt_string}.png')
+                ).plot(metric=accuracy_score, metric_name='Accuracy', model_family='custom', pipeline=pipeline, save_path=f'{self.base_path}/fairness/FairnessAccuracy')
 
-        RuntimePlotter( 
-             ('TMC-Shapley (cond)', time_condpipe), 
-             ('KNN-Shapley', time_knn), 
-             ('TMC-Shapley', time_pipe)).plot(save_path=f'./results/{self.name}/i-{iterations}-time-{dt_string}/fairness/plots/FairnessRuntime-{name}-i-{iterations}-time-{dt_string}.png')
+        # RuntimePlotter( 
+        #      ('TMC-Shapley (cond)', time_condpipe), 
+        #      ('KNN-Shapley', time_knn), 
+        #      ('TMC-Shapley', time_pipe)).plot(save_path=f'{self.base_path}/fairness/FairnessRuntime')

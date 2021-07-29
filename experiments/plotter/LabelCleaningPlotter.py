@@ -32,7 +32,7 @@ class LabelCleaningPlotter(Plotter):
             self.colormap[name] = self.colors.get()
             return self.colormap[name] 
         
-    def _calculate_res(self, name, s_values, data_num, metric=None, model_family='custom', **kwargs):
+    def _calculate_res(self, name, s_values, data_num, metric=None, pipeline=None, **kwargs):
 
         res_v = s_values
         res_i = np.argsort(-res_v)[::-1]
@@ -43,7 +43,7 @@ class LabelCleaningPlotter(Plotter):
         
         #initial accuracy
         num_classes = np.max(self.app.y) + 1
-        model = self.return_model(model_family, **kwargs)
+        model = pipeline
         y = self.app.y.copy() #make a copy
         model.fit(self.app.X, y)
         if metric is None:
@@ -124,7 +124,7 @@ class LabelCleaningPlotter(Plotter):
         x = np.append(x[0:-1:100], x[-1])
         f = np.append(f[0:-1:100], f[-1])
 
-        return x, f
+        return x, f, s_values
 
     def plot(self, metric=None, model_family='custom', save_path=None, ray=False, **kwargs):
 
@@ -133,11 +133,15 @@ class LabelCleaningPlotter(Plotter):
         data_num = self.app.X.shape[0]
 
         for (name, result) in self.argv:
-           x, f = self._calculate_res(name, result, data_num, metric=metric, model_family=model_family, **kwargs)
+           x, f, s = self._calculate_res(name, result, data_num, metric=metric, model_family=model_family, **kwargs)
+           if save_path is not None:
+                np.savez_compressed(f'{save_path}_{name}', x=x, f=f, s=s)
            plt.plot(x, np.array(f) * 100, 'o-', color = self.getColor(name), label = name)
         
         rand_values = np.random.rand(data_num)
-        x, f = self._calculate_res("Random", rand_values, data_num, metric=metric, model_family=model_family, **kwargs)
+        x, f, s = self._calculate_res("Random", rand_values, data_num, metric=metric, model_family=model_family, **kwargs)
+        if save_path is not None:
+                np.savez_compressed(f'{save_path}_Random', x=x, f=f, s=s)
         plt.plot(x, np.array(f) * 100, '--', color='red', label = "Random", zorder=7)
 
         ## random end ##
@@ -147,6 +151,6 @@ class LabelCleaningPlotter(Plotter):
         plt.legend(loc='lower right', prop={'size': 15})
         plt.tight_layout()
         if save_path is not None:
-            plt.savefig(save_path, dpi=300)
+            plt.savefig(save_path + '.pdf')
         plt.show()
         plt.clf()

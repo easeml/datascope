@@ -1,0 +1,10 @@
+# datascope dependencies
+tensorflow
+torch
+scikit-learn
+ray
+# pipeline dependencies
+scikit-image
+nltk
+acoustics
+opencv

@@ -70,7 +70,7 @@ class LabelPlotter(Plotter):
         plt.legend(loc='lower right', prop={'size': 15})
         plt.tight_layout()
         if save_path is not None:
-            plt.savefig(save_path, dpi=300)
+            plt.savefig(save_path + '.pdf')
         plt.show()
         plt.clf()
 

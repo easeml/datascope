@@ -15,8 +15,3 @@ class Plotter(object):
             model = copy.deepcopy(model)
         except:
             model.fit(np.zeros((0,) + X_train.shape[1:]), y_train)
-
-    def return_model(mode, **kwargs):
-        model = kwargs.get('pipeline', None)
-        print(model)
-        return model
