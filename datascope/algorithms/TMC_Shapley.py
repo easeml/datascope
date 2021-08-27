@@ -10,38 +10,40 @@ import ray
 
 class TMC_Shapley(Measure):
 
-    def __init__(self, metric=None, iterations=500, ray=False, truncated=True):
+    def __init__(self, metric=None, iterations=500, ray=False, truncated=True, minimum_size=10):
         self.name = 'TMC_Shapley'
         self.metric = metric
         self.iterations = iterations
         self.ray = ray
         self.truncated = truncated
+        self.minimum_size = minimum_size 
     
-    def one_iteration(self, X_train, y_train, X_test, y_test, model_family, model, iteration, tolerance, sources, mean_score):
+    def one_iteration(self, X_train, y_train, X_test, y_test, model_family, model, iteration, tolerance, forksets, mean_score):
         """
         Compute the TMC Shapley marginals for one iteration.
         """
         start = time.perf_counter()
-        idxs, marginal_contribs = np.random.permutation(len(sources.keys())), np.zeros(X_train.shape[0])
+        idxs, marginal_contribs = np.random.permutation(len(forksets.keys())), np.zeros(X_train.shape[0])
         new_score = np.max(np.bincount(y_test).astype(float)/len(y_test))
         X_batch, y_batch = np.zeros((0,) +  tuple(X_train.shape[1:])), np.zeros(0).astype(int)
         truncation_counter = 0
 
-        # k-means need at least 10 data points
-        for n, idx in enumerate(idxs[:10]):
+        # k-means need at least 10 data points, that's why we need a minimum size
+        for n, idx in enumerate(idxs[:self.minimum_size]):
             if isinstance(X_train, scipy.sparse.csr_matrix):
-                X_batch = scipy.sparse.vstack([X_batch, X_train[sources[idx]]])
+                X_batch = scipy.sparse.vstack([X_batch, X_train[forksets[idx]]])
             else:
-                X_batch = np.concatenate((X_batch, X_train[sources[idx]]))
-            y_batch = np.concatenate([y_batch, y_train[sources[idx]]])
+                X_batch = np.concatenate((X_batch, X_train[forksets[idx]]))
+            y_batch = np.concatenate([y_batch, y_train[forksets[idx]]])
 
-        for n, idx in enumerate(idxs[10:]):
+        # now let's permutate
+        for n, idx in enumerate(idxs[self.minimum_size:]):
             old_score = new_score
             if isinstance(X_train, scipy.sparse.csr_matrix):
-                X_batch = scipy.sparse.vstack([X_batch, X_train[sources[idx]]])
+                X_batch = scipy.sparse.vstack([X_batch, X_train[forksets[idx]]])
             else:
-                X_batch = np.concatenate((X_batch, X_train[sources[idx]]))
-            y_batch = np.concatenate([y_batch, y_train[sources[idx]]])
+                X_batch = np.concatenate((X_batch, X_train[forksets[idx]]))
+            y_batch = np.concatenate([y_batch, y_train[forksets[idx]]])
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
                 is_regression = (np.mean(y_train//1==y_train) != 1)
@@ -52,7 +54,7 @@ class TMC_Shapley(Measure):
                     model.fit(X_batch, y_batch)
                     y_pred = model.predict(X_test)
                     new_score = self.metric(y_test, y_pred)      
-            marginal_contribs[sources[idx]] = (new_score - old_score) / len(sources[idx])
+            marginal_contribs[forksets[idx]] = (new_score - old_score) / len(forksets[idx])
 
             if self.truncated:
                 if np.abs(new_score - mean_score) <= tolerance * mean_score:
@@ -63,26 +65,28 @@ class TMC_Shapley(Measure):
                     truncation_counter = 0
             time_measured = time.perf_counter() - start
         if self.ray:
+            print("shape: ", marginal_contribs.shape)
+            print("sets", set(marginal_contribs))
             return marginal_contribs
         else:
             return marginal_contribs, time_measured
 
-    def score(self, X_train, y_train, X_test, y_test, model_family='', model=None, tolerance=0.1, sources=None):
+    def score(self, X_train, y_train, X_test, y_test, model_family='', model=None, tolerance=0.1, forksets=None):
         """
         Calculate the TMC Shapley marginals for all iterations.
         """
         iterations = self.iterations
 
-        # if sources is None:
-        #     sources = {i:np.array([i]) for i in range(X_train.shape[0])}
-        # elif not isinstance(sources, dict):
-        #     sources = {i:np.where(sources==i)[0] for i in set(sources)}
+        # if forksets is None:
+        #     forksets = {i:np.array([i]) for i in range(X_train.shape[0])}
+        # elif not isinstance(forksets, dict):
+        #     forksets = {i:np.where(forksets==i)[0] for i in set(forksets)}
 
         mem_tmc = np.zeros((0, X_train.shape[0]))
-        #idxs_shape = (0, len(sources.keys()))
+        #idxs_shape = (0, len(forksets.keys()))
         #idxs_tmc = np.zeros(idxs_shape).astype(int)
 
-        #print(sources, idxs_shape, idxs_tmc)
+        #print(forksets, idxs_shape, idxs_tmc)
 
         marginals, idxs = [], []
 
@@ -99,7 +103,7 @@ class TMC_Shapley(Measure):
 
         if self.ray:
             partial_one_iteration = partial(self.one_iteration, X_train=X_train, y_train=y_train, X_test=X_test, y_test=y_test,
-                                        model_family=model_family, model=model, tolerance=tolerance, sources=sources, mean_score=mean_score)
+                                        model_family=model_family, model=model, tolerance=tolerance, forksets=forksets, mean_score=mean_score)
 
             @ray.remote
             def call_partial_one_iteration(iteration):
@@ -111,7 +115,7 @@ class TMC_Shapley(Measure):
             #for iteration in range(iterations):
                 #if 10*(iteration+1)/iterations % 1 == 0:
                 #    print('{} out of {} TMC_Shapley iterations.'.format(iteration + 1, iterations))
-                #marginals = self.one_iteration(X_train, y_train, X_test, y_test, model_family, model, iterations, tolerance, sources, mean_score)
+                #marginals = self.one_iteration(X_train, y_train, X_test, y_test, model_family, model, iterations, tolerance, forksets, mean_score)
                 #mem_tmc = np.concatenate([mem_tmc, np.reshape(marginals, (1,-1))])
                 #idxs_tmc = np.concatenate([idxs_tmc, np.reshape(idxs, (1,-1))])
             futures = [call_partial_one_iteration.remote(iteration) for iteration in range(iterations)]
@@ -127,7 +131,7 @@ class TMC_Shapley(Measure):
             for iteration in range(iterations):
                 #if 10*(iteration+1)/iterations % 1 == 0:
                 #   print('{} out of {} TMC_Shapley iterations.'.format(iteration + 1, iterations))
-                marginals, time_mean = self.one_iteration(X_train, y_train, X_test, y_test, model_family, model, iterations, tolerance, sources, mean_score)
+                marginals, time_mean = self.one_iteration(X_train, y_train, X_test, y_test, model_family, model, iterations, tolerance, forksets, mean_score)
                 mem_tmc = np.concatenate([mem_tmc, np.reshape(marginals, (1,-1))])
                 #idxs_tmc = np.concatenate([idxs_tmc, np.reshape(idxs, (1,-1))])
                 time_mean += time_mean

@@ -20,7 +20,7 @@ def delete_rows_csr(mat, index):
 
 class DShap(object):
 
-    def __init__(self, X, y, X_test, y_test, num_test, sources=None, directory="./",
+    def __init__(self, X, y, X_test, y_test, num_test, forksets=None, directory="./",
                  problem='classification', model_family='logistic', metric='accuracy', measure=None,
                  seed=None, nodump=True, transform=None, **kwargs):
         """
@@ -29,7 +29,7 @@ class DShap(object):
             y: Data labels
             X_test: Test+Held-out covariates
             y_test: Test+Held-out labels
-            sources: An array or dictionary assiging each point to its group.
+            forksets: An array or dictionary assiging each point to its group.
                 If None, evey points gets its individual value.
             num_test: Number of data points used for evaluation metric.
             directory: Directory to save results and figures.
@@ -59,7 +59,7 @@ class DShap(object):
                 os.makedirs(directory)
                 os.makedirs(os.path.join(directory, 'weights'))
                 os.makedirs(os.path.join(directory, 'plots'))
-            self._initialize_instance(X, y, X_test, y_test, num_test, sources=sources)
+            self._initialize_instance(X, y, X_test, y_test, num_test, forksets=forksets)
         if np.max(self.y) + 1 > 2:
             assert self.metric != 'f1' and self.metric != 'auc', 'Invalid metric!'
         is_regression = (np.mean(self.y//1==self.y) != 1)
@@ -69,30 +69,32 @@ class DShap(object):
         self.random_score = self.init_score(self.metric)
         self.measure = measure
 
-    def _initialize_instance(self, X, y, X_test, y_test, num_test, sources=None):
+    def _initialize_instance(self, X, y, X_test, y_test, num_test, forksets=None):
         """Loads or creates data."""
         if self.transform is not None:
             X = self.transform.fit_transform(X.copy())
             X_test = self.transform.transform(X_test.copy())
-        if sources is None:
-            sources = {i:np.array([i]) for i in range(X.shape[0])}
-        elif not isinstance(sources, dict):
-            sources = {i:np.where(sources==i)[0] for i in set(sources)}
+        # create forkset representation from an array to set_id : indices
+        # ["a","b","b","b"] -> [{"a": [0,1]}, {"b": [2,3]}]
+        if forksets is None:
+            forksets = {i:np.array([i]) for i in range(X.shape[0])}
+        elif not isinstance(forksets, dict):
+            forksets = {i:np.where(forksets==i)[0] for i in set(forksets)}
         # data_dir = os.path.join(self.directory, 'data.pkl')
         # if os.path.exists(data_dir):
         #     data_dic = pkl.load(open(data_dir, 'rb'), encoding='iso-8859-1')
         #     self.X_heldout, self.y_heldout = data_dic['X_heldout'], data_dic['y_heldout']
         #     self.X_test, self.y_test =data_dic['X_test'], data_dic['y_test']
         #     self.X, self.y = data_dic['X'], data_dic['y']
-        #     self.sources = data_dic['sources']
+        #     self.forksets = data_dic['forksets']
         # else:
         self.X_heldout, self.y_heldout = X_test[:-num_test], y_test[:-num_test]
         self.X_test, self.y_test = X_test[-num_test:], y_test[-num_test:]
-        self.X, self.y, self.sources = X, y, sources
+        self.X, self.y, self.forksets = X, y, forksets
             # if self.nodump == False:
             #     pkl.dump({'X': self.X, 'y': self.y, 'X_test': self.X_test,
             #          'y_test': self.y_test, 'X_heldout': self.X_heldout,
-            #          'y_heldout':self.y_heldout, 'sources': self.sources},
+            #          'y_heldout':self.y_heldout, 'forksets': self.forksets},
             #          open(data_dir, 'wb'))
 
     def init_score(self, metric):
@@ -133,7 +135,7 @@ class DShap(object):
         raise ValueError('Invalid metric!')
 
     def run(self, save_every, err, tolerance=0.01, knn_run=True, tmc_run=True, g_run=True, loo_run=True):
-        """Calculates data sources(points) values.
+        """Calculates data forksets(points) values.
 
         Args:
             save_every: save marginal contributions every n iterations.
@@ -147,7 +149,7 @@ class DShap(object):
         self.restart_model()
         self.model.fit(self.X, self.y)
         print(self.measure)
-        return self.measure.score(self.X, self.y, self.X_test, self.y_test, model_family=self.model_family, model=self.model, sources=self.sources)
+        return self.measure.score(self.X, self.y, self.X_test, self.y_test, model_family=self.model_family, model=self.model, forksets=self.forksets)
 
     def restart_model(self):
         try:

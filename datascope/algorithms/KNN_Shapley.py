@@ -8,7 +8,7 @@ from datascope.algorithms import Measure
 
 class KNN_Shapley(Measure):
 
-    def __init__(self, K=10):
+    def __init__(self, K=1):
         self.name = 'KNN_Shapley'
         self.K = K
 
