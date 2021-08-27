@@ -53,7 +53,35 @@ class KNN_Shapley(Measure):
                 cur -= 1 
         return np.mean(s, axis=1)
 
-    def score(self, X_train, y_train, X_test, y_test, model=None, use_torch=False, **kwargs):
+
+    def _get_1NN_fork_shapley_value_np(self, X_train, y_train, X_test, y_test, forksets):
+        """
+        Calculate the 1-NN Shapley value of a forksets in numpy.
+        """
+        assert(self.K == 1) # only works for K = 1
+
+        N = len(forksets)
+        forkset_idxs = np.empty(N, dtype=int) #stores the index of the chosen element for each forkset
+        M = X_test.shape[0]
+        s_fork = np.zeros((N, M))
+        s = np.zeros(X_train.shape[0])
+
+        for i, (X, y) in enumerate(zip(X_test, y_test)):
+          # select an representative element for each fork
+          for fidxs in forksets:
+            X_fork_train = X_train[forksets[fidxs]]
+            diff = (X_fork_train - X).reshape(X_fork_train.shape[0], -1)
+            dist = np.einsum('ij, ij->i', diff, diff)
+            min_idx = np.argmin(dist)
+            forkset_idxs[fidxs] = forksets[fidxs][min_idx]
+          s_fork[:,i] = self._get_shapley_value_np(X_train[forkset_idxs], y_train[forkset_idxs], np.array([X]), np.array([y]))
+
+        s_fork = np.mean(s_fork, axis=1)
+        for fidxs in forksets:
+          s[forksets[fidxs]] = s_fork[fidxs] / len(forksets[fidxs])
+        return s
+
+    def score(self, X_train, y_train, X_test, y_test, model=None, use_torch=False, forksets=None, **kwargs):
         """
         Run the model on the test data and calculate the Shapley value.
         """
@@ -67,5 +95,5 @@ class KNN_Shapley(Measure):
         if use_torch:
             shapley = self._get_shapley_value_torch(X_train, y_train, X_test, y_test)
         else:
-            shapley = self._get_shapley_value_np(X_train, y_train, X_test, y_test)
+            shapley = self._get_1NN_fork_shapley_value_np(X_train, y_train, X_test, y_test, forksets)
         return shapley

@@ -31,7 +31,7 @@ class Label(App):
         self.flip = None
         self.flip_indices = None
 
-    def run(self, measure, model_family='logistic', transform=None, forksets=None, **kwargs):
+    def run(self, measure, model_family='logistic', transform=None, **kwargs):
         num_classes = np.max(self.y) + 1
 
         if self.flip is None:
@@ -49,7 +49,6 @@ class Label(App):
               model_family=model_family,
               measure=measure,
               transform=transform,
-              forksets=forksets,
               **kwargs)
         
         result = dshap.run(save_every=10, err = 0.5)

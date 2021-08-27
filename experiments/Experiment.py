@@ -57,19 +57,19 @@ class Experiment:
             print('Running label noise experiment')
             create_dirs(f'./results/{name}/i-{iterations}-time-{dt_string}/label/')
             print(flatten)
-            self.run_label_experiment(iterations, dt_string, ray, truncated, forksets, flatten=flatten)
+            self.run_label_experiment(iterations, dt_string, ray, truncated, forksets=forksets, flatten=flatten)
         if run_poisoning:
             print('Running poisoning experiment')
             create_dirs(f'./results/{name}/i-{iterations}-time-{dt_string}/poisoning/')
-            self.run_poisoning_experiment(iterations, dt_string, ray, truncated, forksets, flatten=flatten)
+            self.run_poisoning_experiment(iterations, dt_string, ray, truncated, forksets=forksets, flatten=flatten)
         if run_fairness:
             print('Running fairness experiment')
             create_dirs(f'./results/{name}/i-{iterations}-time-{dt_string}/fairness/')
-            self.run_fairness_experiment(iterations, dt_string, ray, truncated, forksets)
+            self.run_fairness_experiment(iterations, dt_string, ray, truncated, forksets=forksets)
 
         print('done!')
 
-    def run_label_experiment(self, iterations, dt_string, ray, truncated, forksets, flatten=True):
+    def run_label_experiment(self, iterations, dt_string, ray, truncated, forksets=None, flatten=True):
         '''
         Run label noise experiment and plots evaluation
         '''
@@ -145,7 +145,7 @@ class Experiment:
                      ('TMC-Shapley', res_label_pipe)
                     ).plot(ray=ray, model_family='custom', pipeline=pipeline, save_path=f'{self.base_path}/label/LabelCleaning')
 
-    def run_poisoning_experiment(self, iterations, dt_string, ray, truncated, forksets, flatten=True):
+    def run_poisoning_experiment(self, iterations, dt_string, ray, truncated, forksets=None, flatten=True):
         '''
         Run poisoning experiment and plots evaluation
         '''
@@ -169,22 +169,22 @@ class Experiment:
         transform_knn, pipeline_knn = process_pipe_knn(pipeline)
 
         start = time.time()
-        res_poisoning_condknn = app_poisoning.run(measure_KNN, model_family='custom', transform=transform_condknn, pipeline=pipeline_condknn)
+        res_poisoning_condknn = app_poisoning.run(measure_KNN, model_family='custom', transform=transform_condknn, pipeline=pipeline_condknn, forksets=forksets)
         end = time.time()
         time_condknn = end - start
 
         start = time.time()
-        res_poisoning_condpipe = app_poisoning.run(measure_TMC, model_family='custom', transform=transform_condpipe, pipeline=pipeline_condpipe)
+        res_poisoning_condpipe = app_poisoning.run(measure_TMC, model_family='custom', transform=transform_condpipe, pipeline=pipeline_condpipe, forksets=forksets)
         end = time.time()
         time_condpipe = end - start
 
         start = time.time()
-        res_poisoning_knn = app_poisoning.run(measure_TMC, model_family='custom', transform=transform_knn, pipeline=pipeline_knn)
+        res_poisoning_knn = app_poisoning.run(measure_TMC, model_family='custom', transform=transform_knn, pipeline=pipeline_knn, forksets=forksets)
         end = time.time()
         time_knn = end - start
 
         start = time.time()
-        res_poisoning_pipe = app_poisoning.run(measure_TMC, model_family='custom', transform=transform, pipeline=pipeline)
+        res_poisoning_pipe = app_poisoning.run(measure_TMC, model_family='custom', transform=transform, pipeline=pipeline, forksets=forksets)
         end = time.time()
         time_pipe = end - start
 
@@ -214,7 +214,7 @@ class Experiment:
                      ('TMC-Shapley', res_poisoning_pipe)
                      ).plot(model_family='custom', pipeline=pipeline, save_path=f'{self.base_path}/poisoning/PoisoningCleaning')
 
-    def run_fairness_experiment(self, iterations, dt_string, ray, truncated, forksets):
+    def run_fairness_experiment(self, iterations, dt_string, ray, truncated, forksets=None):
 
         name = self.name + '_fairness'
         if not truncated:
@@ -296,17 +296,17 @@ class Experiment:
         transform_knn, pipeline_knn = process_pipe_knn(pipeline)
 
         start = time.time()
-        res_fairness_condpipe = app_fairness.run(measure_TMC_fair, model_family='custom', transform=transform_condpipe, pipeline=pipeline_condpipe)
+        res_fairness_condpipe = app_fairness.run(measure_TMC_fair, model_family='custom', transform=transform_condpipe, pipeline=pipeline_condpipe, forksets=forksets)
         end = time.time()
         time_condpipe = end - start
 
         start = time.time()
-        res_fairness_knn = app_fairness.run(measure_TMC_fair, model_family='custom', transform=transform_knn, pipeline=pipeline_knn)
+        res_fairness_knn = app_fairness.run(measure_TMC_fair, model_family='custom', transform=transform_knn, pipeline=pipeline_knn, forksets=forksets)
         end = time.time()
         time_knn = end - start
 
         start = time.time()
-        res_fairness_pipe = app_fairness.run(measure_TMC_fair, model_family='custom', transform=transform, pipeline=pipeline)
+        res_fairness_pipe = app_fairness.run(measure_TMC_fair, model_family='custom', transform=transform, pipeline=pipeline, forksets=forksets)
         end = time.time()
         time_pipe = end - start
 

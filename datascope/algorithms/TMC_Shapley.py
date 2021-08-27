@@ -65,8 +65,6 @@ class TMC_Shapley(Measure):
                     truncation_counter = 0
             time_measured = time.perf_counter() - start
         if self.ray:
-            print("shape: ", marginal_contribs.shape)
-            print("sets", set(marginal_contribs))
             return marginal_contribs
         else:
             return marginal_contribs, time_measured
