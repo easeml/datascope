@@ -31,7 +31,7 @@ class PoisoningCleaningPlotter(Plotter):
             self.colormap[name] = self.colors.get()
             return self.colormap[name]
 
-    def _calculate_res(self, name, s_values, data_num, X_test, metric=None, pipeline=None, **kwargs):
+    def _calculate_res(self, name, s_values, data_num, X_test, metric=None, pipeline=None, save_path=None, **kwargs):
         res_v = s_values
         res_i = np.argsort(-res_v)[::-1]
         cnt = 0
@@ -124,6 +124,9 @@ class PoisoningCleaningPlotter(Plotter):
                     model = clone(model) #reset model
 
                 f.append(acc)
+        
+        if save_path is not None:
+            np.savez_compressed(f'{save_path}_{name}', f=f, s=s_values)
 
         x = np.array(range(1, data_num + 1)) / data_num * 100
         x = np.append(x[0:-1:100], x[-1])
@@ -140,15 +143,11 @@ class PoisoningCleaningPlotter(Plotter):
         X_test = self.app.X_test.copy()
 
         for (name, result) in self.argv:
-            x, f, s = self._calculate_res(name, result, data_num, X_test, metric=metric, model_family=model_family, **kwargs)
-            if save_path is not None:
-                np.savez_compressed(f'{save_path}_{name}', x=x, f=f, s=s)
+            x, f, s = self._calculate_res(name, result, data_num, X_test, metric=metric, model_family=model_family, save_path=save_path, **kwargs)
             plt.plot(x, np.array(f) * 100, 'o-', color = self.getColor(name), label = name)
 
         rand_values = np.random.rand(data_num)
-        x, f, s = self._calculate_res("Random", rand_values, data_num, X_test, metric=metric, model_family=model_family, **kwargs)
-        if save_path is not None:
-            np.savez_compressed(f'{save_path}_Random', x=x, f=f, s=s)
+        x, f, s = self._calculate_res("Random", rand_values, data_num, X_test, metric=metric, model_family=model_family, save_path=save_path, **kwargs)
         plt.plot(x, np.array(f) * 100, '--', color='red', label = "Random", zorder=7)
 
         plt.xlabel('Fraction of data corrected (%)', fontsize=15)

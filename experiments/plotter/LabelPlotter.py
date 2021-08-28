@@ -25,7 +25,7 @@ class LabelPlotter(Plotter):
             self.colormap[name] = self.colors.get()
             return self.colormap[name]
 
-    def plot(self, save_path=None):
+    def plot(self, save_path=None, forksets=None):
 
         data_num = self.app.X.shape[0]
 
@@ -39,10 +39,12 @@ class LabelPlotter(Plotter):
             for i in range(data_num):
                 if self.app.flip[int(res_i[i])] == 1:
                     total += 1
+            # plot a different plot when doing forksets
             for i in range(data_num):
                 if self.app.flip[int(res_i[i])] == 1:
                     cnt += 1
                 f.append(1.0 * cnt / total)
+                
             x = np.array(range(1, data_num + 1)) / data_num * 100
             x = np.append(x[0:-1:100], x[-1])
             f = np.append(f[0:-1:100], f[-1])

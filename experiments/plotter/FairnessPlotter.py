@@ -26,7 +26,7 @@ class FairnessPlotter(Plotter):
             self.colormap[name] = self.colors.get()
             return self.colormap[name]
 
-    def _calculate_res(self, name, s_values, data_num, metric=None, pipeline='custom', **kwargs):
+    def _calculate_res(self, name, s_values, data_num, metric=None, pipeline='custom', save_path=None, **kwargs):
 
         res_v = s_values #get the shapley values
         res_i = np.argsort(-res_v)[::-1]
@@ -47,6 +47,9 @@ class FairnessPlotter(Plotter):
                 score = 0 # when only one datapoint is left
             f.append(score)
             model = clone(model) #reset model
+        
+        if save_path is not None:
+            np.savez_compressed(f'{save_path}_{name}', f=f, s=s_values)
 
         x = np.array(range(1, data_num + 1)) / data_num * 100
         x = np.append(x[0:-1:100], x[-1])
@@ -59,15 +62,11 @@ class FairnessPlotter(Plotter):
         data_num = self.app.X.shape[0]
 
         for (name, result) in self.argv:
-            x, f, s = self._calculate_res(name, result, data_num, metric=metric, model_family=model_family, **kwargs)
-            if save_path is not None:
-                np.savez_compressed(f'{save_path}_{name}', x=x, f=f, s=s)
+            x, f, s = self._calculate_res(name, result, data_num, metric=metric, model_family=model_family, save_path=save_path, **kwargs)
             plt.plot(x, np.array(f) * 100, 'o-', color = self.getColor(name), label = name)
 
         rand_values = np.random.rand(data_num)
-        x, f, s = self._calculate_res("Random", rand_values, data_num, metric=metric, model_family=model_family, **kwargs)
-        if save_path is not None:
-            np.savez_compressed(f'{save_path}_Random', x=x, f=f, s=s)
+        x, f, s = self._calculate_res("Random", rand_values, data_num, metric=metric, model_family=model_family, save_path=save_path, **kwargs)
         plt.plot(x, np.array(f) * 100, '--', color='red', label = "Random", zorder=7)
 
         plt.xlabel('Fraction of data removed (%)', fontsize=15)
