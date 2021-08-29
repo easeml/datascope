@@ -23,7 +23,7 @@ class LabelCleaningPlotter(Plotter):
         self.colors.put('skyblue')
         self.colors.put('navy')
         self.colors.put('darkturquoise')
-        self.ray = False
+        self.ray = True
 
     def getColor(self, name):
         if self.colormap.__contains__(name):

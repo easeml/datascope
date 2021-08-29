@@ -212,7 +212,7 @@ class Experiment:
                      ('TMC-Shapley (cond)', res_poisoning_condpipe), 
                      ('KNN-Shapley', res_poisoning_knn), 
                      ('TMC-Shapley', res_poisoning_pipe)
-                     ).plot(model_family='custom', pipeline=pipeline, save_path=f'{self.base_path}/poisoning/PoisoningCleaning')
+                     ).plot(model_family='custom', pipeline=pipeline, ray=ray, save_path=f'{self.base_path}/poisoning/PoisoningCleaning')
 
     def run_fairness_experiment(self, iterations, dt_string, ray, truncated, forksets=None):
 
@@ -320,19 +320,19 @@ class Experiment:
              ('TMC-Shapley (cond)', res_fairness_condpipe), 
              ('KNN-Shapley', res_fairness_knn), 
              ('TMC-Shapley', res_fairness_pipe)
-                ).plot(metric=eo_sex, metric_name="Equalized Odds Ratio", model_family='custom', pipeline=pipeline, save_path=f'{self.base_path}/fairness/FairnessEO')
+                ).plot(metric=eo_sex, metric_name="Equalized Odds Ratio", ray=ray, model_family='custom', pipeline=pipeline, save_path=f'{self.base_path}/fairness/FairnessEO')
 
         FairnessPlotter(app_fairness, 
              ('TMC-Shapley (cond)', res_fairness_condpipe), 
              ('KNN-Shapley', res_fairness_knn), 
              ('TMC-Shapley', res_fairness_pipe)
-                ).plot(metric=dpr_sex, metric_name="Demographic Parity Ratio", model_family='custom', pipeline=pipeline, save_path=f'{self.base_path}/fairness/FairnessDPR')
+                ).plot(metric=dpr_sex, metric_name="Demographic Parity Ratio", ray=ray, model_family='custom', pipeline=pipeline, save_path=f'{self.base_path}/fairness/FairnessDPR')
 
         FairnessPlotter(app_fairness, 
              ('TMC-Shapley (cond)', res_fairness_condpipe), 
              ('KNN-Shapley', res_fairness_knn), 
              ('TMC-Shapley', res_fairness_pipe)
-                ).plot(metric=accuracy_score, metric_name='Accuracy', model_family='custom', pipeline=pipeline, save_path=f'{self.base_path}/fairness/FairnessAccuracy')
+                ).plot(metric=accuracy_score, metric_name='Accuracy', ray=ray, model_family='custom', pipeline=pipeline, save_path=f'{self.base_path}/fairness/FairnessAccuracy')
 
         # RuntimePlotter( 
         #      ('TMC-Shapley (cond)', time_condpipe), 

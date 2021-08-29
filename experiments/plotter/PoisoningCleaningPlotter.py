@@ -22,7 +22,7 @@ class PoisoningCleaningPlotter(Plotter):
         self.colors.put('skyblue')
         self.colors.put('navy')
         self.colors.put('darkturquoise')
-        self.ray = False
+        self.ray = True
 
     def getColor(self, name):
         if self.colormap.__contains__(name):
@@ -33,6 +33,7 @@ class PoisoningCleaningPlotter(Plotter):
 
     def _calculate_res(self, name, s_values, data_num, forksets, metric=None, pipeline=None, save_path=None, **kwargs):
         res_v = s_values
+        res_v = np.array([res_v[forksets[fork_id]].sum() for fork_id in forksets])
         res_i = np.argsort(-res_v)[::-1]
         cnt = 0
         f = []
@@ -110,7 +111,7 @@ class PoisoningCleaningPlotter(Plotter):
                     f[i] = f[i-1] # replace with previous value
 
         else:
-
+            print("ray", self.ray)
             for iteration in range(len(forksets)):
                 if 10*(iteration + 1)/len(forksets) % 1 == 0:
                     print('{} out of {} evaluation iterations for {}.'.format(iteration + 1, len(forksets), name))
@@ -141,9 +142,10 @@ class PoisoningCleaningPlotter(Plotter):
         if save_path is not None:
             np.savez_compressed(f'{save_path}_{name}', f=f, s=s_values)
 
-        x = np.array(range(1, data_num + 1)) / data_num * 100
-        x = np.append(x[0:-1:100], x[-1])
-        f = np.append(f[0:-1:100], f[-1])
+        x = np.array(range(1, len(forksets) + 1)) / len(forksets) * 100
+        plot_length = len(forksets) // 10
+        x = np.append(x[0:-1:plot_length], x[-1])
+        f = np.append(f[0:-1:plot_length], f[-1])
 
         return x, f, s_values
 

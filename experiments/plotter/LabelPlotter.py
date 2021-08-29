@@ -69,7 +69,7 @@ class LabelPlotter(Plotter):
                 # count how many detected flips
                 cnt += self.app.flip[forksets[ran_i[i]]].sum()
                 f.append(1.0 * cnt / total)
-            x = np.array(range(1, len(forksets) + 1))
+            x = np.array(range(1, len(forksets) + 1)) / len(forksets) * 100
             plot_length = len(forksets) // 10
             x = np.append(x[0:-1:plot_length], x[-1])
             f = np.append(f[0:-1:plot_length], f[-1])
