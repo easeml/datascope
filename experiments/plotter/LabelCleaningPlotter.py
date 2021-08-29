@@ -32,9 +32,10 @@ class LabelCleaningPlotter(Plotter):
             self.colormap[name] = self.colors.get()
             return self.colormap[name] 
         
-    def _calculate_res(self, name, s_values, data_num, metric=None, pipeline=None, save_path=None, **kwargs):
+    def _calculate_res(self, name, s_values, data_num, forksets, metric=None, pipeline=None, save_path=None, **kwargs):
 
         res_v = s_values
+        res_v = np.array([res_v[forksets[fork_id]].sum() for fork_id in forksets])
         res_i = np.argsort(-res_v)[::-1]
         cnt = 0
         f = []
@@ -54,7 +55,7 @@ class LabelCleaningPlotter(Plotter):
         model = clone(model) #reset model
         
         initial_acc = acc
-        iterations = data_num
+        iterations = len(forksets)
 
         if self.ray:
             X_train = self.app.X.copy()
@@ -69,12 +70,19 @@ class LabelCleaningPlotter(Plotter):
                     print('{} out of {} evaluation iterations for {}.'.format(iteration + 1, iterations, name))
 
                 def run_one_prediction(model, X_train, y_train, X_test, y_test, flipped, iteration, res_i, metric=None):
-                    if flipped[int(res_i[iteration])] == 1:
+                    if flipped[forksets[res_i[iteration]]].sum() >= 1:
                         y_train = y_train.copy() #make a copy
 
-                        for i in range(iteration):
-                            if flipped[int(res_i[i])] == 1:
-                                y_train[int(res_i[i])] = (y_train[int(res_i[i])] + 1) % num_classes
+                        # concatenate the forkset indices
+                        if iteration > 0:
+                            fork_indices = np.concatenate([forksets[res_i[i]] for i in range(iteration)]).ravel()
+                        else:
+                            fork_indices = forksets[res_i[iteration]]
+                        # convert flipped to bool and choose only the indices that are flipped
+                        flipped_bool = flipped[fork_indices] > 0
+                        flipped_indices = fork_indices[flipped_bool]
+                        # flip the relevant indices
+                        y_train[flipped_indices] = (y_train[flipped_indices] + 1) % num_classes
                         
                         model = clone(model) #reset model
                         model.fit(X_train, y_train)
@@ -104,12 +112,20 @@ class LabelCleaningPlotter(Plotter):
                     f[i] = f[i-1] # replace with previous value
 
         else:
-            for i in range(data_num):
-                if 10*(i+1)/data_num % 1 == 0:
-                    print('{} out of {} evaluation iterations for {}.'.format(i + 1, data_num, name))
+            for iteration in range(len(forksets)):
+                if 10*(iteration+1)/len(forksets) % 1 == 0:
+                    print('{} out of {} evaluation iterations for {}.'.format(i + 1, len(forksets), name))
 
-                if self.app.flip[int(res_i[i])] == 1:
-                    y[int(res_i[i])] = (y[int(res_i[i])] + 1) % num_classes
+                if self.app.flip[forksets[res_i[iteration]]].sum() >= 1:
+                    # concatenate the forkset indices
+                    if iteration > 0:
+                        fork_indices = np.concatenate([forksets[res_i[i]] for i in range(iteration)]).ravel()
+                    else:
+                        fork_indices = forksets[res_i[iteration]]                    # convert flipped to bool and choose only the indices that are flipped
+                    flipped_bool = self.app.flip[fork_indices] > 0
+                    flipped_indices = fork_indices[flipped_bool]
+                    # flip the relevant indices
+                    y[flipped_indices] = (y[flipped_indices] + 1) % num_classes
                     model.fit(self.app.X, y)
                     if metric is None:
                         acc = model.score(self.app.X_test, self.app.y_test)
@@ -123,29 +139,32 @@ class LabelCleaningPlotter(Plotter):
         if save_path is not None:
             np.savez_compressed(f'{save_path}_{name}', f=f, s=s_values)
 
-        x = np.array(range(1, data_num + 1)) / data_num * 100
-        x = np.append(x[0:-1:100], x[-1])
-        f = np.append(f[0:-1:100], f[-1])
+        x = np.array(range(1, len(forksets) + 1)) / len(forksets) * 100
+        plot_length = len(forksets) // 10
+        x = np.append(x[0:-1:plot_length], x[-1])
+        f = np.append(f[0:-1:plot_length], f[-1])
 
         return x, f, s_values
 
-    def plot(self, metric=None, model_family='custom', save_path=None, ray=False, **kwargs):
+    def plot(self, metric=None, model_family='custom', save_path=None, ray=False, fork=True, **kwargs):
 
         self.ray = ray
 
         data_num = self.app.X.shape[0]
+        forksets = self.app.forksets
 
         for (name, result) in self.argv:
-           x, f, s = self._calculate_res(name, result, data_num, metric=metric, model_family=model_family, save_path=save_path, **kwargs)
+           x, f, s = self._calculate_res(name, result, data_num, forksets, metric=metric, model_family=model_family, save_path=save_path, **kwargs)
            plt.plot(x, np.array(f) * 100, 'o-', color = self.getColor(name), label = name)
-        
         rand_values = np.random.rand(data_num)
-        x, f, s = self._calculate_res("Random", rand_values, data_num, metric=metric, model_family=model_family, save_path=save_path, **kwargs)
+        x, f, s = self._calculate_res("Random", rand_values, data_num, forksets, metric=metric, model_family=model_family, save_path=save_path, **kwargs)
         plt.plot(x, np.array(f) * 100, '--', color='red', label = "Random", zorder=7)
 
         ## random end ##
-
-        plt.xlabel('Fraction of data inspected (%)', fontsize=15)
+        if fork:
+            plt.xlabel('Forks inspected (%)', fontsize=15)
+        else:
+            plt.xlabel('Fraction of data inspected (%)', fontsize=15)
         plt.ylabel('Accuracy (%)', fontsize=15)
         plt.legend(loc='lower right', prop={'size': 15})
         plt.tight_layout()

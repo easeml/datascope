@@ -31,7 +31,6 @@ class TMC_Shapley(Measure):
         # hack to cope with forks and k-mean minimums
         for fidx in forksets:
             if forksets[fidx].shape[0] >= 10: 
-                print("size", forksets[fidx].shape[0])
                 self.minimum_size = 0
         
 

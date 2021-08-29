@@ -32,9 +32,8 @@ class LabelPlotter(Plotter):
 
         for (name, result) in self.argv:
             res_v = result
-            if forks:
-                # sum of shapleys of all forksets
-                res_v = np.array([res_v[forksets[fork_id]].sum() for fork_id in forksets])
+            # sum of shapleys of all forksets
+            res_v = np.array([res_v[forksets[fork_id]].sum() for fork_id in forksets])
             res_i = np.argsort(-res_v)[::-1]
             cnt = 0
             f = []
@@ -42,41 +41,25 @@ class LabelPlotter(Plotter):
             cnt = 0
             total = self.app.flip.sum()
             # plot a different plot when doing forksets
-            if forks:
-                for i in range(len(forksets)):
-                    # count how many detected flips
-                    cnt += self.app.flip[forksets[res_i[i]]].sum() 
-                    f.append(1.0 * cnt / total)
-            else:
-                for i in range(data_num):
-                    if self.app.flip[int(res_i[i])] == 1:
-                        cnt += 1
-                        f.append(1.0 * cnt / total)
+            for i in range(len(forksets)):
+                # count how many detected flips
+                cnt += self.app.flip[forksets[res_i[i]]].sum() 
+                f.append(1.0 * cnt / total)
                 
-            if forks:
-                x = np.array(range(1, len(forksets) + 1)) / len(forksets) * 100
-                plot_length = len(forksets) // 10
-                x = np.append(x[0:-1:plot_length], x[-1])
-                f = np.append(f[0:-1:plot_length], f[-1])
-            else:
-                x = np.array(range(1, data_num + 1)) / data_num * 100
-                x = np.append(x[0:-1:100], x[-1])
-                f = np.append(f[0:-1:100], f[-1])
+            x = np.array(range(1, len(forksets) + 1)) / len(forksets) * 100
+            plot_length = len(forksets) // 10
+            x = np.append(x[0:-1:plot_length], x[-1])
+            f = np.append(f[0:-1:plot_length], f[-1])
+
             plt.plot(x, np.array(f) * 100, 'o-', color = self.getColor(name), label = name)
 
-        if forks:
-            ran_v = np.random.rand(len(forksets))
-        else:
-            ran_v = np.random.rand(data_num)
-
+        ran_v = np.random.rand(len(forksets))
         ran_i = np.argsort(-ran_v)[::-1]
         cnt = 0
         f = []
         cnt = 0
         total = 0
-        # for i in range(data_num):
-        #     if self.app.flip[int(ran_i[i])] == 1:
-        #         total += 1
+
         total = self.app.flip.sum()
         if len(forksets) == data_num:
             x = np.array(range(1, len(forksets) + 1)) / len(forksets) * 100

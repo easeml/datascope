@@ -32,9 +32,8 @@ class PoisoningPlotter(Plotter):
 
         for (name, result) in self.argv:
             res_v = result
-            if forks:
-                # sum of shapleys of all forksets
-                res_v = np.array([res_v[forksets[fork_id]].sum() for fork_id in forksets])
+            # sum of shapleys of all forksets
+            res_v = np.array([res_v[forksets[fork_id]].sum() for fork_id in forksets])
             res_i = np.argsort(-res_v)[::-1]
             cnt = 0
             f = []
@@ -42,25 +41,15 @@ class PoisoningPlotter(Plotter):
             cnt = 0
             total = self.app.watermarked.sum()
              # plot a different plot when doing forksets
-            if forks:
-                for i in range(len(forksets)):
-                    # count how many detected flips
-                    cnt += self.app.watermarked[forksets[res_i[i]]].sum() 
-                    f.append(1.0 * cnt / total)
-            else:
-                for i in range(data_num):
-                    if self.app.watermarked[int(res_i[i])] == 1:
-                        cnt += 1
-                        f.append(1.0 * cnt / total)
-            if forks:
-                x = np.array(range(1, len(forksets) + 1)) / len(forksets) * 100
-                plot_length = len(forksets) // 10
-                x = np.append(x[0:-1:plot_length], x[-1])
-                f = np.append(f[0:-1:plot_length], f[-1])
-            else:
-                x = np.array(range(1, data_num + 1)) / data_num * 100
-                x = np.append(x[0:-1:100], x[-1])
-                f = np.append(f[0:-1:100], f[-1])
+            for i in range(len(forksets)):
+                # count how many detected flips
+                cnt += self.app.watermarked[forksets[res_i[i]]].sum() 
+                f.append(1.0 * cnt / total)
+
+            x = np.array(range(1, len(forksets) + 1)) / len(forksets) * 100
+            plot_length = len(forksets) // 10
+            x = np.append(x[0:-1:plot_length], x[-1])
+            f = np.append(f[0:-1:plot_length], f[-1])
             plt.plot(x, np.array(f) * 100, 'o-', color = self.getColor(name), label = name)
 
 
@@ -74,9 +63,6 @@ class PoisoningPlotter(Plotter):
         f = []
         total = 0
         cnt = 0
-        # for i in range(data_num):
-        #     if self.app.watermarked[int(ran_i[i])] == 1:
-        #         total += 1
         total = self.app.watermarked.sum()
         if len(forksets) == data_num:
             x = np.array(range(1, len(forksets) + 1)) / len(forksets) * 100

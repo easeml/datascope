@@ -32,7 +32,6 @@ class FashionMnist(Loader):
         indice_all = np.hstack((indice_0, indice_1))
         x_test = x_test[indice_all]
         y_test = np.hstack((np.zeros(len(indice_0), dtype=np.int64), np.ones(len(indice_1), dtype=np.int64)))
-        print(x_train.shape)
         if self.flatten:
             x_train = np.reshape(x_train, [-1, 28 * 28])
             x_train = x_train.astype(np.float32) / 255
