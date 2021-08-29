@@ -25,7 +25,7 @@ class LabelPlotter(Plotter):
             self.colormap[name] = self.colors.get()
             return self.colormap[name]
 
-    def plot(self, save_path=None, forksets=None):
+    def plot(self, save_path=None):
 
         data_num = self.app.X.shape[0]
 
@@ -54,11 +54,11 @@ class LabelPlotter(Plotter):
         ran_i = np.argsort(-ran_v)[::-1]
         cnt = 0
         f = []
-        total = 0
         cnt = 0
-        for i in range(data_num):
-            if self.app.flip[int(ran_i[i])] == 1:
-                total += 1
+        # for i in range(data_num):
+        #     if self.app.flip[int(ran_i[i])] == 1:
+        #         total += 1
+        total = self.app.flip.sum()
         for i in range(data_num):
             if self.app.flip[int(ran_i[i])] == 1:
                 cnt += 1

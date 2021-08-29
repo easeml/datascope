@@ -53,11 +53,12 @@ class PoisoningPlotter(Plotter):
         ran_i = np.argsort(-ran_v)[::-1]
         cnt = 0
         f = []
-        total = 0
+        # total = 0
         cnt = 0
-        for i in range(data_num):
-            if self.app.watermarked[int(ran_i[i])] == 1:
-                total += 1
+        # for i in range(data_num):
+        #     if self.app.watermarked[int(ran_i[i])] == 1:
+        #         total += 1
+        total = self.app.watermarked.sum()
         for i in range(data_num):
             if self.app.watermarked[int(ran_i[i])] == 1:
                 cnt += 1
