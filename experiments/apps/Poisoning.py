@@ -37,8 +37,8 @@ class Poisoning(App):
               measure=measure,
               transform=transform,
               **kwargs)
-        result = dshap.run(save_every=10, err = 0.5)
-        print('done!')
-        #print('result shown below:')
-        #print(result)
-        return result
+        
+        self.forksets = dshap.get_forksets()
+        self.shapleys = dshap.run(save_every=10, err=0.5)
+
+        return self.shapleys

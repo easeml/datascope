@@ -148,8 +148,11 @@ class DShap(object):
 
         self.restart_model()
         self.model.fit(self.X, self.y)
-        print(self.measure)
+        print(f'Now running {self.measure}')
         return self.measure.score(self.X, self.y, self.X_test, self.y_test, model_family=self.model_family, model=self.model, forksets=self.forksets)
+
+    def get_forksets(self):
+        return self.forksets
 
     def restart_model(self):
         try:

@@ -51,9 +51,7 @@ class Label(App):
               transform=transform,
               **kwargs)
         
-        result = dshap.run(save_every=10, err = 0.5)
-        print('done!')
-        #print('result shown below:')
-        #print(result)
-        self.dshap = result
-        return result
+        self.shapleys = dshap.run(save_every=10, err=0.5)
+        self.forksets = dshap.get_forksets()
+
+        return self.shapleys

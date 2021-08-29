@@ -16,7 +16,7 @@ class TMC_Shapley(Measure):
         self.iterations = iterations
         self.ray = ray
         self.truncated = truncated
-        self.minimum_size = minimum_size 
+        self.minimum_size = minimum_size
     
     def one_iteration(self, X_train, y_train, X_test, y_test, model_family, model, iteration, tolerance, forksets, mean_score):
         """
@@ -27,6 +27,11 @@ class TMC_Shapley(Measure):
         new_score = np.max(np.bincount(y_test).astype(float)/len(y_test))
         X_batch, y_batch = np.zeros((0,) +  tuple(X_train.shape[1:])), np.zeros(0).astype(int)
         truncation_counter = 0
+
+        # hack to cope with forks and k-mean minimums
+        for fidx in forksets:
+            if forksets[fidx].shape[0] >= 10: 
+                self.minimum_size = 0
 
         # k-means need at least 10 data points, that's why we need a minimum size
         for n, idx in enumerate(idxs[:self.minimum_size]):
