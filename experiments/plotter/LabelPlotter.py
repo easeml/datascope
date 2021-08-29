@@ -34,30 +34,30 @@ class LabelPlotter(Plotter):
             res_v = result
             if forks:
                 # sum of shapleys of all forksets
-                res_v = [res_v[forksets[fork_id]].sum() for fork_id in forksets] 
+                res_v = np.array([res_v[forksets[fork_id]].sum() for fork_id in forksets])
             res_i = np.argsort(-res_v)[::-1]
             cnt = 0
             f = []
             total = 0
             cnt = 0
-            # for i in range(data_num):
-            #     if self.app.flip[int(res_i[i])] == 1:
-            #         total += 1
             total = self.app.flip.sum()
             # plot a different plot when doing forksets
             if forks:
                 for i in range(len(forksets)):
                     # count how many detected flips
                     cnt += self.app.flip[forksets[res_i[i]]].sum() 
+                    f.append(1.0 * cnt / total)
             else:
                 for i in range(data_num):
                     if self.app.flip[int(res_i[i])] == 1:
                         cnt += 1
-                    f.append(1.0 * cnt / total)
+                        f.append(1.0 * cnt / total)
                 
-
             if forks:
-                x = np.array(range(1, len(forksets) + 1))
+                x = np.array(range(1, len(forksets) + 1)) / len(forksets) * 100
+                plot_length = len(forksets) // 10
+                x = np.append(x[0:-1:plot_length], x[-1])
+                f = np.append(f[0:-1:plot_length], f[-1])
             else:
                 x = np.array(range(1, data_num + 1)) / data_num * 100
                 x = np.append(x[0:-1:100], x[-1])
@@ -78,20 +78,19 @@ class LabelPlotter(Plotter):
         #     if self.app.flip[int(ran_i[i])] == 1:
         #         total += 1
         total = self.app.flip.sum()
-        if forks:
+        if len(forksets) == data_num:
+            x = np.array(range(1, len(forksets) + 1)) / len(forksets) * 100
+            f = x / 100
+        else:
             for i in range(len(forksets)):
                 # count how many detected flips
-                cnt += self.app.flip[forksets[res_i[i]]].sum()
+                cnt += self.app.flip[forksets[ran_i[i]]].sum()
                 f.append(1.0 * cnt / total)
             x = np.array(range(1, len(forksets) + 1))
-        # else:
-        #     for i in range(data_num):
-        #         if self.app.flip[int(ran_i[i])] == 1:
-        #             cnt += 1
-        #         f.append(1.0 * cnt / total)
-        else:
-            x = np.array(range(1, data_num + 1)) / data_num * 100
-            f = x / 100
+            plot_length = len(forksets) // 10
+            x = np.append(x[0:-1:plot_length], x[-1])
+            f = np.append(f[0:-1:plot_length], f[-1])
+
         plt.plot(x, np.array(f) * 100, '--', color='red', label = "Random", zorder=7)
 
         if forks:

@@ -54,16 +54,16 @@ class Experiment:
         print(f'Initiate experiment {name}-i-{iterations}-time-{dt_string}')
 
         if run_label:
-            print('Running label noise experiment')
+            print('[DataScope] => Running label noise experiment')
             create_dirs(f'./results/{name}/i-{iterations}-time-{dt_string}/label/')
             print(flatten)
             self.run_label_experiment(iterations, dt_string, ray, truncated, forksets=forksets, flatten=flatten)
         if run_poisoning:
-            print('Running poisoning experiment')
+            print('[DataScope] => Running poisoning experiment')
             create_dirs(f'./results/{name}/i-{iterations}-time-{dt_string}/poisoning/')
             self.run_poisoning_experiment(iterations, dt_string, ray, truncated, forksets=forksets, flatten=flatten)
         if run_fairness:
-            print('Running fairness experiment')
+            print('[DataScope] => Running fairness experiment')
             create_dirs(f'./results/{name}/i-{iterations}-time-{dt_string}/fairness/')
             self.run_fairness_experiment(iterations, dt_string, ray, truncated, forksets=forksets)
 
@@ -86,7 +86,7 @@ class Experiment:
         X_train, y_train, X_test, y_test = loader.prepare_data()
 
         measure_KNN = KNN_Shapley(K=1)
-        measure_TMC = TMC_Shapley(metric=accuracy_score, iterations=iterations, ray=ray, truncated=truncated, minimum_size=0)
+        measure_TMC = TMC_Shapley(metric=accuracy_score, iterations=iterations, ray=ray, truncated=truncated)
 
         app_label = Label(X_train, y_train, X_test, y_test, flatten=flatten)
 

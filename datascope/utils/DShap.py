@@ -148,7 +148,7 @@ class DShap(object):
 
         self.restart_model()
         self.model.fit(self.X, self.y)
-        print(f'Now running {self.measure}')
+        print(f'[DataScope] => Now running {self.measure}')
         return self.measure.score(self.X, self.y, self.X_test, self.y_test, model_family=self.model_family, model=self.model, forksets=self.forksets)
 
     def get_forksets(self):

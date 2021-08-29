@@ -31,7 +31,9 @@ class TMC_Shapley(Measure):
         # hack to cope with forks and k-mean minimums
         for fidx in forksets:
             if forksets[fidx].shape[0] >= 10: 
+                print("size", forksets[fidx].shape[0])
                 self.minimum_size = 0
+        
 
         # k-means need at least 10 data points, that's why we need a minimum size
         for n, idx in enumerate(idxs[:self.minimum_size]):
