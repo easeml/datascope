@@ -230,9 +230,9 @@ class Experiment:
         if not truncated:
             name = name + '_mc'
 
-        num = 1000
+        num_train = 1500
         sensitive_feature = 9
-        loader = UCI(num_train=num)
+        loader = UCI(num_train=num_train)
         X_train, y_train, X_test, y_test = loader.prepare_preselected_unfair()
 
         #X_train, y_train = loader.create_unfair_train_data(X_train, y_train, 10)
@@ -241,6 +241,43 @@ class Experiment:
         #from fairlearn.metrics import demographic_parity_ratio
         a_indices = np.where(X_test[:,9] == 0)[0] #woman
         b_indices = np.where(X_test[:,9] == 1)[0] #man
+
+        if self.run_forks > 1:
+
+            number_of_forksets = 15
+            forksets = np.zeros(num_train, dtype=int)
+            size_of_sets = num_train // number_of_forksets
+            cnt_pos = 0
+            cnt_neg = 0
+            fork_id = 0
+
+            women_indices = np.where(X_train[:,9] == 0)[0] #woman
+            men_indices = np.where(X_train[:,9] == 1)[0] #man
+
+            for i in range(15):
+
+                if i < 9:
+                    num_of_neg = int(np.ceil(size_of_sets / 2))
+                    num_of_pos = int(np.floor(size_of_sets / 2))
+                else:
+                    num_of_neg = 93
+                    num_of_pos = 7
+                assert((num_of_neg + num_of_pos) == size_of_sets)
+
+                forksets[women_indices[cnt_pos:(cnt_pos+num_of_pos)]] = fork_id
+                forksets[men_indices[cnt_neg:(cnt_neg+num_of_neg)]] = fork_id
+                # print(cnt_pos, len(self.flip_indices[cnt_pos:(cnt_pos+num_of_pos)]))
+                # print(cnt_neg, len(notflip_indices[(cnt_neg):(cnt_neg+num_of_neg)]))
+                # keep track of counter
+                cnt_pos += num_of_pos
+                cnt_neg += num_of_neg
+                fork_id += 1
+                
+            # print("left_over", women_indices.shape[0] - cnt_pos)
+            # print("left_over", men_indices.shape[0] - cnt_neg)
+
+            np.where(forksets == 14)
+
 
         def dpr_precomputed(y, y_pred, a_indices=a_indices, b_indices=b_indices):
             count_a = y_pred[a_indices].sum()

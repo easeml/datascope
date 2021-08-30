@@ -121,7 +121,7 @@ class FairnessPlotter(Plotter):
             x, f, s = self._calculate_res(name, result, data_num, forksets, metric=metric, model_family=model_family, save_path=save_path, **kwargs)
             plt.plot(x, np.array(f) * 100, 'o-', color = self.getColor(name), label = name)
 
-        rand_values = np.random.rand(len(forksets))
+        rand_values = np.random.rand(len(data_num))
         x, f, s = self._calculate_res("Random", rand_values, data_num, forksets, metric=metric, model_family=model_family, save_path=save_path, **kwargs)
         plt.plot(x, np.array(f) * 100, '--', color='red', label = "Random", zorder=7)
 
