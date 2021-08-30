@@ -37,8 +37,9 @@ class Experiment:
         if self.name is None:
             raise ValueError("need name for experiment")
 
-    def run(self, iterations=1000, run_label=False, run_poisoning=False, run_fairness=False, ray=False, truncated=True, flatten=True, forksets=None):
+    def run(self, iterations=1000, run_label=False, run_poisoning=False, run_fairness=False, ray=False, truncated=True, flatten=True, forksets=None, run_forks=0):
         name = self.name
+        self.run_forks = run_forks # flag (number of forks) to run fork experiments
         now = datetime.now()
         dt_string = now.strftime("%d-%m-%Y-%H-%M-%S")
         self.base_path = f'{self.custom_save_path}/results/{self.name}/i-{iterations}-time-{dt_string}'
@@ -90,6 +91,10 @@ class Experiment:
         measure_TMC = TMC_Shapley(metric=accuracy_score, iterations=iterations, ray=ray, truncated=truncated)
 
         app_label = Label(X_train, y_train, X_test, y_test, flatten=flatten)
+
+        if self.run_forks > 1:
+            print(f'[DataScope] => Generating {self.run_forks} interesting forks ...')
+            forksets = app_label.get_interesting_forks(self.run_forks) 
 
         # Processors looks for the 'model' element and split the pipelines into seperate parts
         transform = None
@@ -161,6 +166,10 @@ class Experiment:
         measure_TMC = TMC_Shapley(metric=accuracy_score, iterations=iterations, ray=ray, truncated=truncated)
 
         app_poisoning = Poisoning(X_train, y_train, X_test, y_test)
+
+        if self.run_forks > 1:
+            print(f'[DataScope] => Generating {self.run_forks} interesting forks ...')
+            forksets = app_poisoning.get_interesting_forks(self.run_forks) 
 
         # Processors looks for the 'model' element and split the pipelines into seperate parts
         transform = None

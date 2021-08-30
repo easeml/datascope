@@ -16,7 +16,6 @@ class Poisoning(App):
         self.watermarked = None
         self.poison_indices = None
 
-    def run(self, measure, model_family='NN', transform=None, **kwargs):
         num_classes = np.max(self.y) + 1
         if self.watermarked is None:
             poison_indices = np.random.choice(self.num_train, self.num_poison, replace=False)
@@ -28,6 +27,43 @@ class Poisoning(App):
             self.watermarked = np.zeros(self.num_train)
             self.watermarked[poison_indices] = 1
 
+    def get_interesting_forks(self, number_of_forksets):
+        """
+        This function creates number_of_forksets/2 * 4/5 flipped
+        and number_of_forksets/2 * 1/5 flipped forks. 
+        Thus we only support steps of 5 for now.
+        """
+        size_of_sets = self.num_train // number_of_forksets
+        print("size of sets", size_of_sets)
+        assert(size_of_sets % 5 == 0)
+        assert(number_of_forksets % 2 == 0) # must be equal
+        fork_id = 0
+        forksets = np.zeros(self.num_train, dtype=int)
+        num_of_neg = size_of_sets // 5 
+        num_of_pos = size_of_sets - num_of_neg
+        notpoison_indices = np.delete(np.array(range(self.num_train)), self.poison_indices)
+        cnt_pos = 0
+        cnt_neg = 0
+        for i in range(self.num_train)[::size_of_sets]:
+            if i == self.num_train / 2:
+                tmp = num_of_pos
+                num_of_pos = num_of_neg
+                num_of_neg = tmp
+
+            forksets[self.poison_indices[cnt_pos:(cnt_pos+num_of_pos)]] = fork_id
+            forksets[notpoison_indices[(cnt_neg):(cnt_neg+num_of_neg)]] = fork_id
+            # print(cnt_pos, len(self.poison_indices[cnt_pos:(cnt_pos+num_of_pos)]))
+            # print(cnt_neg, len(notpoison_indices[(cnt_neg):(cnt_neg+num_of_neg)]))
+            # keep track of counter
+            cnt_pos += num_of_pos
+            cnt_neg += num_of_neg
+            fork_id += 1
+            # print(fork_id)
+        
+        return forksets
+
+    def run(self, measure, model_family='NN', transform=None, **kwargs):
+        
         dshap = DShap(X=self.X,
               y=self.y,
               X_test=self.X_test,
