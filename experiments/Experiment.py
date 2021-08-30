@@ -24,9 +24,10 @@ sns.set_theme()
 
 class Experiment:
 
-    def __init__(self, name, pipeline, dataset_name="FashionMNIST"):
+    def __init__(self, name, pipeline, dataset_name="FashionMNIST", save_path='.'):
         self.name = name
         self.pipeline = pipeline
+        self.custom_save_path = save_path
         self.base_path = ''
         self.dataset_name = dataset_name #UCI, FashionMNIST, Text
 
@@ -40,7 +41,7 @@ class Experiment:
         name = self.name
         now = datetime.now()
         dt_string = now.strftime("%d-%m-%Y-%H-%M-%S")
-        self.base_path = f'./results/{self.name}/i-{iterations}-time-{dt_string}'
+        self.base_path = f'{self.custom_save_path}/results/{self.name}/i-{iterations}-time-{dt_string}'
 
         def create_dirs(path):
             if (not os.path.exists(path)):
@@ -55,16 +56,16 @@ class Experiment:
 
         if run_label:
             print('[DataScope] => Running label noise experiment')
-            create_dirs(f'./results/{name}/i-{iterations}-time-{dt_string}/label/')
+            create_dirs(f'{self.custom_save_path}/results/{name}/i-{iterations}-time-{dt_string}/label/')
             print(flatten)
             self.run_label_experiment(iterations, dt_string, ray, truncated, forksets=forksets, flatten=flatten)
         if run_poisoning:
             print('[DataScope] => Running poisoning experiment')
-            create_dirs(f'./results/{name}/i-{iterations}-time-{dt_string}/poisoning/')
+            create_dirs(f'{self.custom_save_path}/results/{name}/i-{iterations}-time-{dt_string}/poisoning/')
             self.run_poisoning_experiment(iterations, dt_string, ray, truncated, forksets=forksets, flatten=flatten)
         if run_fairness:
             print('[DataScope] => Running fairness experiment')
-            create_dirs(f'./results/{name}/i-{iterations}-time-{dt_string}/fairness/')
+            create_dirs(f'{self.custom_save_path}/results/{name}/i-{iterations}-time-{dt_string}/fairness/')
             self.run_fairness_experiment(iterations, dt_string, ray, truncated, forksets=forksets)
 
         print('done!')
