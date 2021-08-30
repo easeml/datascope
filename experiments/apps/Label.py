@@ -49,15 +49,14 @@ class Label(App):
         fork_id = 0
         forksets = np.zeros(self.num_train, dtype=int)
         num_of_neg = 0 
-        num_of_pos = size_of_sets
+        num_of_pos = 0
         notflip_indices = np.delete(np.array(range(self.num_train)), self.flip_indices)
         cnt_pos = 0
         cnt_neg = 0
         for i in range(number_of_forksets):
 
-            num_of_neg = num_of_neg + ((size_of_sets // number_of_forksets))
-            num_of_pos = num_of_pos - ((size_of_sets // number_of_forksets))
-            print(num_of_neg, num_of_pos)
+            num_of_neg = int(np.ceil(size_of_sets * (i / number_of_forksets)))
+            num_of_pos = int(np.floor(size_of_sets * (number_of_forksets - i) / number_of_forksets))
             assert((num_of_neg + num_of_pos) == size_of_sets)
 
             forksets[self.flip_indices[cnt_pos:(cnt_pos+num_of_pos)]] = fork_id
@@ -69,7 +68,7 @@ class Label(App):
             cnt_neg += num_of_neg
             fork_id += 1
             # print(fork_id)
-        
+                
         return forksets
 
     def run(self, measure, model_family='logistic', transform=None, forksets=None, **kwargs):

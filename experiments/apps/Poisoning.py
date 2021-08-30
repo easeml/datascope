@@ -39,15 +39,14 @@ class Poisoning(App):
         fork_id = 0
         forksets = np.zeros(self.num_train, dtype=int)
         num_of_neg = 0 
-        num_of_pos = size_of_sets
+        num_of_pos = 0
         notpoison_indices = np.delete(np.array(range(self.num_train)), self.poison_indices)
         cnt_pos = 0
         cnt_neg = 0
-        for i in range(self.num_train)[::size_of_sets]:
+        for i in range(number_of_forksets):
 
-            num_of_neg = num_of_neg + ((size_of_sets // number_of_forksets))
-            num_of_pos = num_of_pos - ((size_of_sets // number_of_forksets))
-            print(num_of_neg, num_of_pos)
+            num_of_neg = int(np.ceil(size_of_sets * (i / number_of_forksets)))
+            num_of_pos = int(np.floor(size_of_sets * (number_of_forksets - i) / number_of_forksets))
             assert((num_of_neg + num_of_pos) == size_of_sets)
 
             forksets[self.poison_indices[cnt_pos:(cnt_pos+num_of_pos)]] = fork_id
