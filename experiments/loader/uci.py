@@ -39,7 +39,7 @@ class UCI(Loader):
         Initial equalized odds ratio is 0.42
         '''
         data = np.load('./data/Unfair_UCI/data.npz')
-        return data['X'], data['y'], data['X_test'], data['y_test']
+        return data['X'][:self.num_train], data['y'][:self.num_train], data['X_test'], data['y_test']
 
     def create_unfair_train_data(self, x_train, y_train, ratio):
         train_male_indices = np.where(x_train[:,self.sensitive_feature] == 0)

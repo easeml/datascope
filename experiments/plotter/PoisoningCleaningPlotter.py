@@ -111,7 +111,6 @@ class PoisoningCleaningPlotter(Plotter):
                     f[i] = f[i-1] # replace with previous value
 
         else:
-            print("ray", self.ray)
             for iteration in range(len(forksets)):
                 if 10*(iteration + 1)/len(forksets) % 1 == 0:
                     print('{} out of {} evaluation iterations for {}.'.format(iteration + 1, len(forksets), name))
