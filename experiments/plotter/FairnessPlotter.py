@@ -69,15 +69,13 @@ class FairnessPlotter(Plotter):
                         else:
                             y_pred = model.predict(X_test)
                             acc = metric(y_test, y_pred)
-                            print("acc", acc)
                     except Exception as e:
                         print(e)
                         acc = 0 # when only one datapoint is left
-                    print("return acc", acc)
                     return acc
 
                 partial_run_one_prediction = partial(run_one_prediction, model=model, X_train=X_train, y_train=y_train, 
-                                                    X_test=X_test, y_test=y_test, res_i=res_i, metric=None)
+                                                    X_test=X_test, y_test=y_test, res_i=res_i, metric=metric)
 
                 return partial_run_one_prediction(iteration=iteration)
 
@@ -123,7 +121,7 @@ class FairnessPlotter(Plotter):
             x, f, s = self._calculate_res(name, result, data_num, forksets, metric=metric, model_family=model_family, save_path=save_path, **kwargs)
             plt.plot(x, np.array(f) * 100, 'o-', color = self.getColor(name), label = name)
 
-        rand_values = np.random.rand(data_num)
+        rand_values = np.random.rand(len(forksets))
         x, f, s = self._calculate_res("Random", rand_values, data_num, forksets, metric=metric, model_family=model_family, save_path=save_path, **kwargs)
         plt.plot(x, np.array(f) * 100, '--', color='red', label = "Random", zorder=7)
 
