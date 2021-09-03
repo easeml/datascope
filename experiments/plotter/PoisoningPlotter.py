@@ -45,6 +45,9 @@ class PoisoningPlotter(Plotter):
                 # count how many detected flips
                 cnt += self.app.watermarked[forksets[res_i[i]]].sum() 
                 f.append(1.0 * cnt / total)
+                
+            if save_path is not None:
+                np.savez_compressed(f'{save_path}_{name}', f=f)
 
             x = np.array(range(1, len(forksets) + 1)) / len(forksets) * 100
             plot_length = len(forksets) // 10
@@ -67,11 +70,15 @@ class PoisoningPlotter(Plotter):
         if len(forksets) == data_num:
             x = np.array(range(1, len(forksets) + 1)) / len(forksets) * 100
             f = x / 100
+            if save_path is not None:
+                np.savez_compressed(f'{save_path}_Random', f=f)
         else:
             for i in range(len(forksets)):
                 # count how many detected flips
                 cnt += self.app.watermarked[forksets[ran_i[i]]].sum()
                 f.append(1.0 * cnt / total)
+            if save_path is not None:
+                np.savez_compressed(f'{save_path}_Random', f=f)
             x = np.array(range(1, len(forksets) + 1)) / len(forksets) * 100
             plot_length = len(forksets) // 10
             x = np.append(x[0:-1:plot_length], x[-1])

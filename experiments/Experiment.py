@@ -391,60 +391,60 @@ class Experiment:
         #      ('TMC-Shapley', time_pipe)).plot(save_path=f'{self.base_path}/fairness/FairnessRuntime')
 
     def run_augmentation_experiment(self, iterations, dt_string, ray, truncated, forksets=None, flatten=True):
-
-        name = self.name + '_augmentation'
+        '''
+        Run augmentation experiment and plots evaluation
+        '''
+        name = self.name + '_augment'
         if not truncated:
             name = name + '_mc'
-
         num = 1000        
         loader = FashionMnist(num_train=num, flatten=flatten)
         forksets = loader.augment()
         X_train, y_train, X_test, y_test = loader.prepare_data()
-        app_aug = Fairness(X_train, y_train, X_test, y_test)
 
         measure_KNN = KNN_Shapley(K=1)
         measure_TMC = TMC_Shapley(metric=accuracy_score, iterations=iterations, ray=ray, truncated=truncated)
 
+        app_aug = Fairness(X_train, y_train, X_test, y_test) 
+
         # Processors looks for the 'model' element and split the pipelines into seperate parts
         transform = None
         pipeline = self.pipeline
-
         transform_condknn, pipeline_condknn = process_pipe_condknn(pipeline)
         transform_condpipe, pipeline_condpipe = process_pipe_condpipe(pipeline)
         transform_knn, pipeline_knn = process_pipe_knn(pipeline)
 
-        start = time.perf_counter()
-        res_label_condknn = app_aug.run(measure_KNN, model_family='custom', transform=transform_condknn, pipeline=pipeline_condknn, forksets=forksets)
-        end = time.perf_counter()
+        start = time.time()
+        res_aug_condknn = app_aug.run(measure_KNN, model_family='custom', transform=transform_condknn, pipeline=pipeline_condknn, forksets=forksets)
+        end = time.time()
         time_condknn = end - start
-        print("condknn time: ", time_condknn)
 
-        start = time.perf_counter()
+        start = time.time()
         res_aug_condpipe = app_aug.run(measure_TMC, model_family='custom', transform=transform_condpipe, pipeline=pipeline_condpipe, forksets=forksets)
-        end = time.perf_counter()
+        end = time.time()
         time_condpipe = end - start
-        print("condpipe time: ", time_condpipe)
 
-        start = time.perf_counter()
+        start = time.time()
         res_aug_knn = app_aug.run(measure_TMC, model_family='custom', transform=transform_knn, pipeline=pipeline_knn, forksets=forksets)
-        end = time.perf_counter()
+        end = time.time()
         time_knn = end - start
 
-        start = time.perf_counter()
+        start = time.time()
         res_aug_pipe = app_aug.run(measure_TMC, model_family='custom', transform=transform, pipeline=pipeline, forksets=forksets)
-        end = time.perf_counter()
+        end = time.time()
         time_pipe = end - start
 
+        # save figures
         figure(num=None, figsize=(6, 4), dpi=80, facecolor='w', edgecolor='k')
+        # RuntimePlotter( 
+        #             ('KNN-Shapley (cond)', time_condknn), 
+        #             ('TMC-Shapley (cond)', time_condpipe), 
+        #             ('KNN-Shapley', time_knn), 
+        #             ('TMC-Shapley', time_pipe)).plot(save_path=f'{self.base_path}/poisoning/PoisoningRuntime')
 
         FairnessPlotter(app_aug, 
-             ('KNN-Shapley (cond)', res_label_condknn),
-             ('TMC-Shapley (cond)', res_aug_condpipe), 
-             ('KNN-Shapley', res_aug_knn), 
-             ('TMC-Shapley', res_aug_pipe)
-                ).plot(metric=accuracy_score, metric_name='Accuracy', ray=ray, model_family='custom', pipeline=pipeline, save_path=f'{self.base_path}/augmentation/Accuracy')
-
-        # RuntimePlotter( 
-        #      ('TMC-Shapley (cond)', time_condpipe), 
-        #      ('KNN-Shapley', time_knn), 
-        #      ('TMC-Shapley', time_pipe)).plot(save_path=f'{self.base_path}/fairness/FairnessRuntime')
+            ('KNN-Shapley (cond)', res_aug_condpipe), 
+            ('TMC-Shapley (cond)', res_aug_condpipe), 
+            ('KNN-Shapley', res_aug_knn), 
+            ('TMC-Shapley', res_aug_pipe)
+            ).plot(metric=accuracy_score, metric_name='Accuracy', ray=ray, model_family='custom', pipeline=pipeline, save_path=f'{self.base_path}/augmentation/Accuracy')
