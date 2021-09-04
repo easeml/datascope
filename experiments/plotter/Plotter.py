@@ -3,9 +3,9 @@ import copy
 
 class Plotter(object):
 
-    def __init__(self):
+    def __init__(self, save_path='.'):
         self.name = 'None'
-        self.save_path = './results/'
+        self.save_path = save_path + '/results/'
 
     def __str__(self):
         return self.name

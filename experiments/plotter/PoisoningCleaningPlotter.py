@@ -22,7 +22,7 @@ class PoisoningCleaningPlotter(Plotter):
         self.colors.put('skyblue')
         self.colors.put('navy')
         self.colors.put('darkturquoise')
-        self.ray = False
+        self.ray = True
 
     def getColor(self, name):
         if self.colormap.__contains__(name):
@@ -31,8 +31,9 @@ class PoisoningCleaningPlotter(Plotter):
             self.colormap[name] = self.colors.get()
             return self.colormap[name]
 
-    def _calculate_res(self, name, s_values, data_num, X_test, metric=None, pipeline=None, **kwargs):
+    def _calculate_res(self, name, s_values, data_num, forksets, metric=None, pipeline=None, save_path=None, **kwargs):
         res_v = s_values
+        res_v = np.array([res_v[forksets[fork_id]].sum() for fork_id in forksets])
         res_i = np.argsort(-res_v)[::-1]
         cnt = 0
         f = []
@@ -47,20 +48,20 @@ class PoisoningCleaningPlotter(Plotter):
 
         model.fit(X, y)
         if metric is None:
-            acc = model.score(X_test, self.app.y_test)
+            acc = model.score(self.app.X_test, self.app.y_test)
         else:
-            y_pred = model.predict(X_test)
+            y_pred = model.predict(self.app.X_test)
             acc = metric(self.app.y_test, y_pred)
         model = clone(model) #reset model
         initial_acc = acc
-        iterations = data_num
+        iterations = len(forksets)
 
         if self.ray:
             X_train = self.app.X.copy()
             y_train = self.app.y.copy()
             X_test = self.app.X_test.copy()
             y_test = self.app.y_test.copy()
-            watermarked = self.app.flip.copy()
+            watermarked = self.app.watermarked.copy()
 
             @ray.remote
             def call_partial_run_one_prediction(iteration):
@@ -68,13 +69,19 @@ class PoisoningCleaningPlotter(Plotter):
                     print('{} out of {} evaluation iterations for {}.'.format(iteration + 1, iterations, name))
 
                 def run_one_prediction(model, X_train, y_train, X_test, y_test, watermarked, iteration, res_i, metric=None):
-                    if watermarked[int(res_i[iteration])] == 1:
+                    if watermarked[forksets[res_i[iteration]]].sum() >= 1:
                         y_train = y_train.copy() #make a copy
 
-                        for i in range(iteration):
-                            if watermarked[int(res_i[i])] == 1:
-                                # correct the label class
-                                y_train[int(res_i[i])] = (y_train[int(res_i[i])] + 1) % num_classes
+                        # concatenate the forkset indices
+                        if iteration > 0:
+                            fork_indices = np.concatenate([forksets[res_i[i]] for i in range(iteration)]).ravel()
+                        else:
+                            fork_indices = forksets[res_i[iteration]]
+                        # convert watermarked to bool and choose only the indices that are watermarked
+                        watermarked_bool = watermarked[fork_indices] > 0
+                        watermarked_indices = fork_indices[watermarked_bool]
+                        # watermarked the relevant indices
+                        y_train[watermarked_indices] = (y_train[watermarked_indices] + 1) % num_classes
                         
                         model = clone(model) #reset model
                         model.fit(X_train, y_train)
@@ -104,54 +111,64 @@ class PoisoningCleaningPlotter(Plotter):
                     f[i] = f[i-1] # replace with previous value
 
         else:
+            for iteration in range(len(forksets)):
+                if 10*(iteration + 1)/len(forksets) % 1 == 0:
+                    print('{} out of {} evaluation iterations for {}.'.format(iteration + 1, len(forksets), name))
 
-            for i in range(data_num):
-                if 10*(i+1)/data_num % 1 == 0:
-                    print('{} out of {} evaluation iterations for {}.'.format(i + 1, data_num, name))
-
-                if self.app.watermarked[int(res_i[i])] == 1:
-                    # correct the label class
-                    y[int(res_i[i])] = (y[int(res_i[i])] + 1) % num_classes 
+                if self.app.watermarked[forksets[res_i[iteration]]].sum() >= 1:
+                    # concatenate the forkset indices
+                    if iteration > 0:
+                        fork_indices = np.concatenate([forksets[res_i[i]] for i in range(iteration)]).ravel()
+                    else:
+                        fork_indices = forksets[res_i[iteration]]                    # convert watermarked to bool and choose only the indices that are watermarked
+                    watermarked_bool = self.app.watermarked[fork_indices] > 0
+                    watermarked_indices = fork_indices[watermarked_bool]
+                    # correct the relevant indices
+                    y[watermarked_indices] = (y[watermarked_indices] + 1) % num_classes
                     #remove the watermark
                     #X[int(res_i[i]),-1] = X[int(res_i[i]),-3] = \
                     #   X[int(res_i[i]),-30] = X[int(res_i[i]),-57] = 0
                     model.fit(X, y)
                     if metric is None:
-                        acc = model.score(X_test, self.app.y_test)
+                        acc = model.score(self.app.X_test, self.app.y_test)
                     else:
-                        y_pred = model.predict(X_test)
+                        y_pred = model.predict(self.app.X_test)
                         acc = metric(self.app.y_test, y_pred)
                     model = clone(model) #reset model
 
                 f.append(acc)
+        
+        if save_path is not None:
+            np.savez_compressed(f'{save_path}_{name}', f=f, s=s_values)
 
-        x = np.array(range(1, data_num + 1)) / data_num * 100
-        x = np.append(x[0:-1:100], x[-1])
-        f = np.append(f[0:-1:100], f[-1])
+        x = np.array(range(1, len(forksets) + 1)) / len(forksets) * 100
+        plot_length = len(forksets) // 10
+        x = np.append(x[0:-1:plot_length], x[-1])
+        f = np.append(f[0:-1:plot_length], f[-1])
 
         return x, f, s_values
 
-    def plot(self, metric=None, model_family='custom', save_path=None, ray=False, **kwargs):
+    def plot(self, metric=None, model_family='custom', save_path=None, ray=False, fork=True, **kwargs):
 
         self.ray = ray
 
         data_num = self.app.X.shape[0]
+        forksets = self.app.forksets
 
         X_test = self.app.X_test.copy()
 
         for (name, result) in self.argv:
-            x, f, s = self._calculate_res(name, result, data_num, X_test, metric=metric, model_family=model_family, **kwargs)
-            if save_path is not None:
-                np.savez_compressed(f'{save_path}_{name}', x=x, f=f, s=s)
+            x, f, s = self._calculate_res(name, result, data_num, forksets, metric=metric, model_family=model_family, save_path=save_path, **kwargs)
             plt.plot(x, np.array(f) * 100, 'o-', color = self.getColor(name), label = name)
 
         rand_values = np.random.rand(data_num)
-        x, f, s = self._calculate_res("Random", rand_values, data_num, X_test, metric=metric, model_family=model_family, **kwargs)
-        if save_path is not None:
-            np.savez_compressed(f'{save_path}_Random', x=x, f=f, s=s)
+        x, f, s = self._calculate_res("Random", rand_values, data_num, forksets, metric=metric, model_family=model_family, save_path=save_path, **kwargs)
         plt.plot(x, np.array(f) * 100, '--', color='red', label = "Random", zorder=7)
 
-        plt.xlabel('Fraction of data corrected (%)', fontsize=15)
+        if fork:
+            plt.xlabel('Forks corrected (%)', fontsize=15)
+        else:
+            plt.xlabel('Fraction of data corrected (%)', fontsize=15)
         plt.ylabel('Robustness accuracy (%)', fontsize=15)
         plt.legend(loc='lower right', prop={'size': 15})
         plt.tight_layout()

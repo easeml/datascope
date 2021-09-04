@@ -16,7 +16,6 @@ class Fairness(App):
         self.y_test = np.squeeze(self.y_test)
         self.num_train = self.X.shape[0]
         self.num_test = self.X_test.shape[0]
-        self.dshap = None
 
     def run(self, measure, model_family='logistic', transform=None, **kwargs):
         dshap = DShap(X=self.X,
@@ -28,10 +27,7 @@ class Fairness(App):
               measure=measure,
               transform=transform,
               **kwargs)
-        result = dshap.run(save_every=10, err = 0.5)
+        self.shapleys = dshap.run(save_every=10, err=0.5)
+        self.forksets = dshap.get_forksets()
 
-        #print('done!')
-        #print('result shown below:')
-        #print(result)
-        self.dshap = result
-        return result
+        return self.shapleys
