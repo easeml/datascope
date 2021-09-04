@@ -7,7 +7,14 @@ import torch.nn.functional as F
 from datascope.algorithms import Measure
 import math
 import copy
-from datascope.algorithms import tools
+from datascope.algorithms import tools as t
+
+from numba import njit
+from numba.tests.test_object_mode import forceobj
+
+import ray
+import multiprocessing
+
 
 class KNN_Soft_Shapley(Measure):
 
@@ -34,146 +41,353 @@ class KNN_Soft_Shapley(Measure):
                                         1/self.K * ((y_sorted[i] == y_test).float() - (y_sorted[i+1] == y_test).float()) * min(self.K, i+1) / (i+1)
         return score.mean(axis=1)
 
-    def _get_shapley_value_np(self, X_train, y_train, X_test, y_test, sources):
+    def _get_shapley_value_np(self, X_train, y_train, X_test, y_test, forksets):
         """
         Calculate the Shapley value of a single test sample in numpy.
-        """
-        bound = 30
-        # X_train = X_train[0:bound]
-        # y_train = y_train[0:bound]
-        # X_test = X_test[0:bound]
-        # y_test = y_test[0:bound]
-        sources = dict(list(sources.items())[0:bound])
-
+        """ 
+        print("K = ", self.K)
         # tuple_per_fork_sets[i] is the number of tuple in fork set i
-        tuple_per_fork_sets = 10000*[0]
+        fork_sets_length = []
 
-        n_fork_sets = 0
-        for k in sources.keys():
-            tuple_per_fork_sets[k] += 1
-            if(k > n_fork_sets):
-                n_fork_sets = k
+        for k in forksets.keys():
+            fork_sets_length.append(len(forksets[k]))
         
-        fork_sets_cardinalities = [x for x in tuple_per_fork_sets if x!=0]
-        n_units = len(fork_sets_cardinalities)
+        n_units = len(forksets.keys())
 
-        fork_sets = []
-        for i in range(n_units):
-            fork_sets.append(fork_sets_cardinalities[i]*[])
+        print("Number of fork sets= ", n_units)
 
-        for k in sources.keys():
-            fork_sets[k].append([np.mean(X_train[k]), y_train[k], sources[k][0]])
+        fork_sets = n_units*[]
+        for k in forksets.keys():
+            temp = []
+            for i in forksets[k]:
+                temp.append([X_train[i-1], y_train[i-1], k+1])
+            fork_sets.append(temp)
 
-        all_tuples = []
-        for fork_set in fork_sets:
-            for tuples in fork_set:
-                all_tuples.append(tuples)
         s = []
         units = [x+1 for x in range(n_units)]
         for i, (X, y) in enumerate(zip(X_test, y_test)):
-            res = []
-            shapley_value(n_units, 1, y, all_tuples, fork_sets, units, res)
+            #print(i)
+            fork_sets = n_units*[]
+            for k in forksets.keys():
+                temp = []
+                for j in forksets[k]:
+                    diff = (X_train[j] - X)
+                    temp.append([np.einsum('i,i', diff, diff), y_train[j], k+1])
+                fork_sets.append(temp)
+            #all_tuples = []
+            #for fork_set in fork_sets:
+            #    for tuples in fork_set:
+            #        all_tuples.append(tuples)
+            res = shapley_value_naive(n_units, self.K, y, fork_sets, units)
             s.append(res)
         s = np.array(s)
-        return np.mean(s, axis=1)
+        s = np.mean(s, axis=0)
+        res = []
+        for i in range(n_units):
+            res = res+fork_sets_length[i]*[s[i]]
+        return np.array(res)
+    
+    def _get_shapley_value_np_numba(self, X_train, y_train, X_test, y_test, forksets):
+        """
+        Calculate the Shapley value of a single test sample in numpy.
+        """ 
+        print("K = ", self.K)
+        # tuple_per_fork_sets[i] is the number of tuple in fork set i
+        fork_sets_length = []
 
-    def score(self, X_train, y_train, X_test, y_test, model=None, use_torch=False, **kwargs):
+        for k in forksets.keys():
+            fork_sets_length.append(len(forksets[k]))
+        
+        fork_sets_length_np = np.array(fork_sets_length)
+
+        n_units = len(forksets.keys())
+
+        print("Number of fork sets= ", n_units)
+
+        units = np.array([x+1 for x in range(n_units)])
+
+        futures = [computing.remote(n_units, self.K, forksets, X_train, y_train, i, X, y, units) for i, (X, y) in enumerate(zip(X_test, y_test))]
+        s= np.mean(ray.get(futures),axis=0)
+        res = []
+        for i in range(n_units):
+            res = res+fork_sets_length[i]*[s[i]]
+        return np.array(res)
+
+    def score(self, X_train, y_train, X_test, y_test, model=None, use_torch=False, forksets=None, **kwargs):
         """
         Run the model on the test data and calculate the Shapley value.
         """
         self.model = model
-        sources = kwargs["sources"]
 
         if sps.issparse(X_train):
             X_train = X_train.toarray()
         if sps.issparse(X_test):
             X_test = X_test.toarray()
-
         if use_torch:
             shapley = self._get_shapley_value_torch(X_train, y_train, X_test, y_test)
         else:
-            shapley = self._get_shapley_value_np(X_train, y_train, X_test, y_test, sources)
+            shapley = self._get_shapley_value_np(X_train, y_train, X_test, y_test, forksets)
         return shapley
 
-def shapley_value(n_unit, k, l_t, dp, d, uI, res):
-    S_k = [[l_1, l_2, l_3, l_4] for l_1 in range(k+1) for l_2 in range(k+1)
-        for l_3 in range(k+1) for l_4 in range(k+1)]
-    for q in uI:
+@ray.remote
+def computing(n_units, K, forksets, X_train, y_train, i, X, y, units):
+    fork_sets = n_units*[]
+    for k in forksets.keys():
+        temp = []
+        for i in forksets[k]:
+            temp.append(np.array([np.linalg.norm(X_train[i-1]-X), y_train[i-1], k+1]))
+        fork_sets.append(temp)
+    fork_sets_np = np.array(fork_sets)
+    all_tuples = []
+    for fork_set in fork_sets_np:
+        for tuples in fork_set:
+            all_tuples.append(tuples)
+    all_tuples_np = np.array(all_tuples)
+    res = shapley_value_naive(n_units, K, y, fork_sets, units)
+    print("Shapley terminated")
+    return res
+
+def shapley_value_naive(n, k, l_t, d, unit_indices):   
+    results = []
+    combinations = []
+    current = []
+    t.all_combi(n, current, combinations)
+    for l in unit_indices:
         phi_q = 0.0
+        q = l
+        combinations = t.filter_Q(combinations, q)
+        for vector in combinations:
+            output = t.pipeline_output(d, vector)
+            vector_q = []
+            vector_q = copy.copy(vector)
+            vector_q[q-1] = 1
+            output_q = t.pipeline_output(d, vector_q)
+            if(len(output) < k or len(output) < k):
+                continue
+            prop_with_q = t.topK_with_Lt(output_q, k, l_t)
+            prop_without_q = t.topK_with_Lt(output, k, l_t)
+            diff = prop_with_q-prop_without_q
+            vMv = diff/k
+            count = len([x for x in vector if x == 1])
+            vMv = vMv/math.comb(n-1, count)
+            phi_q = phi_q + vMv
+        phi_q = phi_q/n
+        results.append(phi_q)
+    return np.array(results)
+
+@njit(cache=True)
+def shapley_value(n_unit, k, l_t, dp, d, uI):
+    res = np.empty(0, dtype=np.float64)
+    for q in uI:
+        phi_q = np.float64(0.0)
         for D_b in dp:
             for D_c in dp:
-                if(D_c[2] != q and D_c[0] >= D_b[0]):
-                    tallies = 4*[[]]
-                    i = D_b[2]
-                    j = D_c[2]
-
+                #print("D_b, D_c", D_b, D_c, " q = ", q)
+                if(np.int32(D_c[2]) != q and D_c[0] >= D_b[0]):
+                    
+                    i = np.int32([D_b[2]])
+                    j = np.int32([D_c[2]])
+                    tallies0 = np.array([0])
+                    tallies1 = np.array([0])
+                    tallies2 = np.array([0])
+                    tallies3 = np.array([0])
                     for h in range(n_unit):
-                        if h != i-1 and h != j-1 and h != q-1 and tools.too_far_set(d[h], D_b, D_c):
-                            tallies = copy.copy(tools.append_tally(tallies, d[h], D_b, D_c, l_t))
-
-                    tallies = copy.copy(tools.append_tally(tallies, d[j-1], D_b, D_c, l_t))
-
+                        j1 = 0
+                        for ii in range(d[h].shape[1]):
+                            if d[h, ii, 0] <= D_b[0]:
+                                j1=j1+1
+                        j2 = 0
+                        for ii in range(d[h].shape[1]):
+                            if d[h, ii, 0] <= D_c[0]:
+                                j2=j2+1
+                        if h != i-1 and h != j-1 and h != q-1 and (j1 > 0 or j2 > 0):
+                            jj = 0
+                            for ii in range(d[h].shape[1]):
+                                if d[h, ii, 0] <= D_b[0] and np.int32(d[h, ii, 1]) == l_t:
+                                    jj=jj+1
+                            tallies0 = np.append(tallies0, [jj])
+                            jj = 0
+                            for ii in range(d[h].shape[1]):
+                                if d[h, ii, 0] <= D_b[0] and np.int32(d[h, ii, 1]) != l_t:
+                                    jj=jj+1
+                            tallies2 = np.append(tallies2, [jj])
+                            jj = 0
+                            for ii in range(d[h].shape[1]):
+                                if d[h, ii, 0] <= D_c[0] and np.int32(d[h, ii, 1]) == l_t:
+                                    jj=jj+1
+                            tallies1 = np.append(tallies1, [jj])
+                            jj = 0
+                            for ii in range(d[h].shape[1]):
+                                if d[h, ii, 0] <= D_c[0] and np.int32(d[h, ii, 1]) != l_t:
+                                    jj=jj+1
+                            tallies3 = np.append(tallies3, [jj])  
+                    #print("Tallies after h", tallies0, tallies1, tallies2, tallies3)
+        
+                    jj = 0 
+                    for ii in range(d[j-1].shape[1]):
+                        #print("Compa j 1: ", (d[j-1, ii, 1].astype(np.int32))[0], l_t)
+                        if d[j-1, ii, 0] <= D_b[0] and (d[j-1, ii, 1].astype(np.int32))[0] == l_t:
+                            jj=jj+1
+                    tallies0 = np.append(tallies0, [jj])
+                    jj = 0
+                    for ii in range(d[j-1].shape[1]):
+                        #print("Compa j 2: ", (d[j-1, ii, 1].astype(np.int32))[0], l_t)
+                        if d[j-1, ii, 0] <= D_b[0] and (d[j-1, ii, 1].astype(np.int32))[0] != l_t:
+                            jj=jj+1
+                    tallies2 = np.append(tallies2, [jj])
+                    jj = 0
+                    for ii in range(d[j-1].shape[1]):
+                        #print("Compa j 3: ", (d[j-1, ii, 1].astype(np.int32))[0], l_t)
+                        if d[j-1, ii, 0] <= D_c[0] and (d[j-1, ii, 1].astype(np.int32))[0] == l_t:
+                            jj=jj+1
+                    tallies1 = np.append(tallies1, [jj])
+                    jj = 0
+                    for ii in range(d[j-1].shape[1]):
+                        #print("Compa j 4: ", (d[j-1, ii, 1].astype(np.int32))[0], l_t)
+                        if d[j-1, ii, 0] <= D_c[0] and (d[j-1, ii, 1].astype(np.int32))[0] != l_t:
+                            jj=jj+1
+                    tallies3 = np.append(tallies3, [jj])
+                    
+                    #print("After j ", tallies0, tallies1, tallies2, tallies3)
+                    
                     if((i == q and i != j) or (i != q and i == j)):
                         m = 0
                     else:
                         m = 1
-                        tallies = copy.copy(tools.append_tally(tallies, d[i-1], D_b, D_c, l_t))
+                        jj = 0
+                        for ii in range(d[i-1].shape[1]):
+                            if d[i-1, ii, 0] <= D_b[0] and (d[i-1, ii, 1].astype(np.int32))[0] == l_t:
+                                jj=jj+1
+                        tallies0 = np.append(tallies0, [jj])
+                        jj = 0
+                        for ii in range(d[i-1].shape[1]):
+                            if d[i-1, ii, 0] <= D_b[0] and (d[i-1, ii, 1].astype(np.int32))[0] != l_t:
+                                jj=jj+1
+                        tallies2 = np.append(tallies2, [jj])
+                        jj = 0
+                        for ii in range(d[i-1].shape[1]):
+                            if d[i-1, ii, 0] <= D_c[0] and (d[i-1, ii, 1].astype(np.int32))[0] == l_t:
+                                jj=jj+1
+                        tallies1 = np.append(tallies1, [jj])
+                        jj = 0
+                        for ii in range(d[i-1].shape[1]):
+                            if d[i-1, ii, 0] <= D_c[0] and (d[i-1, ii, 1].astype(np.int32))[0] != l_t:
+                                jj=jj+1
+                        tallies3 = np.append(tallies3, [jj])
+                    #print("After i ", tallies0, tallies1, tallies2, tallies3)
+                    
+                    jj = 0
+                    for ii in range(d[q-1].shape[1]):
+                        if d[q-1, ii, 0] <= D_b[0] and np.int32(d[q-1, ii, 1]) == l_t:
+                            jj=jj+1
+                    tallies0 = np.append(tallies0, [jj])
+                    jj = 0
+                    for ii in range(d[q-1].shape[1]):
+                        if d[q-1, ii, 0] <= D_b[0] and np.int32(d[q-1, ii, 1]) != l_t:
+                            jj=jj+1
+                    tallies2 = np.append(tallies2, [jj])
+                    #print("After q ", tallies0, tallies1, tallies2, tallies3)
+                    
+                    #print("Before", tallies0, tallies1, tallies2, tallies3)
+                    tallies0 = np.delete(tallies0, 0)
+                    tallies1 = np.delete(tallies1, 0)
+                    tallies2 = np.delete(tallies2, 0)
+                    tallies3 = np.delete(tallies3, 0)
+                    
+                    #print("Final tallies ", tallies0, tallies1, tallies2, tallies3)
+                    
+                    l = tallies0.size
+                    t1, t2, t3, t4 = tallies0, tallies1, tallies2, tallies3
+                    DP = np.zeros((l+1, k+1, k+1, k+1, k+1, k+1), dtype=np.int32)
 
-                    tallies[0].append(tools.count(d[q-1], D_b, 0, l_t))
-                    tallies[2].append(tools.count(d[q-1], D_b, 1, l_t))
-                    l = len(tallies[0])
-                    
-                    t1, t2, t3, t4 = tallies[0], tallies[1], tallies[2], tallies[3]
-                    DP = np.array((l+1)*[(k+1)*[(k+1)*[(k+1)*[(k+1)*[(k+1)*[0]]]]]]).tolist()
-                    
                     for n in range(l+1):
-                        DP[n][0][0][0][0][0] = 1
-                    
-                    ranges = []
-                    
-                    for n in range(1, l+1):
-                        if((m == 0 and n < l-1) or (m == 1 and n < l-2)):
-                            ranges.append([[l1, l2, l11, l22] for [l1, l2, l11, l22] in S_k if l1 < t1[n-1] or l2 < t2[n-1] or l11 < t3[n-1]
-                                    or l22 < t4[n-1]])
-                    
+                        DP[n, 0, 0, 0, 0, 0] = 1
+
                     for n in range(1,l+1):
-                        if((m == 0 and n < l-1) or (m == 1 and n < l-2)):
-                            for a in range(1, k+1):
-                                for l1 in range(t1[n-1], k+1):
-                                    for l2 in range(t2[n-1], k+1):
-                                        for l11 in range(t3[n-1], k+1):
-                                            for l22 in range(t4[n-1], k+1):
-                                                DP[n][a][l1][l2][l11][l22] = DP[n-1][a][l1][l2][l11][l22] + DP[n-1][a-1][l1-t1[n-1]][l2-t2[n-1]][l11-t3[n-1]][l22-t4[n-1]]
-                                for [l1, l2, l11, l22] in ranges[n-1]:
-                                    DP[n][a][l1][l2][l11][l22] = DP[n-1][a][l1][l2][l11][l22]
-                                        
-                        else:
-                            for a in range(k+1):
-                                for l1 in range(k+1):
-                                    for l2 in range(k+1):
-                                        for l11 in range(k+1):
-                                            for l22 in range(k+1):               
-                                                if(n == l):
-                                                    if(l1>=t1[n-1] and l11>=t3[n-1]):
-                                                        DP[n][a][l1][l2][l11][l22] = DP[n-1][a][l1-t1[n-1]][l2][l11-t3[n-1]][l22]
-                                                elif(a > 0 and l1>=t1[n-1] and l2>=t2[n-1] and l11>=t3[n-1] and l22>=t4[n-1]):
+                        for a in range(1, k+1):
+                            for l1 in range(k+1):
+                                for l2 in range(k+1):
+                                    for l11 in range(k+1):
+                                        for l22 in range(k+1):
+                                            # a)
+                                            if(n == l):
+                                                if(l1>=t1[n-1] and l11>=t3[n-1]):
+                                                    DP[n][a][l1][l2][l11][l22] = DP[n-1][a][l1-t1[n-1]][l2][l11-t3[n-1]][l22]
+                                            # b)
+                                            elif((m == 0 and n == l-1) or (m == 1 and (n == l-1 or n == l-2))):
+                                                if(l1>=t1[n-1] and l2>=t2[n-1] and l11>=t3[n-1] and l22>=t4[n-1]):
                                                     DP[n][a][l1][l2][l11][l22] = DP[n-1][a-1][l1-t1[n-1]][l2-t2[n-1]][l11-t3[n-1]][l22-t4[n-1]]
-                            
-                    n_out_set = n_unit-len(t1)
+                                            else:    
+                                                if (l1>=t1[n-1] and l2>=t2[n-1] and l11>=t3[n-1] and l22>=t4[n-1]):
+                                                    DP[n][a][l1][l2][l11][l22] = DP[n-1][a][l1][l2][l11][l22] + DP[n-1][a-1][l1-t1[n-1]][l2-t2[n-1]][l11-t3[n-1]][l22-t4[n-1]]
+                                                else:
+                                                    DP[n][a][l1][l2][l11][l22] = DP[n-1][a][l1][l2][l11][l22]
+                    
+                    n_out_set = n_unit-l
                     m = 2
                     if((i == q and i != j) or (i != q and i == j)):
-                        m = 1                
+                        m = 1
+                 
                     for l1 in range(k+1):
                         for l2 in range(k+1):
                             DP_val = 0
                             for a in range(m,k+1):
                                 for b in range(n_out_set+1):
                                     if(a-b >= m):
-                                        DP_val = DP_val + math.comb(n_out_set, b)*DP[l][a-b][l1][l2][k-l1][k-l2]/math.comb(n_unit-1, a)
+                                        nosFac = np.int64(1)
+                                        bFac = np.int64(1)
+                                        nFac = np.int64(1)
+                                        aFac = np.int64(1)
+                                        nmbFac = np.int64(1)
+                                        nmaFac = np.int64(1)
+                                        for ii in range(n_out_set):
+                                            nosFac = nosFac*(ii+1)
+                                        for ii in range(b):
+                                            bFac = bFac*(ii+1)
+                                        for ii in range(n_unit-1):
+                                            nFac = nFac*(ii+1)
+                                        for ii in range(a):
+                                            aFac = aFac*(ii+1)
+                                        for ii in range(n_out_set-b):
+                                            nmbFac = nmbFac*(ii+1)
+                                        for ii in range(n_unit-1-a):
+                                            nmaFac = nmaFac*(ii+1)
+                                        comb1 = nosFac/(bFac*(nmbFac))
+                                        comb2 = nFac/(aFac*(nmaFac))
+                                        # print(n_out_set, b, n_unit, a, n_out_set-b, n_unit-1-a)
+                                        # print(nosFac, bFac, nmbFac, nFac, aFac, nmaFac)
+                                        # print(comb1, comb2)
+                                        DP_val = DP_val + comb1*DP[l,a-b,l1,l2,k-l1,k-l2]/comb2
                             for a in range(k+1, n_unit):
                                 for b in range(a-k,n_out_set+1):
                                     if(a-b >= m):
-                                        DP_val = DP_val + math.comb(n_out_set, b)*DP[l][a-b][l1][l2][k-l1][k-l2]/math.comb(n_unit-1, a)
+                                        nosFac = np.int64(1)
+                                        bFac = np.int64(1)
+                                        nFac = np.int64(1)
+                                        aFac = np.int64(1)
+                                        nmbFac = np.int64(1)
+                                        nmaFac = np.int64(1)
+                                        for ii in range(n_out_set):
+                                            nosFac = nosFac*(ii+1)
+                                        for ii in range(b):
+                                            bFac = bFac*(ii+1)
+                                        for ii in range(n_unit-1):
+                                            nFac = nFac*(ii+1)
+                                        for ii in range(a):
+                                            aFac = aFac*(ii+1)
+                                        for ii in range(n_out_set-b):
+                                            nmbFac = nmbFac*(ii+1)
+                                        for ii in range(n_unit-1-a):
+                                            nmaFac = nmaFac*(ii+1)
+                                        comb1 = nosFac/(bFac*(nmbFac))
+                                        comb2 = nFac/(aFac*(nmaFac))
+                                        DP_val = DP_val + comb1*DP[l,a-b,l1,l2,k-l1,k-l2]/comb2
+                                        # print(n_out_set, b, n_unit, a, n_out_set-b, n_unit-1-a)
+                                        # print(nosFac, bFac, nFac, aFac, nmbFac, nmaFac)
+                                        # print(comb1, comb2)
                             phi_q = phi_q+(l1-l2)*DP_val
-    phi_q = phi_q/(n_unit*k)
-    res.append(phi_q)
+                #print("phi_q: ", phi_q)
+        phi_q = phi_q/(n_unit*k)
+        #print(q,"-th unit's shapley value", phi_q)
+        res = np.append(res, [phi_q])
+    return res
