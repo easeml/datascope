@@ -74,7 +74,7 @@ class PoisoningCleaningPlotter(Plotter):
 
                         # concatenate the forkset indices
                         if iteration > 0:
-                            fork_indices = np.concatenate([forksets[res_i[i]] for i in range(iteration)]).ravel()
+                            fork_indices = np.concatenate([forksets[res_i[i]] for i in range(iteration + 1)]).ravel()
                         else:
                             fork_indices = forksets[res_i[iteration]]
                         # convert watermarked to bool and choose only the indices that are watermarked
@@ -118,7 +118,7 @@ class PoisoningCleaningPlotter(Plotter):
                 if self.app.watermarked[forksets[res_i[iteration]]].sum() >= 1:
                     # concatenate the forkset indices
                     if iteration > 0:
-                        fork_indices = np.concatenate([forksets[res_i[i]] for i in range(iteration)]).ravel()
+                        fork_indices = np.concatenate([forksets[res_i[i]] for i in range(iteration + 1)]).ravel()
                     else:
                         fork_indices = forksets[res_i[iteration]]                    # convert watermarked to bool and choose only the indices that are watermarked
                     watermarked_bool = self.app.watermarked[fork_indices] > 0
