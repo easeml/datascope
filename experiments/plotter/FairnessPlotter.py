@@ -63,7 +63,9 @@ class FairnessPlotter(Plotter):
                     
                     model = clone(model) #reset model
                     try:
-                        model.fit(np.delete(X_train, fork_indices, axis=0), np.delete(y_train, fork_indices))
+                        new_x = np.delete(X_train, fork_indices, axis=0)
+                        new_y = np.delete(y_train, fork_indices)
+                        model.fit(new_x, new_y)
                         if metric is None:
                             acc = model.score(X_test, y_test)
                         else:
