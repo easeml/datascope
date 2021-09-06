@@ -75,7 +75,7 @@ class LabelCleaningPlotter(Plotter):
 
                         # concatenate the forkset indices
                         if iteration > 0:
-                            fork_indices = np.concatenate([forksets[res_i[i]] for i in range(iteration)]).ravel()
+                            fork_indices = np.concatenate([forksets[res_i[i]] for i in range(iteration + 1)]).ravel()
                         else:
                             fork_indices = forksets[res_i[iteration]]
                         # convert flipped to bool and choose only the indices that are flipped
@@ -114,12 +114,12 @@ class LabelCleaningPlotter(Plotter):
         else:
             for iteration in range(len(forksets)):
                 if 10*(iteration+1)/len(forksets) % 1 == 0:
-                    print('{} out of {} evaluation iterations for {}.'.format(i + 1, len(forksets), name))
+                    print('{} out of {} evaluation iterations for {}.'.format(iteration + 1, len(forksets), name))
 
                 if self.app.flip[forksets[res_i[iteration]]].sum() >= 1:
                     # concatenate the forkset indices
                     if iteration > 0:
-                        fork_indices = np.concatenate([forksets[res_i[i]] for i in range(iteration)]).ravel()
+                        fork_indices = np.concatenate([forksets[res_i[i]] for i in range(iteration + 1)]).ravel()
                     else:
                         fork_indices = forksets[res_i[iteration]]                    # convert flipped to bool and choose only the indices that are flipped
                     flipped_bool = self.app.flip[fork_indices] > 0
@@ -137,7 +137,7 @@ class LabelCleaningPlotter(Plotter):
             f.append(acc)
         
         if save_path is not None:
-            np.savez_compressed(f'{save_path}_{name}', f=f, s=s_values)
+            np.savez_compressed(f'{save_path}_{name}', f=f, s=s_values, initial_acc=initial_acc)
 
         x = np.array(range(1, len(forksets) + 1)) / len(forksets) * 100
         plot_length = len(forksets) // 10
