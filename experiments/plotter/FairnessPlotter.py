@@ -90,7 +90,7 @@ class FairnessPlotter(Plotter):
                 try: 
                     # concatenate the forkset indices
                     if iteration > 0:
-                        fork_indices = np.concatenate([forksets[res_i[i]] for i in range(iteration)]).ravel()
+                        fork_indices = np.concatenate([forksets[res_i[i]] for i in range(iteration + 1)]).ravel()
                     else:
                         fork_indices = forksets[res_i[iteration]]
                     model.fit(np.delete(self.app.X, fork_indices), np.delete(self.app.y, fork_indices))

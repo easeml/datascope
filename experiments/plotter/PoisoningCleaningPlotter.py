@@ -139,7 +139,7 @@ class PoisoningCleaningPlotter(Plotter):
                 f.append(acc)
         
         if save_path is not None:
-            np.savez_compressed(f'{save_path}_{name}', f=f, s=s_values)
+            np.savez_compressed(f'{save_path}_{name}', f=f, s=s_values, initial_acc=initial_acc)
 
         x = np.array(range(1, len(forksets) + 1)) / len(forksets) * 100
         plot_length = len(forksets) // 10

@@ -49,13 +49,10 @@ class LabelPlotter(Plotter):
             if save_path is not None:
                 np.savez_compressed(f'{save_path}_{name}', f=f)
 
-            x = np.array(range(0, len(forksets))) / len(forksets) * 100
+            x = np.array(range(1, len(forksets) + 1)) / len(forksets) * 100
             plot_length = len(forksets) // 10
             x = np.append(x[0:-1:plot_length], x[-1])
             f = np.append(f[0:-1:plot_length], f[-1])
-
-            # add initial point
-            x = np.append(0, x)
 
             plt.plot(x, np.array(f) * 100, 'o-', color = self.getColor(name), label = name)
 
