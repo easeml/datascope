@@ -4,10 +4,10 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from queue import Queue
 
-class PoisoningPlotter(Plotter):
+class FeaturePlotter(Plotter):
 
     def __init__(self, app, *argv):
-        self.name = 'PoisoningPlotter'
+        self.name = 'FeaturePlotter'
         self.app = app
         self.argv = argv
         self.colormap = {'TMC-Shapley': 'blue', 'G-Shapley': 'orange', 'Leave-One-Out': 'olive', 'KNN-LOO': 'violet', 'KNN-Shapley': 'purple'}
@@ -45,7 +45,7 @@ class PoisoningPlotter(Plotter):
                 # count how many detected flips
                 cnt += self.app.watermarked[forksets[res_i[i]]].sum() 
                 f.append(1.0 * cnt / total)
-
+                
             if save_path is not None:
                 np.savez_compressed(f'{save_path}_{name}', f=f)
 
@@ -89,7 +89,7 @@ class PoisoningPlotter(Plotter):
             plt.xlabel('Forks inspected (%)', fontsize=15)
         else:
             plt.xlabel('Fraction of data inspected (%)', fontsize=15)        
-        plt.ylabel('Fraction of backdoors detected (%)', fontsize=15)
+        plt.ylabel('Fraction of noisy features detected (%)', fontsize=15)
         plt.legend(loc='lower right', prop={'size': 15})
         plt.tight_layout()
         if save_path is not None:

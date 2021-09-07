@@ -3,5 +3,7 @@ from .LabelPlotter import LabelPlotter
 from .LabelCleaningPlotter import LabelCleaningPlotter
 from .PoisoningPlotter import PoisoningPlotter
 from .PoisoningCleaningPlotter import PoisoningCleaningPlotter
+from .FeaturePlotter import FeaturePlotter
+from .FeatureCleaningPlotter import FeatureCleaningPlotter
 from .FairnessPlotter import FairnessPlotter
 from .RuntimePlotter import RuntimePlotter

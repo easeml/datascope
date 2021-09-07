@@ -9,11 +9,12 @@ from functools import partial
 import ray
 
 
-class PoisoningCleaningPlotter(Plotter):
+class FeatureCleaningPlotter(Plotter):
 
-    def __init__(self, app, *argv):
-        self.name = 'PoisoningCleaningPlotter'
+    def __init__(self, app, noisy_index=9, *argv):
+        self.name = 'FeatureCleaningPlotter'
         self.app = app
+        self.noisy_index = noisy_index
         self.argv = argv
         self.colormap = {'TMC-Shapley': 'blue', 'G-Shapley': 'orange', 'Leave-One-Out': 'olive', 'KNN-LOO': 'violet', 'KNN-Shapley': 'purple'}
         self.colors = Queue()
@@ -61,16 +62,18 @@ class PoisoningCleaningPlotter(Plotter):
             y_train = self.app.y.copy()
             X_test = self.app.X_test.copy()
             y_test = self.app.y_test.copy()
+            X_clean = self.app.X_clean.copy()
             watermarked = self.app.watermarked.copy()
+            noisy_index = self.app.noisy_index
 
             @ray.remote
             def call_partial_run_one_prediction(iteration):
                 if 10*(iteration+1)/iterations % 1 == 0:
                     print('{} out of {} evaluation iterations for {}.'.format(iteration + 1, iterations, name))
 
-                def run_one_prediction(model, X_train, y_train, X_test, y_test, watermarked, iteration, res_i, metric=None):
+                def run_one_prediction(model, X_train, y_train, X_test, y_test, X_clean, watermarked, iteration, res_i, noisy_index, metric=None):
                     if watermarked[forksets[res_i[iteration]]].sum() >= 1:
-                        y_train = y_train.copy() #make a copy
+                        X_train = X_train.copy() #make a copy
 
                         # concatenate the forkset indices
                         if iteration > 0:
@@ -80,9 +83,11 @@ class PoisoningCleaningPlotter(Plotter):
                         # convert watermarked to bool and choose only the indices that are watermarked
                         watermarked_bool = watermarked[fork_indices] > 0
                         watermarked_indices = fork_indices[watermarked_bool]
-                        # watermarked the relevant indices
-                        y_train[watermarked_indices] = (y_train[watermarked_indices] + 1) % num_classes
-                        
+                        # fix the relevant indices
+                        print('!!!! before', X_train[watermarked_indices])
+                        X_train[watermarked_indices] = X_clean[watermarked_indices]
+                        print('!!!! after', X_train[watermarked_indices])
+
                         model = clone(model) #reset model
                         model.fit(X_train, y_train)
                         if metric is None:
@@ -91,12 +96,13 @@ class PoisoningCleaningPlotter(Plotter):
                             y_pred = model.predict(X_test)
                             acc = metric(y_test, y_pred)
 
+                        print(len(forksets), "!!!", acc, watermarked_indices.shape)
                         return acc
                     else:
                         return -1 # nothing changed, save computation and copy the previous result
 
-                partial_run_one_prediction = partial(run_one_prediction, model=model, X_train=X_train, y_train=y_train, 
-                                                    X_test=X_test, y_test=y_test, watermarked=watermarked, res_i=res_i, metric=None)
+                partial_run_one_prediction = partial(run_one_prediction, model=model, X_train=X_train, y_train=y_train, X_clean=X_clean,
+                                                    X_test=X_test, y_test=y_test, watermarked=watermarked, res_i=res_i, noisy_index=noisy_index, metric=None)
 
                 return partial_run_one_prediction(iteration=iteration)
 
@@ -124,7 +130,7 @@ class PoisoningCleaningPlotter(Plotter):
                     watermarked_bool = self.app.watermarked[fork_indices] > 0
                     watermarked_indices = fork_indices[watermarked_bool]
                     # correct the relevant indices
-                    y[watermarked_indices] = (y[watermarked_indices] + 1) % num_classes
+                    X[watermarked_indices][self.app.noisy_index] = self.app.X_clean[watermarked_indices][self.app.noisy_index]
                     #remove the watermark
                     #X[int(res_i[i]),-1] = X[int(res_i[i]),-3] = \
                     #   X[int(res_i[i]),-30] = X[int(res_i[i]),-57] = 0
@@ -169,7 +175,7 @@ class PoisoningCleaningPlotter(Plotter):
             plt.xlabel('Forks corrected (%)', fontsize=15)
         else:
             plt.xlabel('Fraction of data corrected (%)', fontsize=15)
-        plt.ylabel('Robustness accuracy (%)', fontsize=15)
+        plt.ylabel('Accuracy (%)', fontsize=15)
         plt.legend(loc='lower right', prop={'size': 15})
         plt.tight_layout()
         if save_path is not None:

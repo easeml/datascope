@@ -4,8 +4,8 @@ from datascope.algorithms import KNN_Shapley, TMC_Shapley
 from datascope.inspection.utils import process_pipe_condknn, process_pipe_condpipe, process_pipe_knn
 
 from loader import FashionMnist, UCI, HateSpeech
-from apps import Label, Poisoning, Fairness
-from plotter import LabelPlotter, LabelCleaningPlotter, PoisoningPlotter, PoisoningCleaningPlotter, FairnessPlotter, RuntimePlotter
+from apps import Label, Poisoning, Feature, Fairness
+from plotter import LabelPlotter, LabelCleaningPlotter, PoisoningPlotter, PoisoningCleaningPlotter, FeaturePlotter, FeatureCleaningPlotter, FairnessPlotter, RuntimePlotter
 
 from sklearn.metrics import accuracy_score
 from fairlearn.metrics import true_positive_rate, false_positive_rate
@@ -37,7 +37,7 @@ class Experiment:
         if self.name is None:
             raise ValueError("need name for experiment")
 
-    def run(self, iterations=1000, run_label=False, run_poisoning=False, run_fairness=False, run_augmentation=False, ray=False, truncated=True, flatten=True, forksets=None, run_forks=0):
+    def run(self, iterations=1000, run_label=False, run_poisoning=False, run_feature=False, run_fairness=False, run_augmentation=False, ray=False, truncated=True, flatten=True, forksets=None, run_forks=0):
         name = self.name
         self.run_forks = run_forks # flag (number of forks) to run fork experiments
         now = datetime.now()
@@ -64,6 +64,10 @@ class Experiment:
             print('[DataScope] => Running poisoning experiment')
             create_dirs(f'{self.custom_save_path}/results/{name}/i-{iterations}-time-{dt_string}/poisoning/')
             self.run_poisoning_experiment(iterations, dt_string, ray, truncated, forksets=forksets, flatten=flatten)
+        if run_feature:
+            print('[DataScope] => Running feature noise experiment')
+            create_dirs(f'{self.custom_save_path}/results/{name}/i-{iterations}-time-{dt_string}/feature/')
+            self.run_feature_experiment(iterations, dt_string, ray, truncated, forksets=forksets, flatten=flatten)
         if run_fairness:
             print('[DataScope] => Running fairness experiment')
             create_dirs(f'{self.custom_save_path}/results/{name}/i-{iterations}-time-{dt_string}/fairness/')
@@ -227,6 +231,80 @@ class Experiment:
                      ('KNN-Shapley', res_poisoning_knn), 
                      ('TMC-Shapley', res_poisoning_pipe)
                      ).plot(model_family='custom', pipeline=pipeline, ray=ray, save_path=f'{self.base_path}/poisoning/PoisoningCleaning')
+    
+    def run_feature_experiment(self, iterations, dt_string, ray, truncated, forksets=None, flatten=True):
+        '''
+        Run poisoning experiment and plots evaluation
+        '''
+        name = self.name + '_feature'
+        if not truncated:
+            name = name + '_mc'
+        num = 1000        
+        loader = UCI(num_train=num)
+        X_train, y_train, X_test, y_test = loader.prepare_data()
+
+        measure_KNN = KNN_Shapley(K=1)
+        measure_TMC = TMC_Shapley(metric=accuracy_score, iterations=iterations, ray=ray, truncated=truncated)
+
+        app_feature = Feature(X_train, y_train, X_test, y_test, noisy_index=9, sigma=0.5)
+
+        if self.run_forks > 1:
+            print(f'[DataScope] => Generating {self.run_forks} interesting forks ...')
+            forksets = app_feature.get_interesting_forks(self.run_forks) 
+            print(np.unique(forksets))
+
+        # Processors looks for the 'model' element and split the pipelines into seperate parts
+        transform = None
+        pipeline = self.pipeline
+        transform_condknn, pipeline_condknn = process_pipe_condknn(pipeline)
+        transform_condpipe, pipeline_condpipe = process_pipe_condpipe(pipeline)
+        transform_knn, pipeline_knn = process_pipe_knn(pipeline)
+
+        start = time.time()
+        res_feature_condknn = app_feature.run(measure_KNN, model_family='custom', transform=transform_condknn, pipeline=pipeline_condknn, forksets=forksets)
+        end = time.time()
+        time_condknn = end - start
+
+        start = time.time()
+        res_feature_condpipe = app_feature.run(measure_TMC, model_family='custom', transform=transform_condpipe, pipeline=pipeline_condpipe, forksets=forksets)
+        end = time.time()
+        time_condpipe = end - start
+
+        start = time.time()
+        res_feature_knn = app_feature.run(measure_TMC, model_family='custom', transform=transform_knn, pipeline=pipeline_knn, forksets=forksets)
+        end = time.time()
+        time_knn = end - start
+
+        start = time.time()
+        res_feature_pipe = app_feature.run(measure_TMC, model_family='custom', transform=transform, pipeline=pipeline, forksets=forksets)
+        end = time.time()
+        time_pipe = end - start
+
+        # datetime object containing current date and time
+        # np.savez_compressed(f'{self.base_path}/feature/shapley/{name}-i-{iterations}-time-{dt_string}-shapley',condknn=res_feature_condknn, condpipe=res_feature_condpipe, knn=res_feature_knn, pipe=res_feature_pipe)
+        # np.savez_compressed(f'{self.base_path}/feature/data/{name}-i-{iterations}-time-{dt_string}-data', X=X_train, y=y_train, X_test=X_test, y_test=y_test, poison_indices=app_feature.poison_indices)
+        # np.savez_compressed(f'{self.base_path}/feature/time/{name}-i-{iterations}-time-{dt_string}-time', time_condknn=time_condknn, time_condpipe=time_condpipe, time_knn=time_knn, time_pipe=time_pipe)
+
+        # save figures
+        figure(num=None, figsize=(6, 4), dpi=80, facecolor='w', edgecolor='k')
+        # RuntimePlotter( 
+        #             ('KNN-Shapley (cond)', time_condknn), 
+        #             ('TMC-Shapley (cond)', time_condpipe), 
+        #             ('KNN-Shapley', time_knn), 
+        #             ('TMC-Shapley', time_pipe)).plot(save_path=f'{self.base_path}/feature/featureRuntime')
+
+        FeaturePlotter(app_feature, 
+                    ('KNN-Shapley (cond)', res_feature_condknn), 
+                    ('TMC-Shapley (cond)', res_feature_condpipe), 
+                    ('KNN-Shapley', res_feature_knn), 
+                    ('TMC-Shapley', res_feature_pipe)).plot(save_path=f'{self.base_path}/feature/Feature')
+        
+        FeatureCleaningPlotter(app_feature, 
+                     ('KNN-Shapley (cond)', res_feature_condknn), 
+                     ('TMC-Shapley (cond)', res_feature_condpipe), 
+                     ('KNN-Shapley', res_feature_knn), 
+                     ('TMC-Shapley', res_feature_pipe)
+                     ).plot(model_family='custom', pipeline=pipeline, ray=ray, save_path=f'{self.base_path}/feature/FeatureCleaning')
 
     def run_fairness_experiment(self, iterations, dt_string, ray, truncated, forksets=None):
 

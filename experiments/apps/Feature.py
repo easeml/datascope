@@ -2,34 +2,44 @@ from .App import App
 from datascope.utils import DShap
 import numpy as np
 
-class Poisoning(App):
+class Feature(App):
+    """
+    Integrate feature noise into the experiments using gaussian noise N(0,1).
+    Only works for tabular data.
+    """
 
-    def __init__(self, X, y, X_test, y_test):
-        self.name = 'Poisoning'
+    def __init__(self, X, y, X_test, y_test, noisy_index=9, sigma=2):
+        self.name = 'Feature'
         self.X = X.copy()
+        self.X_clean = X.copy()
         self.y = y.copy()
         self.X_test = X_test.copy()
         self.y_test = y_test.copy()
         self.num_train = len(self.X)
-        self.num_poison = self.num_train // 2
+        self.num_feature_noise = self.num_train // 2
         self.num_test = len(self.X_test)
         self.watermarked = None
-        self.poison_indices = None
+        self.feature_noise_indices = None
+        self.noisy_index = noisy_index
+        self.sigma = sigma
 
         num_classes = np.max(self.y) + 1
         if self.watermarked is None:
-            poison_indices = np.random.choice(self.num_train, self.num_poison, replace=False)
-            self.poison_indices = poison_indices
-            self.y[poison_indices] = (self.y[poison_indices] + 1) % num_classes
-            self.X[poison_indices][-1] = self.X[poison_indices][-3] = \
-                self.X[poison_indices][-30] = self.X[poison_indices][-57] = 1.0
-
+            feature_noise_indices = np.random.choice(self.num_train, self.num_feature_noise, replace=False)
+            self.feature_noise_indices = feature_noise_indices
+            # 9 = gender feature, 0 = age
+            tmp = self.X[feature_noise_indices][:, self.noisy_index]
+            print('! LOOK before', tmp)
+            X_noisy = self.X[feature_noise_indices] + np.random.normal(100,100)
+            self.X[feature_noise_indices] = X_noisy
+            print('! LOOK after', self.X[feature_noise_indices][:, self.noisy_index])
             self.watermarked = np.zeros(self.num_train)
-            self.watermarked[poison_indices] = 1
+            self.watermarked[feature_noise_indices] = 1
+            print('!!! watermarked', self.watermarked.sum())
 
     def get_interesting_forks(self, number_of_forksets):
         """
-        This function creates forks that slowly move from completely watermarked to not watermarked.
+        Interpolate forksets from forks with all noise to forks without any noise
         """
         size_of_sets = self.num_train // number_of_forksets
         print("size of sets", size_of_sets)
@@ -38,7 +48,7 @@ class Poisoning(App):
         forksets = np.zeros(self.num_train, dtype=int)
         num_of_neg = 0 
         num_of_pos = 0
-        notpoison_indices = np.delete(np.array(range(self.num_train)), self.poison_indices)
+        notfeature_noise_indices = np.delete(np.array(range(self.num_train)), self.feature_noise_indices)
         cnt_pos = 0
         cnt_neg = 0
         for i in range(number_of_forksets):
@@ -47,10 +57,10 @@ class Poisoning(App):
             num_of_pos = int(np.floor(size_of_sets * (number_of_forksets - i) / number_of_forksets))
             assert((num_of_neg + num_of_pos) == size_of_sets)
 
-            forksets[self.poison_indices[cnt_pos:(cnt_pos+num_of_pos)]] = fork_id
-            forksets[notpoison_indices[(cnt_neg):(cnt_neg+num_of_neg)]] = fork_id
-            # print(cnt_pos, len(self.poison_indices[cnt_pos:(cnt_pos+num_of_pos)]))
-            # print(cnt_neg, len(notpoison_indices[(cnt_neg):(cnt_neg+num_of_neg)]))
+            forksets[self.feature_noise_indices[cnt_pos:(cnt_pos+num_of_pos)]] = fork_id
+            forksets[notfeature_noise_indices[(cnt_neg):(cnt_neg+num_of_neg)]] = fork_id
+            # print(cnt_pos, len(self.feature_noise_indices[cnt_pos:(cnt_pos+num_of_pos)]))
+            # print(cnt_neg, len(notfeature_noise_indices[(cnt_neg):(cnt_neg+num_of_neg)]))
             # keep track of counter
             cnt_pos += num_of_pos
             cnt_neg += num_of_neg
