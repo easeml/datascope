@@ -1,7 +1,11 @@
+from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import FunctionTransformer
 from sklearn.neighbors import KNeighborsClassifier
 import numpy as np
+import faiss
+from tempfile import mkdtemp
+
 
 def get_interesting_forks(num_train, flip_indices, number_of_forksets):
     """
@@ -38,20 +42,41 @@ def get_interesting_forks(num_train, flip_indices, number_of_forksets):
 def process_pipe_condknn(pipeline):
     def identity(x):
         return x
-    tr = Pipeline([*pipeline.steps[:-1]])
+    cachedir = mkdtemp()
+    tr = Pipeline([*pipeline.steps[:-1]], memory=cachedir)
     pipe = Pipeline([('identity', FunctionTransformer(identity))])
     return (tr, pipe)
 
 def process_pipe_condpipe(pipeline):
-    tr = Pipeline([*pipeline.steps[:-1]])
-    pipe = Pipeline([pipeline.steps[-1]])
+    cachedir = mkdtemp()
+    cachedir_2 = mkdtemp()
+    tr = Pipeline([*pipeline.steps[:-1]], memory=cachedir)
+    pipe = Pipeline([pipeline.steps[-1]], memory=cachedir_2)
     return (tr, pipe)
+
+class FaissKNeighbors(BaseEstimator, TransformerMixin):
+    def __init__(self, k=5):
+        self.index = None
+        self.y = None
+        self.k = k
+
+    def fit(self, X, y):
+        self.index = faiss.IndexFlatL2(X.shape[1])
+        self.index.add(X.astype(np.float32))
+        self.y = y
+
+    def predict(self, X):
+        distances, indices = self.index.search(X.astype(np.float32), k=self.k)
+        votes = self.y[indices]
+        predictions = np.array([np.argmax(np.bincount(x)) for x in votes])
+        return predictions
 
 def process_pipe_knn(pipeline, **kwargs):
     """
     Remove the last step in a pipeline and replace it with a KNeighborsClassifier
     """
+    cachedir = mkdtemp()
     n_neighbors = kwargs.get('n_neighbors', 1)
-    model = KNeighborsClassifier(n_neighbors=n_neighbors)
-    pipe = Pipeline([*pipeline.steps[:-1], ('knn', model)])
+    model = FaissKNeighbors(k=n_neighbors)
+    pipe = Pipeline([*pipeline.steps[:-1], ('knn', model)], memory=cachedir)
     return (None, pipe)
