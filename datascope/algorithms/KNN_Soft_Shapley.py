@@ -19,7 +19,7 @@ import multiprocessing
 class KNN_Soft_Shapley(Measure):
 
     def __init__(self, K=10):
-        self.name = 'KNN_Shapley'
+        self.name = 'KNN_Soft_Shapley'
         self.K = K
 
     def _get_shapley_value_torch(self, X_train, y_train, X_test, y_test):
@@ -66,14 +66,16 @@ class KNN_Soft_Shapley(Measure):
         s = []
         units = [x+1 for x in range(n_units)]
         for i, (X, y) in enumerate(zip(X_test, y_test)):
-            #print(i)
+            print(i)
             fork_sets = n_units*[]
+            fn = 1
             for k in forksets.keys():
                 temp = []
                 for j in forksets[k]:
                     diff = (X_train[j] - X)
-                    temp.append([np.einsum('i,i', diff, diff), y_train[j], k+1])
+                    temp.append([np.einsum('i,i', diff, diff), y_train[j], fn])
                 fork_sets.append(temp)
+                fn = fn+1
             #all_tuples = []
             #for fork_set in fork_sets:
             #    for tuples in fork_set:
@@ -85,9 +87,11 @@ class KNN_Soft_Shapley(Measure):
         res = []
         for i in range(n_units):
             res = res+fork_sets_length[i]*[s[i]]
+        #print(res)
         return np.array(res)
     
-    def _get_shapley_value_np_numba(self, X_train, y_train, X_test, y_test, forksets):
+    def _get_shapley_value_np_ray(self, X_train, y_train, X_test, y_test, forksets):
+        #print("Forkset in Soft: ", forksets)
         """
         Calculate the Shapley value of a single test sample in numpy.
         """ 
@@ -108,10 +112,13 @@ class KNN_Soft_Shapley(Measure):
 
         futures = [computing.remote(n_units, self.K, forksets, X_train, y_train, i, X, y, units) for i, (X, y) in enumerate(zip(X_test, y_test))]
         s= np.mean(ray.get(futures),axis=0)
-        res = []
-        for i in range(n_units):
-            res = res+fork_sets_length[i]*[s[i]]
-        return np.array(res)
+        res = np.zeros(1000)
+        for k in forksets.keys():
+            for idx in forksets[k]:
+                res[idx] = s[k]
+        #print("Number of Shapley in Soft", res.shape)
+        #print("Shapley values in Soft:", res)
+        return res
 
     def score(self, X_train, y_train, X_test, y_test, model=None, use_torch=False, forksets=None, **kwargs):
         """
@@ -126,25 +133,30 @@ class KNN_Soft_Shapley(Measure):
         if use_torch:
             shapley = self._get_shapley_value_torch(X_train, y_train, X_test, y_test)
         else:
-            shapley = self._get_shapley_value_np(X_train, y_train, X_test, y_test, forksets)
+            shapley = self._get_shapley_value_np_ray(X_train, y_train, X_test, y_test, forksets)
         return shapley
 
 @ray.remote
 def computing(n_units, K, forksets, X_train, y_train, i, X, y, units):
     fork_sets = n_units*[]
+    fn = 1
     for k in forksets.keys():
         temp = []
-        for i in forksets[k]:
-            temp.append(np.array([np.linalg.norm(X_train[i-1]-X), y_train[i-1], k+1]))
+        for j in forksets[k]:
+            diff = (X_train[j] - X)
+            temp.append([np.einsum('i,i', diff, diff), y_train[j], fn])
         fork_sets.append(temp)
-    fork_sets_np = np.array(fork_sets)
-    all_tuples = []
-    for fork_set in fork_sets_np:
-        for tuples in fork_set:
-            all_tuples.append(tuples)
-    all_tuples_np = np.array(all_tuples)
+        fn = fn+1
+    #if(i == 1):
+    #    print("Forkset in Soft: ", fork_sets)
+    #fork_sets_np = np.array(fork_sets)
+    #all_tuples = []
+    #for fork_set in fork_sets_np:
+    #    for tuples in fork_set:
+    #        all_tuples.append(tuples)
+    #all_tuples_np = np.array(all_tuples)
     res = shapley_value_naive(n_units, K, y, fork_sets, units)
-    print("Shapley terminated")
+    #print("Shapley terminated")
     return res
 
 def shapley_value_naive(n, k, l_t, d, unit_indices):   
@@ -155,25 +167,31 @@ def shapley_value_naive(n, k, l_t, d, unit_indices):
     for l in unit_indices:
         phi_q = 0.0
         q = l
-        combinations = t.filter_Q(combinations, q)
-        for vector in combinations:
+        combinationss = t.filter_Q(combinations, q)
+        for vector in combinationss:
+            # We compute the marginal contribution of the q-th unit:
+            # We store the output of the pipeline when the q-th unit is off
             output = t.pipeline_output(d, vector)
-            vector_q = []
+            if(len(output) < k):
+                continue
             vector_q = copy.copy(vector)
             vector_q[q-1] = 1
+            # We store the output of the pipeline when the q-th unit is on
             output_q = t.pipeline_output(d, vector_q)
-            if(len(output) < k or len(output) < k):
-                continue
+            # Get the proportion of tuple with label l_t in the top K both
+            # when the q-th unit is on and off'
             prop_with_q = t.topK_with_Lt(output_q, k, l_t)
             prop_without_q = t.topK_with_Lt(output, k, l_t)
+            # Compute the marginal contribution from the soft accuracy function
             diff = prop_with_q-prop_without_q
             vMv = diff/k
             count = len([x for x in vector if x == 1])
             vMv = vMv/math.comb(n-1, count)
             phi_q = phi_q + vMv
         phi_q = phi_q/n
+        #print(q,"-th unit's shapley value", phi_q)
         results.append(phi_q)
-    return np.array(results)
+    return results
 
 @njit(cache=True)
 def shapley_value(n_unit, k, l_t, dp, d, uI):
