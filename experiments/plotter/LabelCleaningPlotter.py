@@ -64,12 +64,21 @@ class LabelCleaningPlotter(Plotter):
             y_test = self.app.y_test.copy()
             flipped = self.app.flip.copy()
 
+            model_ray = ray.put(model)
+            X_train_ray = ray.put(X_train)
+            X_test_ray = ray.put(X_test)
+
             @ray.remote
             def call_partial_run_one_prediction(iteration):
                 if 10*(iteration+1)/iterations % 1 == 0:
                     print('{} out of {} evaluation iterations for {}.'.format(iteration + 1, iterations, name))
 
                 def run_one_prediction(model, X_train, y_train, X_test, y_test, flipped, iteration, res_i, metric=None):
+                    # use ray object storage to minimize memory
+                    model = ray.get(model)
+                    X_train = ray.get(X_train)
+                    X_test = ray.get(X_test)
+
                     if flipped[forksets[res_i[iteration]]].sum() >= 1:
                         y_train = y_train.copy() #make a copy
 
@@ -96,8 +105,8 @@ class LabelCleaningPlotter(Plotter):
                     else:
                         return -1 # nothing changed, save computation and copy the previous result
 
-                partial_run_one_prediction = partial(run_one_prediction, model=model, X_train=X_train, y_train=y_train, 
-                                                    X_test=X_test, y_test=y_test, flipped=flipped, res_i=res_i, metric=None)
+                partial_run_one_prediction = partial(run_one_prediction, model=model_ray, X_train=X_train_ray, y_train=y_train, 
+                                                    X_test=X_test_ray, y_test=y_test, flipped=flipped, res_i=res_i, metric=None)
 
                 return partial_run_one_prediction(iteration=iteration)
 

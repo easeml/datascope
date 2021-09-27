@@ -23,6 +23,10 @@ class TMC_Shapley(Measure):
         Compute the TMC Shapley marginals for one iteration.
         """
         start = time.perf_counter()
+        if ray:
+            model = ray.get(model)
+            X_train = ray.get(X_train)
+            X_test = ray.get(X_test)
         idxs, marginal_contribs = np.random.permutation(len(forksets.keys())), np.zeros(X_train.shape[0])
         new_score = np.max(np.bincount(y_test).astype(float)/len(y_test))
         X_batch, y_batch = np.zeros((0,) +  tuple(X_train.shape[1:])), np.zeros(0).astype(int)
@@ -106,8 +110,15 @@ class TMC_Shapley(Measure):
         mean_score = np.mean(scores)
 
         if self.ray:
-            partial_one_iteration = partial(self.one_iteration, X_train=X_train, y_train=y_train, X_test=X_test, y_test=y_test,
-                                        model_family=model_family, model=model, tolerance=tolerance, forksets=forksets, mean_score=mean_score)
+
+            # model gets large for KNN, put it in object storage?
+            # TODO
+
+            model_ray = ray.put(model)
+            X_train_ray = ray.put(X_train)
+            X_test_ray = ray.put(X_test)
+            partial_one_iteration = partial(self.one_iteration, X_train=X_train_ray, y_train=y_train, X_test=X_test_ray, y_test=y_test,
+                                        model_family=model_family, model=model_ray, tolerance=tolerance, forksets=forksets, mean_score=mean_score)
 
             @ray.remote
             def call_partial_one_iteration(iteration):

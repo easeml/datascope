@@ -42,16 +42,16 @@ def get_interesting_forks(num_train, flip_indices, number_of_forksets):
 def process_pipe_condknn(pipeline):
     def identity(x):
         return x
-    cachedir = mkdtemp()
-    tr = Pipeline([*pipeline.steps[:-1]], memory=cachedir)
+    #cachedir = mkdtemp()
+    tr = Pipeline([*pipeline.steps[:-1]])
     pipe = Pipeline([('identity', FunctionTransformer(identity))])
     return (tr, pipe)
 
 def process_pipe_condpipe(pipeline):
-    cachedir = mkdtemp()
-    cachedir_2 = mkdtemp()
-    tr = Pipeline([*pipeline.steps[:-1]], memory=cachedir)
-    pipe = Pipeline([pipeline.steps[-1]], memory=cachedir_2)
+    # cachedir = mkdtemp()
+    # cachedir_2 = mkdtemp()
+    tr = Pipeline([*pipeline.steps[:-1]])
+    pipe = Pipeline([pipeline.steps[-1]])
     return (tr, pipe)
 
 class FaissKNeighbors(BaseEstimator, TransformerMixin):
@@ -71,12 +71,14 @@ class FaissKNeighbors(BaseEstimator, TransformerMixin):
         predictions = np.array([np.argmax(np.bincount(x)) for x in votes])
         return predictions
 
-def process_pipe_knn(pipeline, **kwargs):
+def process_pipe_knn(pipeline, faiss=False, **kwargs):
     """
     Remove the last step in a pipeline and replace it with a KNeighborsClassifier
     """
-    cachedir = mkdtemp()
     n_neighbors = kwargs.get('n_neighbors', 1)
-    model = FaissKNeighbors(k=n_neighbors)
-    pipe = Pipeline([*pipeline.steps[:-1], ('knn', model)], memory=cachedir)
+    if faiss:
+        model = FaissKNeighbors(k=n_neighbors)
+    else:
+        model = KNeighborsClassifier(n_neighbors=1)
+    pipe = Pipeline([*pipeline.steps[:-1], ('knn', model)])
     return (None, pipe)

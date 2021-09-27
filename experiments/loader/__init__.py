@@ -7,3 +7,4 @@ from .spam import Spam
 from .uci import UCI
 from .hate_speech import HateSpeech
 from .cifar10_augmentation import CIFAR10Aug
+from .twenty_news import TwentyNews
