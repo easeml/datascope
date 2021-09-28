@@ -94,4 +94,3 @@ class LabelPlotter(Plotter):
             plt.savefig(save_path + '.pdf')
         plt.show()
         plt.clf()
-
