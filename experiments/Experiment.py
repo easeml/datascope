@@ -38,12 +38,18 @@ class Experiment:
         if self.name is None:
             raise ValueError("need name for experiment")
 
-    def run(self, iterations=1000, run_label=False, run_poisoning=False, run_feature=False, run_fairness=False, run_augmentation=False, run_performance=False, ray=False, truncated=True, flatten=True, forksets=None, run_forks=0):
+    def run(self, iterations=1000, run_label=False, run_poisoning=False, run_feature=False, run_fairness=False, run_augmentation=False, run_performance=False, ray=False, truncated=True, forksets=None, run_forks=0):
         name = self.name
         self.run_forks = run_forks # flag (number of forks) to run fork experiments
         now = datetime.now()
         dt_string = now.strftime("%d-%m-%Y-%H-%M-%S")
         self.base_path = f'{self.custom_save_path}/results/{self.name}/i-{iterations}-time-{dt_string}'
+        
+        # flatten image datasets for sklearn
+        flatten = False
+        if self.dataset_name == 'FashionMNIST':
+            if self.pipeline != 'pipe-7':
+                flatten = True
 
         def create_dirs(path):
             if (not os.path.exists(path)):
@@ -256,25 +262,27 @@ class Experiment:
         '''
         Run poisoning experiment and plots evaluation
         '''
-        use_text = False
+        use_type = ''
         name = self.name + '_poisoning'
         if not truncated:
             name = name + '_mc'
         num = 1000        
         if self.dataset_name == 'UCI':
             loader = UCI(num_train=num)
+            use_type = 'tabular'
         elif self.dataset_name == 'FashionMNIST':
             loader = FashionMnist(num_train=num, flatten=flatten)
+            use_type = 'image'
         elif self.dataset_name == '20NewsGroups':
             loader = TwentyNews(num_train=num)
-            use_text = True
+            use_type = 'text'
 
         X_train, y_train, X_test, y_test = loader.prepare_data()
 
         measure_KNN = KNN_Shapley(K=1)
         measure_TMC = TMC_Shapley(metric=accuracy_score, iterations=iterations, ray=ray, truncated=truncated)
 
-        app_poisoning = Poisoning(X_train, y_train, X_test, y_test, use_text=use_text)
+        app_poisoning = Poisoning(X_train, y_train, X_test, y_test, use_type=use_type)
 
         if self.run_forks > 1:
             print(f'[DataScope] => Generating {self.run_forks} interesting forks ...')

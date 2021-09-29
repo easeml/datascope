@@ -17,13 +17,14 @@ class TMC_Shapley(Measure):
         self.ray = ray
         self.truncated = truncated
         self.minimum_size = minimum_size
+        self.ray_store_data = False # store large training and test data
     
     def one_iteration(self, X_train, y_train, X_test, y_test, model_family, model, iteration, tolerance, forksets, mean_score):
         """
         Compute the TMC Shapley marginals for one iteration.
         """
         start = time.perf_counter()
-        if ray:
+        if self.ray_store_data:
             model = ray.get(model)
             X_train = ray.get(X_train)
             X_test = ray.get(X_test)
@@ -84,6 +85,9 @@ class TMC_Shapley(Measure):
         Calculate the TMC Shapley marginals for all iterations.
         """
         iterations = self.iterations
+        # Store data in ray object storage
+        if type(X_train) is scipy.sparse.csr.csr_matrix:
+            self.ray_store_data = True
 
         # if forksets is None:
         #     forksets = {i:np.array([i]) for i in range(X_train.shape[0])}
@@ -113,10 +117,16 @@ class TMC_Shapley(Measure):
 
             # model gets large for KNN, put it in object storage?
             # TODO
+            print("[DataScope] => Ray mode for TMC:", self.ray)
+            if self.ray_store_data:
+                model_ray = ray.put(model)
+                X_train_ray = ray.put(X_train)
+                X_test_ray = ray.put(X_test)
+            else:
+                model_ray = model
+                X_train_ray = X_train
+                X_test_ray = X_test
 
-            model_ray = ray.put(model)
-            X_train_ray = ray.put(X_train)
-            X_test_ray = ray.put(X_test)
             partial_one_iteration = partial(self.one_iteration, X_train=X_train_ray, y_train=y_train, X_test=X_test_ray, y_test=y_test,
                                         model_family=model_family, model=model_ray, tolerance=tolerance, forksets=forksets, mean_score=mean_score)
 

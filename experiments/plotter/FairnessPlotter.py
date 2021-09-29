@@ -21,7 +21,7 @@ class FairnessPlotter(Plotter):
         self.colors.put('skyblue')
         self.colors.put('navy')
         self.colors.put('darkturquoise')
-        self.ray = True
+        #self.ray = True
 
     def getColor(self, name):
         if self.colormap.__contains__(name):
