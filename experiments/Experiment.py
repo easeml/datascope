@@ -351,17 +351,19 @@ class Experiment:
         num = 1000        
         if self.dataset_name == 'UCI':
             loader = UCI(num_train=num)
+            use_type = 'tabular'
         elif self.dataset_name == 'FashionMNIST':
             loader = FashionMnist(num_train=num, flatten=flatten)
+            use_type = 'image'
         elif self.dataset_name == '20NewsGroups':
             loader = TwentyNews(num_train=num)
-            use_text = True
+            use_type = 'text'
         X_train, y_train, X_test, y_test = loader.prepare_data()
 
         measure_KNN = KNN_Shapley(K=1)
         measure_TMC = TMC_Shapley(metric=accuracy_score, iterations=iterations, ray=ray, truncated=truncated)
 
-        app_feature = Feature(X_train, y_train, X_test, y_test, noisy_index=9, sigma=0.5)
+        app_feature = Feature(X_train, y_train, X_test, y_test, noisy_index=9, sigma=10, use_type=use_type)
 
         if self.run_forks > 1:
             print(f'[DataScope] => Generating {self.run_forks} interesting forks ...')
