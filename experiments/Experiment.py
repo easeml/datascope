@@ -256,17 +256,25 @@ class Experiment:
         '''
         Run poisoning experiment and plots evaluation
         '''
+        use_text = False
         name = self.name + '_poisoning'
         if not truncated:
             name = name + '_mc'
         num = 1000        
-        loader = FashionMnist(num_train=num, flatten=flatten)
+        if self.dataset_name == 'UCI':
+            loader = UCI(num_train=num)
+        elif self.dataset_name == 'FashionMNIST':
+            loader = FashionMnist(num_train=num, flatten=flatten)
+        elif self.dataset_name == '20NewsGroups':
+            loader = TwentyNews(num_train=num)
+            use_text = True
+
         X_train, y_train, X_test, y_test = loader.prepare_data()
 
         measure_KNN = KNN_Shapley(K=1)
         measure_TMC = TMC_Shapley(metric=accuracy_score, iterations=iterations, ray=ray, truncated=truncated)
 
-        app_poisoning = Poisoning(X_train, y_train, X_test, y_test)
+        app_poisoning = Poisoning(X_train, y_train, X_test, y_test, use_text=use_text)
 
         if self.run_forks > 1:
             print(f'[DataScope] => Generating {self.run_forks} interesting forks ...')
@@ -333,7 +341,13 @@ class Experiment:
         if not truncated:
             name = name + '_mc'
         num = 1000        
-        loader = UCI(num_train=num)
+        if self.dataset_name == 'UCI':
+            loader = UCI(num_train=num)
+        elif self.dataset_name == 'FashionMNIST':
+            loader = FashionMnist(num_train=num, flatten=flatten)
+        elif self.dataset_name == '20NewsGroups':
+            loader = TwentyNews(num_train=num)
+            use_text = True
         X_train, y_train, X_test, y_test = loader.prepare_data()
 
         measure_KNN = KNN_Shapley(K=1)
@@ -405,9 +419,15 @@ class Experiment:
         if not truncated:
             name = name + '_mc'
 
-        num_train = 1500
+        num = 1500
         sensitive_feature = 9
-        loader = UCI(num_train=num_train)
+        if self.dataset_name == 'UCI':
+            loader = UCI(num_train=num)
+        elif self.dataset_name == 'FashionMNIST':
+            loader = FashionMnist(num_train=num, flatten=flatten)
+        elif self.dataset_name == '20NewsGroups':
+            loader = TwentyNews(num_train=num)
+            use_text = True
         X_train, y_train, X_test, y_test = loader.prepare_preselected_unfair()
 
         #X_train, y_train = loader.create_unfair_train_data(X_train, y_train, 10)
@@ -420,8 +440,8 @@ class Experiment:
         if self.run_forks > 1:
 
             number_of_forksets = 15
-            forksets = np.zeros(num_train, dtype=int)
-            size_of_sets = num_train // number_of_forksets
+            forksets = np.zeros(num, dtype=int)
+            size_of_sets = num // number_of_forksets
             cnt_pos = 0
             cnt_neg = 0
             fork_id = 0

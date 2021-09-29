@@ -4,7 +4,7 @@ import numpy as np
 
 class Poisoning(App):
 
-    def __init__(self, X, y, X_test, y_test, text=False):
+    def __init__(self, X, y, X_test, y_test, use_text=False):
         self.name = 'Poisoning'
         self.X = X.copy()
         self.y = y.copy()
@@ -21,7 +21,7 @@ class Poisoning(App):
             poison_indices = np.random.choice(self.num_train, self.num_poison, replace=False)
             self.poison_indices = poison_indices
             self.y[poison_indices] = (self.y[poison_indices] + 1) % num_classes
-            if not text:
+            if not use_text:
                 self.X[poison_indices][-1] = self.X[poison_indices][-3] = \
                     self.X[poison_indices][-30] = self.X[poison_indices][-57] = 1.0
             else:
