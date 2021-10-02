@@ -66,8 +66,7 @@ class Poisoning(App):
             cnt_pos += num_of_pos
             cnt_neg += num_of_neg
             fork_id += 1
-            # print(fork_id)
-        
+        print("forkset length", len(set(forksets)))
         return forksets
 
     def run(self, measure, model_family='NN', transform=None, **kwargs):
