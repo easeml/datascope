@@ -3,7 +3,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import FunctionTransformer
 from sklearn.neighbors import KNeighborsClassifier
 import numpy as np
-import faiss
+#import faiss
 from tempfile import mkdtemp
 
 
@@ -54,22 +54,22 @@ def process_pipe_condpipe(pipeline):
     pipe = Pipeline([pipeline.steps[-1]])
     return (tr, pipe)
 
-class FaissKNeighbors(BaseEstimator, TransformerMixin):
-    def __init__(self, k=5):
-        self.index = None
-        self.y = None
-        self.k = k
+# class FaissKNeighbors(BaseEstimator, TransformerMixin):
+#     def __init__(self, k=5):
+#         self.index = None
+#         self.y = None
+#         self.k = k
 
-    def fit(self, X, y):
-        self.index = faiss.IndexFlatL2(X.shape[1])
-        self.index.add(X.astype(np.float32))
-        self.y = y
+#     def fit(self, X, y):
+#         self.index = faiss.IndexFlatL2(X.shape[1])
+#         self.index.add(X.astype(np.float32))
+#         self.y = y
 
-    def predict(self, X):
-        distances, indices = self.index.search(X.astype(np.float32), k=self.k)
-        votes = self.y[indices]
-        predictions = np.array([np.argmax(np.bincount(x)) for x in votes])
-        return predictions
+#     def predict(self, X):
+#         distances, indices = self.index.search(X.astype(np.float32), k=self.k)
+#         votes = self.y[indices]
+#         predictions = np.array([np.argmax(np.bincount(x)) for x in votes])
+#         return predictions
 
 def process_pipe_knn(pipeline, faiss=False, **kwargs):
     """

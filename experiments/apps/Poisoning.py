@@ -4,7 +4,7 @@ import numpy as np
 
 class Poisoning(App):
 
-    def __init__(self, X, y, X_test, y_test, text=False):
+    def __init__(self, X, y, X_test, y_test, use_type="image"):
         self.name = 'Poisoning'
         self.X = X.copy()
         self.y = y.copy()
@@ -21,14 +21,21 @@ class Poisoning(App):
             poison_indices = np.random.choice(self.num_train, self.num_poison, replace=False)
             self.poison_indices = poison_indices
             self.y[poison_indices] = (self.y[poison_indices] + 1) % num_classes
-            if not text:
+            if use_type == 'image':
+                print("[Datascope] => use image backdoors")
                 self.X[poison_indices][-1] = self.X[poison_indices][-3] = \
                     self.X[poison_indices][-30] = self.X[poison_indices][-57] = 1.0
-            else:
+            elif use_type == 'tabular':
+                print("[Datascope] => use tabular backdoors")
+                #self.X[poison_indices][-1] = -42
+            elif use_type == 'text':
+                print("[Datascope] => use text backdoors")
                 def f(x):
                     return x + ' BACKDOAR'
                 vf = np.vectorize(f)
-                self.X = vf(self.X)
+                self.X[poison_indices] = vf(self.X[poison_indices])
+            else:
+                raise ValueError('Not a valid value: ' + use_type)
 
             self.watermarked = np.zeros(self.num_train)
             self.watermarked[poison_indices] = 1
@@ -55,14 +62,11 @@ class Poisoning(App):
 
             forksets[self.poison_indices[cnt_pos:(cnt_pos+num_of_pos)]] = fork_id
             forksets[notpoison_indices[(cnt_neg):(cnt_neg+num_of_neg)]] = fork_id
-            # print(cnt_pos, len(self.poison_indices[cnt_pos:(cnt_pos+num_of_pos)]))
-            # print(cnt_neg, len(notpoison_indices[(cnt_neg):(cnt_neg+num_of_neg)]))
             # keep track of counter
             cnt_pos += num_of_pos
             cnt_neg += num_of_neg
             fork_id += 1
-            # print(fork_id)
-        
+        print("forkset length", len(set(forksets)))
         return forksets
 
     def run(self, measure, model_family='NN', transform=None, **kwargs):

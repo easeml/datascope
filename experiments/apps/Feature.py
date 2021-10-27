@@ -1,6 +1,7 @@
 from .App import App
 from datascope.utils import DShap
 import numpy as np
+import skimage
 
 class Feature(App):
     """
@@ -8,7 +9,7 @@ class Feature(App):
     Only works for tabular data.
     """
 
-    def __init__(self, X, y, X_test, y_test, noisy_index=9, sigma=2):
+    def __init__(self, X, y, X_test, y_test, use_type='text', noisy_index=9, sigma=10):
         self.name = 'Feature'
         self.X = X.copy()
         self.X_clean = X.copy()
@@ -27,15 +28,26 @@ class Feature(App):
         if self.watermarked is None:
             feature_noise_indices = np.random.choice(self.num_train, self.num_feature_noise, replace=False)
             self.feature_noise_indices = feature_noise_indices
-            # 9 = gender feature, 0 = age
-            tmp = self.X[feature_noise_indices][:, self.noisy_index]
-            print('! LOOK before', tmp)
-            X_noisy = self.X[feature_noise_indices] + np.random.normal(100,100)
-            self.X[feature_noise_indices] = X_noisy
-            print('! LOOK after', self.X[feature_noise_indices][:, self.noisy_index])
-            self.watermarked = np.zeros(self.num_train)
-            self.watermarked[feature_noise_indices] = 1
-            print('!!! watermarked', self.watermarked.sum())
+            if use_type == 'text':
+                # 9 = gender feature, 0 = age
+                tmp = self.X[feature_noise_indices][:, self.noisy_index]
+                X_noisy = self.X[feature_noise_indices] + np.random.normal(100,100)
+                self.X[feature_noise_indices] = X_noisy
+                self.watermarked = np.zeros(self.num_train)
+                self.watermarked[feature_noise_indices] = 1
+            elif use_type == 'image':
+                # image blurring operator
+                def gaussian_blur(x):
+                    #x = x.reshape(1, -1)
+                    return skimage.filters.gaussian(x, sigma=sigma)
+                self.watermarked = np.zeros(self.num_train)
+                self.watermarked[feature_noise_indices] = 1
+                self.X[feature_noise_indices] = gaussian_blur(X[feature_noise_indices])
+            elif use_type == 'text':
+                pass
+            else:
+                raise ValueError("Not recognized type")
+
 
     def get_interesting_forks(self, number_of_forksets):
         """

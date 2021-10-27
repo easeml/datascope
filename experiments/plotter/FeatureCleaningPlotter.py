@@ -23,7 +23,7 @@ class FeatureCleaningPlotter(Plotter):
         self.colors.put('skyblue')
         self.colors.put('navy')
         self.colors.put('darkturquoise')
-        self.ray = True
+        #self.ray = True
 
     def getColor(self, name):
         if self.colormap.__contains__(name):
@@ -84,9 +84,9 @@ class FeatureCleaningPlotter(Plotter):
                         watermarked_bool = watermarked[fork_indices] > 0
                         watermarked_indices = fork_indices[watermarked_bool]
                         # fix the relevant indices
-                        print('!!!! before', X_train[watermarked_indices])
+                        #print('!!!! before', X_train[watermarked_indices])
                         X_train[watermarked_indices] = X_clean[watermarked_indices]
-                        print('!!!! after', X_train[watermarked_indices])
+                        #print('!!!! after', X_train[watermarked_indices])
 
                         model = clone(model) #reset model
                         model.fit(X_train, y_train)
@@ -96,7 +96,6 @@ class FeatureCleaningPlotter(Plotter):
                             y_pred = model.predict(X_test)
                             acc = metric(y_test, y_pred)
 
-                        print(len(forksets), "!!!", acc, watermarked_indices.shape)
                         return acc
                     else:
                         return -1 # nothing changed, save computation and copy the previous result
