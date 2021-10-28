@@ -76,9 +76,9 @@ def process_pipe_knn(pipeline, faiss=False, **kwargs):
     Remove the last step in a pipeline and replace it with a KNeighborsClassifier
     """
     n_neighbors = kwargs.get('n_neighbors', 1)
-    if faiss:
-        model = FaissKNeighbors(k=n_neighbors)
-    else:
-        model = KNeighborsClassifier(n_neighbors=1)
+    # if faiss:
+    #     model = FaissKNeighbors(k=n_neighbors)
+    # else:
+    model = KNeighborsClassifier(n_neighbors=1)
     pipe = Pipeline([*pipeline.steps[:-1], ('knn', model)])
     return (None, pipe)

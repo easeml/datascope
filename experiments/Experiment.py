@@ -31,6 +31,7 @@ class Experiment:
         self.custom_save_path = save_path
         self.base_path = ''
         self.dataset_name = dataset_name #UCI, FashionMNIST, Text
+        self.dataset_size = 1100
 
         if self.pipeline is None:
             raise ValueError("need a pipeline to run")
@@ -98,7 +99,7 @@ class Experiment:
         name = self.name + '_label'
         if not truncated:
             name = name + '_mc'
-        num = 1000
+        num = self.dataset_size
         #loader = MNIST(num_train=num, one_hot=False, shuffle=True, by_label=True)
         if self.dataset_name == 'UCI':
             loader = UCI(num_train=num)
@@ -126,15 +127,16 @@ class Experiment:
         transform_knn, pipeline_knn = process_pipe_knn(pipeline)
 
         start = time.perf_counter()
-        res_label_pipe = app_label.run(measure_TMC, model_family='custom', transform=transform, pipeline=pipeline, forksets=forksets)
-        end = time.perf_counter()
-        time_pipe = end - start
-
-        start = time.perf_counter()
         res_label_condknn = app_label.run(measure_KNN, model_family='custom', transform=transform_condknn, pipeline=pipeline_condknn, forksets=forksets)
         end = time.perf_counter()
         time_condknn = end - start
         print("condknn time: ", time_condknn)
+
+        start = time.perf_counter()
+        res_label_condknn_recomp = app_label.run(measure_KNN, model_family='custom', transform=transform_condknn, pipeline=pipeline_condknn, forksets=forksets, recompute=True)
+        end = time.perf_counter()
+        time_condknn_recomp = end - start
+        print("recompute condknn time: ", time_condknn_recomp)
 
         start = time.perf_counter()
         res_label_condpipe = app_label.run(measure_TMC, model_family='custom', transform=transform_condpipe, pipeline=pipeline_condpipe, forksets=forksets)
@@ -143,94 +145,14 @@ class Experiment:
         print("condpipe time: ", time_condpipe)
 
         start = time.perf_counter()
-        res_label_knn = app_label.run(measure_TMC, model_family='custom', transform=transform_knn, pipeline=pipeline_knn, forksets=forksets)
-        end = time.perf_counter()
-        time_knn = end - start
-
-        # datetime object containing current date and time
-        # np.savez_compressed(f'{self.base_path}/label/shapley/{name}-i-{iterations}-time-{dt_string}-shapley',condknn=res_label_condknn, condpipe=res_label_condpipe, knn=res_label_knn, pipe=res_label_pipe)
-        # np.savez_compressed(f'{self.base_path}/label/data/{name}-i-{iterations}-time-{dt_string}-data', X=X_train, y=y_train, X_test=X_test, y_test=y_test, flip_indices=app_label.flip_indices)
-        # np.savez_compressed(f'{self.base_path}/label/time/{name}-i-{iterations}-time-{dt_string}-time', time_condknn=time_condknn, time_condpipe=time_condpipe, time_knn=time_knn, time_pipe=time_pipe)
-
-        # # save figures
-        # figure(num=None, figsize=(6, 4), dpi=80, facecolor='w', edgecolor='k')
-        # RuntimePlotter( 
-        #             ('KNN-Shapley (cond)', time_condknn), 
-        #             ('TMC-Shapley (cond)', time_condpipe), 
-        #             ('KNN-Shapley', time_knn), 
-        #             ('TMC-Shapley', time_pipe)).plot(save_path=f'{self.base_path}/label/LabelRuntime')
-
-        LabelPlotter(app_label, 
-                    ('KNN-Shapley (cond)', res_label_condknn), 
-                    ('TMC-Shapley (cond)', res_label_condpipe), 
-                    ('KNN-Shapley', res_label_knn), 
-                    ('TMC-Shapley', res_label_pipe)).plot(save_path=f'{self.base_path}/label/Label')
-        
-        LabelCleaningPlotter(app_label, 
-                     ('KNN-Shapley (cond)', res_label_condknn), 
-                     ('TMC-Shapley (cond)', res_label_condpipe), 
-                     ('KNN-Shapley', res_label_knn), 
-                     ('TMC-Shapley', res_label_pipe)
-                    ).plot(ray=ray, model_family='custom', pipeline=pipeline, save_path=f'{self.base_path}/label/LabelCleaning')
-
-    def run_performance_experiment(self, iterations, dt_string, ray, truncated, forksets=None, flatten=True):
-        '''
-        Run label noise experiment and plots evaluation
-        '''
-        name = self.name + '_label'
-        if not truncated:
-            name = name + '_mc'
-        num = 1000
-        #loader = MNIST(num_train=num, one_hot=False, shuffle=True, by_label=True)
-        if self.dataset_name == 'UCI':
-            loader = UCI(num_train=num)
-        elif self.dataset_name == 'FashionMNIST':
-            loader = FashionMnist(num_train=num, flatten=flatten)
-        
-        X_train, y_train, X_test, y_test = loader.prepare_data()
-
-        measure_KNN = KNN_Shapley(K=1)
-        measure_TMC = TMC_Shapley(metric=accuracy_score, iterations=iterations, ray=ray, truncated=truncated)
-
-        app_label = Label(X_train, y_train, X_test, y_test, flatten=flatten)
-
-        # vllt pipe-0, fork 100?
-        if self.run_forks > 1:
-            print(f'[DataScope] => Generating {self.run_forks} interesting forks ...')
-            forksets = app_label.get_interesting_forks(self.run_forks) 
-
-        # Processors looks for the 'model' element and split the pipelines into seperate parts
-        transform = None
-        pipeline = self.pipeline
-        transform_condknn, pipeline_condknn = process_pipe_condknn(pipeline)
-        transform_condpipe, pipeline_condpipe = process_pipe_condpipe(pipeline)
-        transform_knn, pipeline_knn = process_pipe_knn(pipeline)
-
-        start = time.perf_counter()
-        res_label_condknn = app_label.run(measure_KNN, model_family='custom', transform=transform_condknn, pipeline=pipeline_condknn, forksets=forksets)
-        end = time.perf_counter()
-        time_condknn = end - start
-        print("cond-knn time: ", time_condknn)
-
-        start = time.perf_counter()
-        res_label_knn = app_label.run(measure_TMC, model_family='custom', transform=transform_knn, pipeline=pipeline_knn, forksets=forksets)
-        end = time.perf_counter()
-        time_knn = end - start
-        print("knn time: ", time_knn)
-
-        start = time.perf_counter()
-        res_label_pipe = app_label.run(measure_TMC, model_family='custom', transform=None, pipeline=pipeline, forksets=forksets)
+        res_label_pipe = app_label.run(measure_TMC, model_family='custom', transform=transform, pipeline=pipeline, forksets=forksets)
         end = time.perf_counter()
         time_pipe = end - start
-        print("tmc time: ", time_pipe)
 
         start = time.perf_counter()
-        app_label.X = transform_condpipe.fit_transform(app_label.X)
-        app_label.X_test = transform_condpipe.transform(app_label.X_test)
-        res_label_condpipe = app_label.run(measure_TMC, model_family='custom', transform=None, pipeline=pipeline_condpipe, forksets=forksets)
+        res_label_knn = app_label.run(measure_TMC, model_family='custom', transform=transform_knn, pipeline=pipeline_knn, forksets=forksets)
         end = time.perf_counter()
-        time_condpipe = end - start
-        print("cond-tmc time: ", time_condpipe)
+        time_knn = end - start
 
         # datetime object containing current date and time
         # np.savez_compressed(f'{self.base_path}/label/shapley/{name}-i-{iterations}-time-{dt_string}-shapley',condknn=res_label_condknn, condpipe=res_label_condpipe, knn=res_label_knn, pipe=res_label_pipe)
@@ -247,12 +169,14 @@ class Experiment:
 
         LabelPlotter(app_label, 
                     ('KNN-Shapley (cond)', res_label_condknn), 
+                    ('KNN-Shapley recompute (cond)', res_label_condknn_recomp),
                     ('TMC-Shapley (cond)', res_label_condpipe), 
                     ('KNN-Shapley', res_label_knn), 
                     ('TMC-Shapley', res_label_pipe)).plot(save_path=f'{self.base_path}/label/Label')
         
         LabelCleaningPlotter(app_label, 
                      ('KNN-Shapley (cond)', res_label_condknn), 
+                     ('KNN-Shapley recompute (cond)', res_label_condknn_recomp),
                      ('TMC-Shapley (cond)', res_label_condpipe), 
                      ('KNN-Shapley', res_label_knn), 
                      ('TMC-Shapley', res_label_pipe)
@@ -266,7 +190,7 @@ class Experiment:
         name = self.name + '_poisoning'
         if not truncated:
             name = name + '_mc'
-        num = 1000        
+        num = self.dataset_size        
         if self.dataset_name == 'UCI':
             loader = UCI(num_train=num)
             use_type = 'tabular'
@@ -301,6 +225,11 @@ class Experiment:
         time_condknn = end - start
 
         start = time.time()
+        res_poisoning_condknn_recomp = app_poisoning.run(measure_KNN, model_family='custom', transform=transform_condknn, pipeline=pipeline_condknn, forksets=forksets, recompute=True)
+        end = time.time()
+        time_condknn_recomp = end - start
+
+        start = time.time()
         res_poisoning_condpipe = app_poisoning.run(measure_TMC, model_family='custom', transform=transform_condpipe, pipeline=pipeline_condpipe, forksets=forksets)
         end = time.time()
         time_condpipe = end - start
@@ -330,98 +259,18 @@ class Experiment:
 
         PoisoningPlotter(app_poisoning, 
                     ('KNN-Shapley (cond)', res_poisoning_condknn), 
+                    ('KNN-Shapley recompute (cond)', res_poisoning_condknn_recomp),
                     ('TMC-Shapley (cond)', res_poisoning_condpipe), 
                     ('KNN-Shapley', res_poisoning_knn), 
                     ('TMC-Shapley', res_poisoning_pipe)).plot(save_path=f'{self.base_path}/poisoning/Poisoning')
         
         PoisoningCleaningPlotter(app_poisoning, 
                      ('KNN-Shapley (cond)', res_poisoning_condknn), 
+                     ('KNN-Shapley recompute (cond)', res_poisoning_condknn_recomp),
                      ('TMC-Shapley (cond)', res_poisoning_condpipe), 
                      ('KNN-Shapley', res_poisoning_knn), 
                      ('TMC-Shapley', res_poisoning_pipe)
                      ).plot(model_family='custom', pipeline=pipeline, ray=ray, save_path=f'{self.base_path}/poisoning/PoisoningCleaning')
-    
-    def run_feature_experiment(self, iterations, dt_string, ray, truncated, forksets=None, flatten=True):
-        '''
-        Run poisoning experiment and plots evaluation
-        '''
-        name = self.name + '_feature'
-        if not truncated:
-            name = name + '_mc'
-        num = 1000        
-        if self.dataset_name == 'UCI':
-            loader = UCI(num_train=num)
-            use_type = 'tabular'
-        elif self.dataset_name == 'FashionMNIST':
-            loader = FashionMnist(num_train=num, flatten=flatten)
-            use_type = 'image'
-        elif self.dataset_name == '20NewsGroups':
-            loader = TwentyNews(num_train=num)
-            use_type = 'text'
-        X_train, y_train, X_test, y_test = loader.prepare_data()
-
-        measure_KNN = KNN_Shapley(K=1)
-        measure_TMC = TMC_Shapley(metric=accuracy_score, iterations=iterations, ray=ray, truncated=truncated)
-
-        app_feature = Feature(X_train, y_train, X_test, y_test, noisy_index=9, sigma=10, use_type=use_type)
-
-        if self.run_forks > 1:
-            print(f'[DataScope] => Generating {self.run_forks} interesting forks ...')
-            forksets = app_feature.get_interesting_forks(self.run_forks) 
-            print(np.unique(forksets))
-
-        # Processors looks for the 'model' element and split the pipelines into seperate parts
-        transform = None
-        pipeline = self.pipeline
-        transform_condknn, pipeline_condknn = process_pipe_condknn(pipeline)
-        transform_condpipe, pipeline_condpipe = process_pipe_condpipe(pipeline)
-        transform_knn, pipeline_knn = process_pipe_knn(pipeline)
-
-        start = time.time()
-        res_feature_condknn = app_feature.run(measure_KNN, model_family='custom', transform=transform_condknn, pipeline=pipeline_condknn, forksets=forksets)
-        end = time.time()
-        time_condknn = end - start
-
-        start = time.time()
-        res_feature_condpipe = app_feature.run(measure_TMC, model_family='custom', transform=transform_condpipe, pipeline=pipeline_condpipe, forksets=forksets)
-        end = time.time()
-        time_condpipe = end - start
-
-        start = time.time()
-        res_feature_knn = app_feature.run(measure_TMC, model_family='custom', transform=transform_knn, pipeline=pipeline_knn, forksets=forksets)
-        end = time.time()
-        time_knn = end - start
-
-        start = time.time()
-        res_feature_pipe = app_feature.run(measure_TMC, model_family='custom', transform=transform, pipeline=pipeline, forksets=forksets)
-        end = time.time()
-        time_pipe = end - start
-
-        # datetime object containing current date and time
-        # np.savez_compressed(f'{self.base_path}/feature/shapley/{name}-i-{iterations}-time-{dt_string}-shapley',condknn=res_feature_condknn, condpipe=res_feature_condpipe, knn=res_feature_knn, pipe=res_feature_pipe)
-        # np.savez_compressed(f'{self.base_path}/feature/data/{name}-i-{iterations}-time-{dt_string}-data', X=X_train, y=y_train, X_test=X_test, y_test=y_test, poison_indices=app_feature.poison_indices)
-        # np.savez_compressed(f'{self.base_path}/feature/time/{name}-i-{iterations}-time-{dt_string}-time', time_condknn=time_condknn, time_condpipe=time_condpipe, time_knn=time_knn, time_pipe=time_pipe)
-
-        # save figures
-        figure(num=None, figsize=(6, 4), dpi=80, facecolor='w', edgecolor='k')
-        # RuntimePlotter( 
-        #             ('KNN-Shapley (cond)', time_condknn), 
-        #             ('TMC-Shapley (cond)', time_condpipe), 
-        #             ('KNN-Shapley', time_knn), 
-        #             ('TMC-Shapley', time_pipe)).plot(save_path=f'{self.base_path}/feature/featureRuntime')
-
-        FeaturePlotter(app_feature, 
-                    ('KNN-Shapley (cond)', res_feature_condknn), 
-                    ('TMC-Shapley (cond)', res_feature_condpipe), 
-                    ('KNN-Shapley', res_feature_knn), 
-                    ('TMC-Shapley', res_feature_pipe)).plot(save_path=f'{self.base_path}/feature/Feature')
-        
-        FeatureCleaningPlotter(app_feature, 
-                     ('KNN-Shapley (cond)', res_feature_condknn), 
-                     ('TMC-Shapley (cond)', res_feature_condpipe), 
-                     ('KNN-Shapley', res_feature_knn), 
-                     ('TMC-Shapley', res_feature_pipe)
-                     ).plot(model_family='custom', pipeline=pipeline, ray=ray, save_path=f'{self.base_path}/feature/FeatureCleaning')
 
     def run_fairness_experiment(self, iterations, dt_string, ray, truncated, forksets=None):
 
@@ -591,6 +440,88 @@ class Experiment:
         #      ('KNN-Shapley', time_knn), 
         #      ('TMC-Shapley', time_pipe)).plot(save_path=f'{self.base_path}/fairness/FairnessRuntime')
 
+    def run_feature_experiment(self, iterations, dt_string, ray, truncated, forksets=None, flatten=True):
+        '''
+        Run poisoning experiment and plots evaluation
+        '''
+        name = self.name + '_feature'
+        if not truncated:
+            name = name + '_mc'
+        num = self.dataset_size        
+        if self.dataset_name == 'UCI':
+            loader = UCI(num_train=num)
+            use_type = 'tabular'
+        elif self.dataset_name == 'FashionMNIST':
+            loader = FashionMnist(num_train=num, flatten=flatten)
+            use_type = 'image'
+        elif self.dataset_name == '20NewsGroups':
+            loader = TwentyNews(num_train=num)
+            use_type = 'text'
+        X_train, y_train, X_test, y_test = loader.prepare_data()
+
+        measure_KNN = KNN_Shapley(K=1)
+        measure_TMC = TMC_Shapley(metric=accuracy_score, iterations=iterations, ray=ray, truncated=truncated)
+
+        app_feature = Feature(X_train, y_train, X_test, y_test, noisy_index=9, sigma=10, use_type=use_type)
+
+        if self.run_forks > 1:
+            print(f'[DataScope] => Generating {self.run_forks} interesting forks ...')
+            forksets = app_feature.get_interesting_forks(self.run_forks) 
+            print(np.unique(forksets))
+
+        # Processors looks for the 'model' element and split the pipelines into seperate parts
+        transform = None
+        pipeline = self.pipeline
+        transform_condknn, pipeline_condknn = process_pipe_condknn(pipeline)
+        transform_condpipe, pipeline_condpipe = process_pipe_condpipe(pipeline)
+        transform_knn, pipeline_knn = process_pipe_knn(pipeline)
+
+        start = time.time()
+        res_feature_condknn = app_feature.run(measure_KNN, model_family='custom', transform=transform_condknn, pipeline=pipeline_condknn, forksets=forksets)
+        end = time.time()
+        time_condknn = end - start
+
+        start = time.time()
+        res_feature_condpipe = app_feature.run(measure_TMC, model_family='custom', transform=transform_condpipe, pipeline=pipeline_condpipe, forksets=forksets)
+        end = time.time()
+        time_condpipe = end - start
+
+        start = time.time()
+        res_feature_knn = app_feature.run(measure_TMC, model_family='custom', transform=transform_knn, pipeline=pipeline_knn, forksets=forksets)
+        end = time.time()
+        time_knn = end - start
+
+        start = time.time()
+        res_feature_pipe = app_feature.run(measure_TMC, model_family='custom', transform=transform, pipeline=pipeline, forksets=forksets)
+        end = time.time()
+        time_pipe = end - start
+
+        # datetime object containing current date and time
+        # np.savez_compressed(f'{self.base_path}/feature/shapley/{name}-i-{iterations}-time-{dt_string}-shapley',condknn=res_feature_condknn, condpipe=res_feature_condpipe, knn=res_feature_knn, pipe=res_feature_pipe)
+        # np.savez_compressed(f'{self.base_path}/feature/data/{name}-i-{iterations}-time-{dt_string}-data', X=X_train, y=y_train, X_test=X_test, y_test=y_test, poison_indices=app_feature.poison_indices)
+        # np.savez_compressed(f'{self.base_path}/feature/time/{name}-i-{iterations}-time-{dt_string}-time', time_condknn=time_condknn, time_condpipe=time_condpipe, time_knn=time_knn, time_pipe=time_pipe)
+
+        # save figures
+        figure(num=None, figsize=(6, 4), dpi=80, facecolor='w', edgecolor='k')
+        # RuntimePlotter( 
+        #             ('KNN-Shapley (cond)', time_condknn), 
+        #             ('TMC-Shapley (cond)', time_condpipe), 
+        #             ('KNN-Shapley', time_knn), 
+        #             ('TMC-Shapley', time_pipe)).plot(save_path=f'{self.base_path}/feature/featureRuntime')
+
+        FeaturePlotter(app_feature, 
+                    ('KNN-Shapley (cond)', res_feature_condknn), 
+                    ('TMC-Shapley (cond)', res_feature_condpipe), 
+                    ('KNN-Shapley', res_feature_knn), 
+                    ('TMC-Shapley', res_feature_pipe)).plot(save_path=f'{self.base_path}/feature/Feature')
+        
+        FeatureCleaningPlotter(app_feature, 
+                     ('KNN-Shapley (cond)', res_feature_condknn), 
+                     ('TMC-Shapley (cond)', res_feature_condpipe), 
+                     ('KNN-Shapley', res_feature_knn), 
+                     ('TMC-Shapley', res_feature_pipe)
+                     ).plot(model_family='custom', pipeline=pipeline, ray=ray, save_path=f'{self.base_path}/feature/FeatureCleaning')
+
     def run_augmentation_experiment(self, iterations, dt_string, ray, truncated, forksets=None, flatten=True):
         '''
         Run augmentation experiment and plots evaluation
@@ -598,7 +529,7 @@ class Experiment:
         name = self.name + '_augment'
         if not truncated:
             name = name + '_mc'
-        num = 1000        
+        num = self.dataset_size        
         loader = FashionMnist(num_train=num, flatten=flatten)
         forksets = loader.augment()
         X_train, y_train, X_test, y_test = loader.prepare_data()

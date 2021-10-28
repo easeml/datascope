@@ -81,7 +81,7 @@ class KNN_Shapley(Measure):
           s[forksets[fidxs]] = s_fork[fidxs] / len(forksets[fidxs])
         return s
 
-    def score(self, X_train, y_train, X_test, y_test, model=None, use_torch=False, forksets=None, **kwargs):
+    def score(self, X_train, y_train, X_test, y_test, model=None, use_torch=False, forksets=None, recompute=False, **kwargs):
         """
         Run the model on the test data and calculate the Shapley value.
         """
@@ -96,4 +96,18 @@ class KNN_Shapley(Measure):
             shapley = self._get_shapley_value_torch(X_train, y_train, X_test, y_test)
         else:
             shapley = self._get_1NN_fork_shapley_value_np(X_train, y_train, X_test, y_test, forksets)
+
+        if recompute:
+            indices = np.arange(X_train.shape[0]) #create bool mask length of array
+            ordered_ind = np.zeros(X_train.shape[0])
+            for i in range(X_train.shape[0]):
+                shapley = self._get_1NN_fork_shapley_value_np(X_train[indices], y_train[indices], X_test, y_test, forksets)
+                l_min_ind = np.argmin(shapley)
+                # translate it back to global indices
+                g_min_ind = indices[l_min_ind]
+                ordered_ind[g_min_ind] = i
+                indices = np.delete(indices, l_min_ind)
+
+            shapley = ordered_ind # return an ordered list of elements from recompute
+
         return shapley

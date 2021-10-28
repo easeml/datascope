@@ -44,7 +44,7 @@ class Label(App):
         This function creates forks that slowly move from completely flipped to not flipped.
         """
         size_of_sets = self.num_train // number_of_forksets
-        print("size of sets", size_of_sets)
+        print("[Datascope] size of sets", size_of_sets)
         assert(number_of_forksets % 2 == 0) # must be equal
         fork_id = 0
         forksets = np.zeros(self.num_train, dtype=int)
