@@ -8,7 +8,6 @@ ipykernel = "*"
 matplotlib = "*"
 
 [packages]
-datascope = {editable = true, path = "."}
 scikit-image = "*"
 pandas = "*"
 torchvision = "*"
@@ -19,3 +18,11 @@ fairlearn = "*"
 
 [requires]
 python_version = "3.8"
+
+[packages.datascope]
+editable = true
+path = "."
+
+[packages.e1839a8]
+path = "."
+editable = true
