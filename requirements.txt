@@ -1,8 +1,12 @@
 # datascope dependencies
+numpy
 tensorflow
 torch
 scikit-learn
 ray
+scipy
+pandas
+matplotlib
 # pipeline dependencies
 # scikit-image
 # nltk
