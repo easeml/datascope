@@ -15,14 +15,8 @@ tensorflow = "*"
 keras = "*"
 seaborn = "*"
 fairlearn = "*"
+dspipes = {git = "https://github.com/DS3Lab/datascope-pipelines.git"}
+datascope = {editable = true, path = "."}
 
 [requires]
 python_version = "3.8"
-
-[packages.datascope]
-editable = true
-path = "."
-
-[packages.e1839a8]
-path = "."
-editable = true
