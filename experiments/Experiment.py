@@ -48,9 +48,9 @@ class Experiment:
         
         # flatten image datasets for sklearn
         flatten = False
-        if self.dataset_name == 'FashionMNIST':
-            if self.pipeline != 'pipe-7':
-                flatten = True
+        # if self.dataset_name == 'FashionMNIST':
+        #     if self.pipeline != 'pipe-7':
+        #         flatten = True
 
         def create_dirs(path):
             if (not os.path.exists(path)):
