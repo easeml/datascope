@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 
 import argparse
+import datetime
+import logging
 import timeit
+import traceback
 
 from dspipes import Pipelines
 from Experiment import Experiment
@@ -21,6 +24,11 @@ if __name__ == "__main__":
         help="Path where the data is stored. Default: [current directory]")
 
     EXPERIMENTS = ["labels", "fairness", "poisoning"]
+    DATASET_EXPERIMENTS = {
+        "FashionMNIST" : ["labels", "poisoning"],
+        "UCI" : ["labels", "fairness", "poisoning"],
+        "20NewsGroups" : ["labels", "poisoning"],
+    }
     parser.add_argument("-e", "--experiments", type=str, nargs='+', default=EXPERIMENTS, choices=EXPERIMENTS,
         help="Space-separated list of experiments to run. Default: [all experiments]")
 
@@ -34,7 +42,7 @@ if __name__ == "__main__":
         "UCI" : list(range(0, 6)),
         "20NewsGroups" : list(range(8, 9))
     }
-    parser.add_argument("-p", "--pipelines", nargs='+', default=ALL_PIPELINES, choices=ALL_PIPELINES,
+    parser.add_argument("-p", "--pipelines", type=int, nargs='+', default=ALL_PIPELINES, choices=ALL_PIPELINES,
         help="Space-separated list of pipelines to run. Default: [all pipelines]")
 
     args = parser.parse_args()
@@ -75,14 +83,17 @@ if __name__ == "__main__":
 
                 start = timeit.default_timer()
 
-                name = f'pipe_{pipeline}'
-                model = Pipelines.create_numerical_pipeline(name, imputer=False)
-                exp_name = f'i{args.iterations}_{dataset}_{name}'
-                exp = Experiment(exp_name, model, dataset_name=dataset, save_path=args.output_path)
-                exp.run(**settings)
+                try:
+                    name = f'pipe_{pipeline}'
+                    model = Pipelines.create_numerical_pipeline(name, imputer=False)
+                    exp_name = f'i{args.iterations}_{dataset}_{name}'
+                    exp = Experiment(exp_name, model, dataset_name=dataset, save_path=args.output_path)
+                    exp.run(**settings)
+                except Exception as e:
+                    logging.error(traceback.format_exc())
 
                 stop = timeit.default_timer()
-                print('Time: ', stop - start)
+                print('Time: ', str(datetime.timedelta(seconds=stop- start)))
 
     total_stop = timeit.default_timer()
-    print('Total runtime: ', total_stop - total_stop)
+    print('Total runtime: ', str(datetime.timedelta(seconds=total_stop - total_start)))

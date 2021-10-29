@@ -79,7 +79,7 @@ class Experiment:
         if run_fairness:
             print('[DataScope] => Running fairness experiment')
             create_dirs(f'{self.custom_save_path}/results/{name}/i-{iterations}-time-{dt_string}/fairness/')
-            self.run_fairness_experiment(iterations, dt_string, ray, truncated, forksets=forksets)
+            self.run_fairness_experiment(iterations, dt_string, ray, truncated, forksets=forksets, flatten=flatten)
         if run_augmentation:
             print('[DataScope] => Running augmentation experiment')
             create_dirs(f'{self.custom_save_path}/results/{name}/i-{iterations}-time-{dt_string}/augmentation/')
@@ -272,7 +272,7 @@ class Experiment:
                      ('TMC-Shapley', res_poisoning_pipe)
                      ).plot(model_family='custom', pipeline=pipeline, ray=ray, save_path=f'{self.base_path}/poisoning/PoisoningCleaning')
 
-    def run_fairness_experiment(self, iterations, dt_string, ray, truncated, forksets=None):
+    def run_fairness_experiment(self, iterations, dt_string, ray, truncated, forksets=None, flatten=True):
 
         name = self.name + '_fairness'
         if not truncated:
