@@ -8,6 +8,7 @@ class Poisoning(App):
         self.name = 'Poisoning'
         self.X = X.copy()
         self.y = y.copy()
+        self.unflipped_y = y.copy()
         self.X_test = X_test.copy()
         self.y_test = y_test.copy()
         self.num_train = len(self.X)

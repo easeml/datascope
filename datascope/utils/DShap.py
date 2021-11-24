@@ -7,9 +7,9 @@ import scipy
 from sklearn.metrics import f1_score
 
 def return_model(mode, **kwargs):
-        model = kwargs.get('pipeline', None)
-        print(model)
-        return model
+    model = kwargs.get('pipeline', None)
+    #print(model)
+    return model
 
 def delete_rows_csr(mat, index):
     if not isinstance(mat, scipy.sparse.csr_matrix):
@@ -68,6 +68,10 @@ class DShap(object):
         self.model = return_model(self.model_family, **kwargs)
         self.random_score = self.init_score(self.metric)
         self.measure = measure
+        
+        # hacky to allow to calculate the curve
+        self.fixed_y = kwargs.get('fixed_y', None)
+        self.recompute_v1 = kwargs.get('recompute_v1', False)
 
     def _initialize_instance(self, X, y, X_test, y_test, num_test, forksets=None):
         """Loads or creates data."""
@@ -148,7 +152,7 @@ class DShap(object):
 
         self.restart_model()
         self.model.fit(self.X, self.y)
-        return self.measure.score(self.X, self.y, self.X_test, self.y_test, model_family=self.model_family, model=self.model, forksets=self.forksets)
+        return self.measure.score(self.X, self.y, self.X_test, self.y_test, model_family=self.model_family, model=self.model, forksets=self.forksets, fixed_y=self.fixed_y, recompute_v1=self.recompute_v1)
 
     def get_forksets(self):
         return self.forksets

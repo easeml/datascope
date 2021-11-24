@@ -81,7 +81,7 @@ class KNN_Shapley(Measure):
           s[forksets[fidxs]] = s_fork[fidxs] / len(forksets[fidxs])
         return s
 
-    def score(self, X_train, y_train, X_test, y_test, model=None, use_torch=False, forksets=None, recompute=False, **kwargs):
+    def score(self, X_train, y_train, X_test, y_test, model=None, use_torch=False, forksets=None, fixed_y=None, recompute_v1=False, **kwargs):
         """
         Run the model on the test data and calculate the Shapley value.
         """
@@ -97,17 +97,57 @@ class KNN_Shapley(Measure):
         else:
             shapley = self._get_1NN_fork_shapley_value_np(X_train, y_train, X_test, y_test, forksets)
 
-        if recompute:
-            indices = np.arange(X_train.shape[0]) #create bool mask length of array
-            ordered_ind = np.zeros(X_train.shape[0])
-            for i in range(X_train.shape[0]):
-                shapley = self._get_1NN_fork_shapley_value_np(X_train[indices], y_train[indices], X_test, y_test, forksets)
-                l_min_ind = np.argmin(shapley)
-                # translate it back to global indices
-                g_min_ind = indices[l_min_ind]
-                ordered_ind[g_min_ind] = i
-                indices = np.delete(indices, l_min_ind)
+        if fixed_y is None:
+            pass
+        else:
+            if recompute_v1:
+                print("[DataScope] => Start KNN recompute v1")
+                #TODO: Support forks
 
-            shapley = ordered_ind # return an ordered list of elements from recompute
+                indices = np.arange(X_train.shape[0]) # [0,1,2,...n]
+                ordered_ind = np.zeros(X_train.shape[0])
+                for i in range(X_train.shape[0]):
+                    print(f'Recompute v1 {i}/{X_train.shape[0]}')
+                    shapley = self._get_1NN_fork_shapley_value_np(X_train[indices], y_train[indices], X_test, y_test, forksets)
+                    l_min_ind = np.argmin(shapley)
+
+                    # translate it back to global indices
+                    g_min_ind = indices[l_min_ind]
+                    ordered_ind[g_min_ind] = i
+
+                    # update indices and forksets
+                    indices = np.delete(indices, l_min_ind)
+
+                    forksets = {el:np.array([el]) for el in range(indices.shape[0])}
+                    # TODO FORK: delete all entries of a certain g_min_ind
+                    # TODO FORK: change all existing indices to local indices
+                    
+                print(ordered_ind)
+                shapley = ordered_ind # return an ordered list of elements from recompute
+            
+            else:
+                print("[DataScope] => Start KNN recompute v2")
+                # TODO: Support forks
+
+                checked_ind = []
+                ordered_ind = np.zeros(X_train.shape[0])
+
+                for i in range(X_train.shape[0]):
+                    print(f'Recompute v2 {i}/{X_train.shape[0]}')
+                    shapley = self._get_1NN_fork_shapley_value_np(X_train, y_train, X_test, y_test, forksets)
+                    sorted_indices = np.argsort(shapley)
+                    # reset min indices
+                    min_ind = -1
+                    j = 0
+                    while(min_ind == -1):
+                        if sorted_indices[j] not in checked_ind:
+                            min_ind = sorted_indices[j]
+                        else:
+                            j += 1 # increase j
+                    checked_ind += [min_ind] # keep list of ind
+                    ordered_ind[min_ind] = i
+                    y_train[min_ind] = fixed_y[min_ind]
+                print(ordered_ind)
+                shapley = ordered_ind
 
         return shapley

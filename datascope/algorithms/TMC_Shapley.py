@@ -80,7 +80,7 @@ class TMC_Shapley(Measure):
         else:
             return marginal_contribs, time_measured
 
-    def score(self, X_train, y_train, X_test, y_test, model_family='', model=None, tolerance=0.1, forksets=None):
+    def score(self, X_train, y_train, X_test, y_test, model_family='', model=None, tolerance=0.1, forksets=None, **kwargs):
         """
         Calculate the TMC Shapley marginals for all iterations.
         """

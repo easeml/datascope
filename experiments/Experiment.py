@@ -133,10 +133,16 @@ class Experiment:
         print("condknn time: ", time_condknn)
 
         start = time.perf_counter()
-        res_label_condknn_recomp = app_label.run(measure_KNN, model_family='custom', transform=transform_condknn, pipeline=pipeline_condknn, forksets=forksets, recompute=True)
+        res_label_condknn_recomp_v1 = app_label.run(measure_KNN, model_family='custom', transform=transform_condknn, pipeline=pipeline_condknn, forksets=forksets, fixed_y=app_label.unflipped_y, recompute_v1=True)
+        end = time.perf_counter()
+        time_condknn_recomp_v1 = end - start
+        print("recompute v1 condknn time: ", time_condknn_recomp_v1)
+
+        start = time.perf_counter()
+        res_label_condknn_recomp = app_label.run(measure_KNN, model_family='custom', transform=transform_condknn, pipeline=pipeline_condknn, forksets=forksets, fixed_y=app_label.unflipped_y, recompute_v1=False)
         end = time.perf_counter()
         time_condknn_recomp = end - start
-        print("recompute condknn time: ", time_condknn_recomp)
+        print("recompute v2 condknn time: ", time_condknn_recomp)
 
         start = time.perf_counter()
         res_label_condpipe = app_label.run(measure_TMC, model_family='custom', transform=transform_condpipe, pipeline=pipeline_condpipe, forksets=forksets)
@@ -169,6 +175,7 @@ class Experiment:
 
         LabelPlotter(app_label, 
                     ('KNN-Shapley (cond)', res_label_condknn), 
+                    ('KNN-Shapley recompute v1 (cond)', res_label_condknn_recomp_v1),
                     ('KNN-Shapley recompute (cond)', res_label_condknn_recomp),
                     ('TMC-Shapley (cond)', res_label_condpipe), 
                     ('KNN-Shapley', res_label_knn), 
@@ -176,6 +183,7 @@ class Experiment:
         
         LabelCleaningPlotter(app_label, 
                      ('KNN-Shapley (cond)', res_label_condknn), 
+                     ('KNN-Shapley recompute v1 (cond)', res_label_condknn_recomp_v1),
                      ('KNN-Shapley recompute (cond)', res_label_condknn_recomp),
                      ('TMC-Shapley (cond)', res_label_condpipe), 
                      ('KNN-Shapley', res_label_knn), 
@@ -225,7 +233,12 @@ class Experiment:
         time_condknn = end - start
 
         start = time.time()
-        res_poisoning_condknn_recomp = app_poisoning.run(measure_KNN, model_family='custom', transform=transform_condknn, pipeline=pipeline_condknn, forksets=forksets, recompute=True)
+        res_poisoning_condknn_recomp_v1 = app_poisoning.run(measure_KNN, model_family='custom', transform=transform_condknn, pipeline=pipeline_condknn, forksets=forksets, fixed_y=app_poisoning.unflipped_y, recompute_v1=True)
+        end = time.time()
+        time_condknn_recomp_v1 = end - start
+
+        start = time.time()
+        res_poisoning_condknn_recomp = app_poisoning.run(measure_KNN, model_family='custom', transform=transform_condknn, pipeline=pipeline_condknn, forksets=forksets, fixed_y=app_poisoning.unflipped_y, recompute_v1=False)
         end = time.time()
         time_condknn_recomp = end - start
 
@@ -259,6 +272,7 @@ class Experiment:
 
         PoisoningPlotter(app_poisoning, 
                     ('KNN-Shapley (cond)', res_poisoning_condknn), 
+                    ('KNN-Shapley recompute v1 (cond)', res_poisoning_condknn_recomp_v1),
                     ('KNN-Shapley recompute (cond)', res_poisoning_condknn_recomp),
                     ('TMC-Shapley (cond)', res_poisoning_condpipe), 
                     ('KNN-Shapley', res_poisoning_knn), 
@@ -266,6 +280,7 @@ class Experiment:
         
         PoisoningCleaningPlotter(app_poisoning, 
                      ('KNN-Shapley (cond)', res_poisoning_condknn), 
+                     ('KNN-Shapley recompute v1 (cond)', res_poisoning_condknn_recomp_v1),
                      ('KNN-Shapley recompute (cond)', res_poisoning_condknn_recomp),
                      ('TMC-Shapley (cond)', res_poisoning_condpipe), 
                      ('KNN-Shapley', res_poisoning_knn), 
