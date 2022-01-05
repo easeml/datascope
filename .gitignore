@@ -136,3 +136,4 @@ dmypy.json
 
 # Misc
 .vscode/
+.benchmarks/

@@ -1,0 +1,2 @@
+# Experiment dependencies
+matplotlib >= 3.5

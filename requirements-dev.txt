@@ -1,0 +1,7 @@
+# Development dependencies
+mypy >= 0.9
+flake8 >= 4.0
+pytest >= 6.2
+pytest-benchmark >= 3.4
+pytest-cov >= 3.0
+black
