@@ -39,10 +39,13 @@ setup-dev: requirements-dev.txt
 ## Install the base and experimental bundles of datascope to the current python environment.
 setup-exp: requirements-exp.txt
 	pip install -e .[exp]
+	pip install git+https://github.com/DS3Lab/datascope-pipelines
 
 .PHONY: setup-all
 ## Install all bundles of datascope to the current python environment.
-setup-all: setup setup-dev setup-exp
+setup-all: requirements.txt requirements-dev.txt requirements-exp.txt
+	pip install -e .[complete]
+	pip install git+https://github.com/DS3Lab/datascope-pipelines
 
 .PHONY: test
 ## Run tests (excluding benchmark tests).

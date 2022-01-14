@@ -1,2 +1,9 @@
 # Experiment dependencies
 matplotlib >= 3.5
+
+# Pipelines dependencies
+torchvision >= 0.11
+tensorflow >= 2.7
+keras >= 2.7
+seaborn >= 0.11
+fairlearn >= 0.7
