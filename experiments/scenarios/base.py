@@ -356,8 +356,8 @@ class Scenario(ABC):
 
         self._run(progress_bar=progress_bar)
 
-        # duration = datetime.timedelta(int(time.time() - timestart))
-        duration = datetime.time(0, 0, int(time.time() - timestart)).strftime("%H:%M:%S")
+        duration = datetime.timedelta(seconds=int(time.time() - timestart))
+        # duration = datetime.time(0, 0, int(time.time() - timestart)).strftime("%H:%M:%S")
         self.logger.info("Run completed. Duration: %s" % str(duration))
 
         # Clear logging handlers.
@@ -656,7 +656,7 @@ class Study:
                 monitor = threading.Thread(target=Study._status_monitor, args=(queue, self.logger))
                 monitor.start()
                 pool = Pool(ray_address=ray_address)
-                for scenario in pool.imap(runner, self.scenarios):
+                for scenario in pool.imap_unordered(runner, self.scenarios):
                     scenarios.append(scenario)
                     if pbar is not None:
                         pbar.update(1)
