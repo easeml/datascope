@@ -6,7 +6,7 @@ from math import comb
 
 # from numba import prange
 from numpy import ndarray
-from scipy.sparse import csr_matrix
+from scipy.sparse import csr_matrix, issparse, spmatrix
 from scipy.sparse.csgraph import connected_components
 from sklearn.metrics import DistanceMetric
 from typing import Dict, List, Literal, Optional, Iterable, Set, Tuple
@@ -164,7 +164,7 @@ class ShapleyImportance(Importance):
         self.X = X
         self.y = y
         if provenance is None:
-            provenance = np.arange(len(X))
+            provenance = np.arange(X.shape[0])
         self.provenance = reshape(provenance)
         return self
 
@@ -330,6 +330,12 @@ class ShapleyImportance(Importance):
         provenance = binarize(provenance)
 
         # Compute the distances between training and text data examples.
+        if issparse(X):
+            assert isinstance(X, spmatrix)
+            X = X.todense()
+        if issparse(X_test):
+            assert isinstance(X_test, spmatrix)
+            X_test = X_test.todense()
         distances = distance(X, X_test)
 
         # Compute the utilitiy values between training and test labels.
