@@ -12,7 +12,7 @@ from sklearn.metrics import DistanceMetric
 from typing import Dict, List, Literal, Optional, Iterable, Set, Tuple
 
 from .add import ADD
-from .common import DEFAULT_SEED, DistanceCallable, Utility, get_indices, one_hot_encode, pad_jagged_array
+from .common import DEFAULT_SEED, DistanceCallable, Utility, binarize, get_indices, reshape
 from .importance import Importance
 
 
@@ -92,20 +92,18 @@ def compute_shapley_add(
 # @njit(parallel=False)
 # @njit(parallel=True, fastmath=True)
 def compute_shapley_1nn_mapfork(
-    distances: ndarray,
-    utilities: ndarray,
-    provenance: ndarray,
-    units: ndarray,
+    distances: ndarray, utilities: ndarray, provenance: ndarray, units: ndarray, world: ndarray
 ) -> Iterable[float]:
 
-    if not np.all(provenance.sum(axis=1) == 1):
+    if not np.all(provenance.sum(axis=2) == 1):
         raise ValueError("The provenance of all data examples must reference at most one unit.")
+    provenance = np.squeeze(provenance, axis=1)
 
     n_test = distances.shape[1]
     n_units = len(units)
 
     # Compute the minimal distance for each unit and each test example.
-    unit_provenance = provenance[:, units].astype(np.bool_)
+    unit_provenance = provenance[..., units, world].astype(np.bool_)
     unit_distances = np.zeros((n_units, n_test))  # TODO: Make this faster.
     unit_utilities = np.zeros((n_units, n_test))  # TODO: Make this faster.
     for i in prange(n_units):
@@ -162,14 +160,13 @@ class ShapleyImportance(Importance):
         self.provenance: Optional[ndarray] = None
         self.randomstate = np.random.RandomState(seed)
 
-    def _fit(self, X: ndarray, y: ndarray, provenance: Optional[ndarray] = None) -> None:
+    def _fit(self, X: ndarray, y: ndarray, provenance: Optional[ndarray] = None) -> "ShapleyImportance":
         self.X = X
         self.y = y
         if provenance is None:
             provenance = np.arange(len(X))
-        if provenance.ndim == 1:
-            provenance = provenance.reshape((-1, 1))
-        self.provenance = pad_jagged_array(provenance, fill_value=-1)
+        self.provenance = reshape(provenance)
+        return self
 
     def _score(self, X: ndarray, y: Optional[ndarray] = None, **kwargs) -> Iterable[float]:
         if self.X is None or self.y is None or self.provenance is None:
@@ -179,35 +176,60 @@ class ShapleyImportance(Importance):
 
         units = kwargs.get("units", np.unique(self.provenance))
         units = np.delete(units, np.where(units == -1))
-        return self._shapley(self.X, self.y, X, y, self.provenance, units)
+        world = kwargs.get("world", np.zeros_like(units, dtype=int))
+        return self._shapley(self.X, self.y, X, y, self.provenance, units, world)
 
     def _shapley(
-        self, X: ndarray, y: ndarray, X_test: ndarray, y_test: ndarray, provenance: ndarray, units: ndarray
+        self,
+        X: ndarray,
+        y: ndarray,
+        X_test: ndarray,
+        y_test: ndarray,
+        provenance: ndarray,
+        units: ndarray,
+        world: ndarray,
     ) -> Iterable[float]:
         if self.method == ImportanceMethod.BRUTEFORCE:
-            return self._shapley_bruteforce(X, y, X_test, y_test, provenance, units)
+            return self._shapley_bruteforce(X, y, X_test, y_test, provenance, units, world)
         elif self.method == ImportanceMethod.MONTECARLO:
             return self._shapley_montecarlo(
-                X, y, X_test, y_test, provenance, units, self.mc_iterations, self.mc_tolerance, self.mc_truncation_steps
+                X,
+                y,
+                X_test,
+                y_test,
+                provenance,
+                units,
+                world,
+                self.mc_iterations,
+                self.mc_tolerance,
+                self.mc_truncation_steps,
             )
         elif self.method == ImportanceMethod.NEIGHBOR:
-            return self._shapley_neighbor(X, y, X_test, y_test, provenance, units, self.nn_k, self.nn_distance)
+            return self._shapley_neighbor(X, y, X_test, y_test, provenance, units, world, self.nn_k, self.nn_distance)
         else:
             raise ValueError("Unknown method '%s'." % self.method)
 
     def _shapley_bruteforce(
-        self, X: ndarray, y: ndarray, X_test: ndarray, y_test: ndarray, provenance: ndarray, units: ndarray
+        self,
+        X: ndarray,
+        y: ndarray,
+        X_test: ndarray,
+        y_test: ndarray,
+        provenance: ndarray,
+        units: ndarray,
+        world: ndarray,
     ) -> Iterable[float]:
 
         # Convert provenance and units to bit-arrays.
-        provenance = one_hot_encode(provenance, mergelast=True)
+        provenance = binarize(provenance)
 
         # Compute null score.
         null_score = self.utility.null_score(X, y, X_test, y_test)
         null_score = 0.5
 
         # Iterate over all subsets of units.
-        n_units_total = provenance.shape[-1]
+        n_units_total = provenance.shape[2]
+        n_candidates_total = provenance.shape[3]
         n_units = len(units)
         importance = np.zeros(n_units)
         for iteration in product(*[[0, 1] for _ in range(n_units)]):
@@ -215,8 +237,8 @@ class ShapleyImportance(Importance):
             s_iter = np.sum(iter)
 
             # Get indices of data points selected based on the iteration query.
-            query = np.zeros(n_units_total)
-            query[units] = iter
+            query = np.zeros((n_units_total, n_candidates_total))
+            query[units, world] = iter
             indices = get_indices(provenance, query)
 
             # Train the model and score it. If we fail at any step we get zero score.
@@ -239,27 +261,29 @@ class ShapleyImportance(Importance):
         y_test: ndarray,
         provenance: ndarray,
         units: ndarray,
+        world: ndarray,
         iterations: int = DEFAULT_MC_ITERATIONS,
         tolerance: float = DEFAULT_MC_TOLERANCE,
         truncation_steps: int = DEFAULT_MC_TRUNCATION_STEPS,
     ) -> Iterable[float]:
 
         # Convert provenance and units to bit-arrays.
-        provenance = one_hot_encode(provenance, mergelast=True)
+        provenance = binarize(provenance)
 
         # Compute mean score.
         null_score = self.utility.null_score(X, y, X_test, y_test)
         mean_score = self.utility.mean_score(X, y, X_test, y_test)
 
         # Run a given number of iterations.
-        n_units_total = provenance.shape[-1]
+        n_units_total = provenance.shape[2]
+        n_candidates_total = provenance.shape[3]
         n_units = len(units)
         truncation_counter = 0
         all_importances = np.zeros((n_units, iterations))
         for i in range(iterations):
             idxs = self.randomstate.permutation(n_units)
             importance = np.zeros(n_units)
-            query = np.zeros(n_units_total)
+            query = np.zeros((n_units_total, n_candidates_total))
 
             new_score = null_score
 
@@ -267,7 +291,7 @@ class ShapleyImportance(Importance):
                 old_score = new_score
 
                 # Get indices of data points selected based on the iteration query.
-                query[units[idx]] = 1
+                query[units[idx], world[idx]] = 1
                 indices = get_indices(provenance, query)
 
                 # Train the model and score it. If we fail at any step we get zero score.
@@ -297,12 +321,13 @@ class ShapleyImportance(Importance):
         y_test: ndarray,
         provenance: ndarray,
         units: ndarray,
+        world: ndarray,
         k: int,
         distance: DistanceCallable,
     ) -> Iterable[float]:
 
         # Convert provenance and units to bit-arrays.
-        provenance = one_hot_encode(provenance, mergelast=True)
+        provenance = binarize(provenance)
 
         # Compute the distances between training and text data examples.
         distances = distance(X, X_test)
@@ -312,6 +337,6 @@ class ShapleyImportance(Importance):
         utilities = np.equal.outer(y, y_test).astype(float)
 
         if k == 1:
-            return compute_shapley_1nn_mapfork(distances, utilities, provenance, units)
+            return compute_shapley_1nn_mapfork(distances, utilities, provenance, units, world)
         else:
             raise ValueError("The value '%d' for the k-parameter is not possible.")

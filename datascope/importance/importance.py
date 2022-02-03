@@ -12,12 +12,12 @@ class Importance:
     #     raise NotImplementedError()
 
     @abstractmethod
-    def _fit(self, X: ndarray, y: ndarray, provenance: Optional[ndarray] = None) -> None:
+    def _fit(self, X: ndarray, y: ndarray, provenance: Optional[ndarray] = None) -> "Importance":
         raise NotImplementedError()
 
     def fit(
         self, X: Union[DataFrame, ndarray], y: Union[DataFrame, ndarray], provenance: Optional[ndarray] = None
-    ) -> None:
+    ) -> "Importance":
         if hasattr(X, "provenance") and provenance is None:
             provenance = getattr(X, "provenance")
         if isinstance(X, DataFrame):

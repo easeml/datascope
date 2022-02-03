@@ -4,7 +4,7 @@ import numpy as np
 from abc import ABC
 from collections import defaultdict
 from numpy import ndarray
-from typing import Optional, Protocol, Callable
+from typing import Optional, Protocol, Callable, Union
 from sklearn.base import clone
 
 
@@ -170,6 +170,22 @@ def pad_jagged_array(array, fill_value):
     return result
 
 
+def reshape(provenance: ndarray) -> ndarray:
+    provenance = pad_jagged_array(provenance, fill_value=-1)
+    result = provenance
+    if result.ndim == 1:
+        result = result.reshape((-1, 1, 1, 1))
+    elif result.ndim == 2:
+        result = result.reshape((result.shape[0], 1, result.shape[1], 1))
+    elif result.ndim == 3:
+        result = result.reshape(result.shape + (1,))
+    if result.ndim != 4:
+        raise ValueError("Cannot reshape the provenance array with shape %s." % str(provenance.shape))
+    if result.shape[3] == 1:
+        result = np.concatenate([result, np.zeros_like(result)], axis=3)
+    return result
+
+
 def one_hot_encode(array: ndarray, mergelast: bool = False) -> ndarray:
     vmax = array.max()
     resultshape = (array.shape[:-1] if mergelast else array.shape) + (vmax + 1,)
@@ -184,13 +200,98 @@ def one_hot_encode(array: ndarray, mergelast: bool = False) -> ndarray:
     return result
 
 
+def binarize(provenance: ndarray) -> ndarray:
+    assert provenance.ndim == 4
+    assert provenance.shape[-1] == 2
+    umax = provenance[..., 0].max()
+    cmax = provenance[..., 1].max()
+    resultshape = provenance.shape[:2] + (umax + 1, cmax + 1)
+    result = np.zeros(resultshape, dtype=int)
+    for idx, unit in np.ndenumerate(provenance[..., 0]):
+        candidate = provenance[idx[:3] + (1,)]
+        if unit != -1 and candidate != -1:
+            ridx = idx[:2] + (unit, candidate)
+            result[ridx] = 1
+    return result
+
+
 def get_indices(provenance: ndarray, query: ndarray) -> ndarray:
-    assert provenance.ndim >= 2
-    newshape = provenance.shape[:1] + tuple(1 for _ in range(3 - provenance.ndim)) + provenance.shape[1:]
-    provenance = provenance.reshape(newshape)
-    query = np.broadcast_to(query, newshape)
+    assert provenance.ndim == 4
+    assert query.ndim in [1, 2]
+    if query.ndim == 1:
+        query = np.broadcast_to(query[:, np.newaxis], query.shape + (provenance.shape[-1],))
+    # newshape = provenance.shape[:1] + tuple(1 for _ in range(3 - provenance.ndim)) + provenance.shape[1:]
+    # provenance = provenance.reshape(newshape)
+    query = np.broadcast_to(query, provenance.shape)
     land = np.logical_and(provenance, query)
     eq = np.equal(land, provenance)
-    a1 = np.all(eq, axis=2)
+    a1 = np.all(eq, axis=(2, 3))
     a2 = np.any(a1, axis=1)
     return a2
+
+
+class Provenance(ndarray):
+    def __new__(cls, a):
+        obj = np.asarray(a).view(cls)
+        cls._validate(obj)
+        return obj
+
+    def __array_finalize__(self, obj):
+        if obj is None:
+            return
+        Provenance._validate(obj)
+
+    @classmethod
+    def _validate(cls, obj: "Provenance") -> None:
+        if obj.ndim != 4:
+            raise ValueError("The provided provenance array must have 4 dimensions.")
+
+    def get_indices(self, query: ndarray) -> ndarray:
+        assert query.ndim in [1, 2]
+        if query.ndim == 1:
+            query = np.broadcast_to(query[:, np.newaxis], query.shape + (self.shape[-1],))
+        query = np.broadcast_to(query, self.shape)
+        land = np.logical_and(self, query)
+        eq = np.equal(land, self)
+        a1 = np.all(eq, axis=(2, 3))
+        a2 = np.any(a1, axis=1)
+        return a2
+
+    def indices(self, units: Optional[ndarray] = None, world: Optional[Union[ndarray, int]] = None) -> ndarray:
+        if units is None:
+            if world is None:
+                return np.ones(self.shape[0], dtype=int)
+            else:
+                if isinstance(world, int):
+                    world = np.repeat(world, self.shape[0])
+                worldslice = self[np.arange(self.shape[0]), :, :, world]
+                return np.any(worldslice, axis=(1, 2))
+        else:
+            if world is None:
+                return self.get_indices(units)
+            else:
+                query = np.zeros(self.shape[2:], dtype=int)
+                query[units.astype(bool), world] = np.ones(self.shape)
+                return self.get_indices(query)
+
+    def expand(
+        self,
+        tuples: Optional[int] = None,
+        disjunctions: Optional[int] = None,
+        units: Optional[int] = None,
+        candidates: Optional[int] = None,
+    ) -> "Provenance":
+        if tuples is None and disjunctions is None and units is None and candidates is None:
+            return self
+
+        pad_width = [[0, 0] for _ in range(4)]
+        if tuples is not None:
+            pad_width[0] = [0, tuples]
+        if disjunctions is not None:
+            pad_width[1] = [0, disjunctions]
+        if units is not None:
+            pad_width[2] = [0, units]
+        if candidates is not None:
+            pad_width[3] = [0, candidates]
+        result: ndarray = np.pad(self, pad_width=pad_width)
+        return result.view(Provenance)

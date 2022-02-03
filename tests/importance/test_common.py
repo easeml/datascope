@@ -1,7 +1,7 @@
 import numpy as np
 
 
-from datascope.importance.common import get_indices, one_hot_encode, pad_jagged_array
+from datascope.importance.common import get_indices, one_hot_encode, pad_jagged_array, reshape
 
 
 def test_pad_jagged_array_2d_1():
@@ -55,6 +55,8 @@ def test_one_hot_encode_merged_2d_1():
 
 def test_get_indices_1d_1():
     provenance = np.array([[1, 1, 0], [1, 0, 0], [0, 0, 1], [0, 1, 0]])
+    provenance = np.reshape(provenance, (-1, 1, 3, 1))
+    provenance = np.concatenate([provenance, np.zeros_like(provenance)], axis=3)
     query = np.array([1, 1, 0])
     result = get_indices(provenance, query)
     expected = np.array([1, 1, 0, 1])
@@ -65,6 +67,9 @@ def test_get_indices_2d_1():
     provenance = np.array(
         [[[1, 1, 0], [1, 0, 0]], [[1, 0, 0], [0, 0, 1]], [[0, 0, 1], [0, 1, 0]], [[0, 1, 0], [1, 0, 0]]]
     )
+    provenance = np.reshape(provenance, (-1, 2, 3, 1))
+    provenance = np.concatenate([provenance, np.zeros_like(provenance)], axis=3)
+    provenance = reshape(provenance)
     query = np.array([1, 0, 0])
     result = get_indices(provenance, query)
     expected = np.array([1, 1, 0, 1])

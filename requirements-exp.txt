@@ -1,5 +1,6 @@
 # Experiment dependencies
 matplotlib >= 3.5
+datasets >= 1.17
 
 # Pipelines dependencies
 torchvision >= 0.11
