@@ -1,3 +1,5 @@
+from __future__ import absolute_import
+
 import datasets
 import numpy as np
 
@@ -24,8 +26,8 @@ class DatasetModality(str, Enum):
 
 DEFAULT_TRAINSIZE = 1000
 DEFAULT_VALSIZE = 100
-# DEFAULT_TRAINSIZE = 100
-# DEFAULT_VALSIZE = 20
+DEFAULT_TRAINSIZE = 100
+DEFAULT_VALSIZE = 20
 DEFAULT_SEED = 1
 DEFAULT_CLASSES = [0, 6]
 
@@ -152,6 +154,8 @@ class TwentyNewsGroups(Dataset, modality=DatasetModality.TEXT):
         train = fetch_20newsgroups(subset="train", categories=categories, shuffle=True, random_state=self._seed)
         val = fetch_20newsgroups(subset="test", categories=categories, shuffle=True, random_state=self._seed)
 
-        self._X_train, self._y_train = np.array(train.data), np.array(train.target)
-        self._X_val, self._y_val = np.array(val.data), np.array(val.target)
+        self._X_train, self._y_train = np.array(train.data)[: self.trainsize], np.array(train.target)[: self.trainsize]
+        self._X_val, self._y_val = np.array(val.data)[: self.valsize], np.array(val.target)[: self.valsize]
         self._loaded = True
+        self._trainsize = self._X_train.shape[0]
+        self._valsize = self._X_val.shape[0]

@@ -13,7 +13,7 @@ from sklearn.pipeline import FeatureUnion
 from sklearn.preprocessing import StandardScaler, FunctionTransformer
 from typing import Dict, Iterable, Type, Optional
 
-from ..datasets import DatasetModality, Dataset
+from ..dataset import DatasetModality, Dataset
 
 
 class Pipeline(sklearn.pipeline.Pipeline):
@@ -146,14 +146,17 @@ class HogTransformPipeline(Pipeline, id="hog-transform", modalities=[DatasetModa
         cells_per_block: int = DEFAULT_HOG_CELLS_PER_BLOCK,
         block_norm: str = DEFAULT_HOG_BLOCK_NORM,
     ) -> "HogTransformPipeline":
-        def hog_transform(X):
-            return hog(
-                X,
-                orientations=orientations,
-                pixels_per_cell=(pixels_per_cell, pixels_per_cell),
-                cells_per_block=(cells_per_block, cells_per_block),
-                block_norm=block_norm,
-            )
+        def hog_transform(X: np.ndarray) -> np.ndarray:
+            def hog_single(image):
+                return hog(
+                    image=image,
+                    orientations=orientations,
+                    pixels_per_cell=(pixels_per_cell, pixels_per_cell),
+                    cells_per_block=(cells_per_block, cells_per_block),
+                    block_norm=block_norm,
+                )
+
+            return np.array([hog_single(img) for img in X])
 
         ops = [("hog", FunctionTransformer(hog_transform))]
         return HogTransformPipeline(ops)

@@ -4,4 +4,4 @@
 
 # from .scenarios import *
 
-__all__ = ["experiments", "datasets", "pipelines"]
+__all__ = ["experiments", "dataset", "pipelines"]

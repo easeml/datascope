@@ -5,9 +5,10 @@ from copy import deepcopy
 from datascope.importance.common import SklearnModelUtility, binarize, get_indices
 from datascope.importance.shapley import ShapleyImportance, ImportanceMethod
 from enum import Enum
+from numpy import ndarray
 
 from .base import Scenario, attribute, result
-from ..datasets import Dataset
+from ..dataset import Dataset
 from ..pipelines import Pipeline, get_model, ModelType
 
 from pandas import DataFrame
@@ -94,11 +95,19 @@ class LabelRepairScenario(Scenario, id="label-repair"):
         # Load the pipeline and process the data.
         pipeline_class = Pipeline.pipelines[self.pipeline]
         pipeline = pipeline_class.construct(dataset)
-        X_train = pipeline.fit_transform(dataset.X_train, dataset.y_train)  # TODO: Fit the pipeline with dirty data.
-        X_train_dirty = pipeline.transform(dataset_dirty.X_train)
+        X_train: ndarray = pipeline.fit_transform(
+            dataset.X_train, dataset.y_train
+        )  # TODO: Fit the pipeline with dirty data.
+        X_train_dirty: ndarray = pipeline.transform(dataset_dirty.X_train)
         y_train, y_val, y_train_dirty = dataset.y_train, dataset.y_val, dataset_dirty.y_train
-        X_val = pipeline.transform(dataset.X_val)
+        X_val: ndarray = pipeline.transform(dataset.X_val)
         assert y_train is not None
+
+        # Reshape datasets if needed.
+        if X_train.ndim > 2:
+            X_train = X_train.reshape(X_train.shape[0], -1)
+            X_train_dirty = X_train_dirty.reshape(X_train_dirty.shape[0], -1)
+            X_val = X_val.reshape(X_val.shape[0], -1)
 
         # Construct binarized provenance matrix.
         provenance = np.expand_dims(np.arange(dataset.trainsize, dtype=int), axis=(1, 2, 3))
