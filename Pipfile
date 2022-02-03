@@ -6,17 +6,31 @@ verify_ssl = true
 [dev-packages]
 ipykernel = "*"
 matplotlib = "*"
+mypy = "*"
+flake8 = "*"
+pytest = "*"
+black = "==21.12b0"
+pytest-benchmark = "*"
+pytest-cov = "*"
 
 [packages]
-scikit-image = "*"
 pandas = "*"
 torchvision = "*"
 tensorflow = "*"
 keras = "*"
 seaborn = "*"
 fairlearn = "*"
-dspipes = {git = "https://github.com/DS3Lab/datascope-pipelines.git"}
-datascope = {editable = true, path = "."}
 
 [requires]
 python_version = "3.8"
+
+[packages.dspipes]
+git = "https://github.com/DS3Lab/datascope-pipelines.git"
+
+[packages.datascope]
+editable = true
+path = "."
+
+[packages.e1839a8]
+path = "."
+editable = true
