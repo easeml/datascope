@@ -14,13 +14,14 @@ import traceback
 import warnings
 import yaml
 
-from abc import ABC, abstractmethod, abstractproperty
+from abc import ABC, abstractmethod
 from enum import Enum
 from glob import glob
 from inspect import signature
 from io import TextIOBase, StringIO, SEEK_END
 from itertools import product
 from logging import Logger
+from matplotlib.figure import Figure
 from numpy import ndarray
 from pandas import DataFrame
 from ray.util.multiprocessing import Pool
@@ -197,6 +198,11 @@ def save_dict(source: Dict[str, Any], dirpath: str, basename: str) -> None:
                 filename = os.path.join(dirpath, ".".join([basename, name, "yaml"]))
                 with open(filename) as f:
                     yaml.safe_dump(data, f)
+            elif isinstance(data, Figure):
+                filename = os.path.join(dirpath, ".".join([basename, name, "pdf"]))
+                data.savefig(fname=filename)
+                filename = os.path.join(dirpath, ".".join([basename, name, "png"]))
+                data.savefig(fname=filename)
             else:
                 raise ValueError("Key '%s' has unsupported type '%s'." % (name, str(type(data))))
 
@@ -217,15 +223,18 @@ def load_dict(dirpath: str, basename: str) -> Dict[str, Any]:
         base, ext = os.path.splitext(filename)
         name = base[len(basename) + 1 :]  # noqa: E203
 
-        if ext == "npy":
-            res[name] = np.load(filename)
-        elif ext == "csv":
-            res[name] = pd.read_csv(filename)
-        elif ext == "yaml":
-            with open(filename) as f:
+        if name == "":
+            continue
+
+        if ext == ".npy":
+            res[name] = np.load(path)
+        elif ext == ".csv":
+            res[name] = pd.read_csv(path)
+        elif ext == ".yaml":
+            with open(path) as f:
                 res[name] = yaml.safe_load(f)
         else:
-            warnings.warn("File '%s' with unsupported extension will be ignored." % filename)
+            warnings.warn("File '%s' with unsupported extension '%s' will be ignored." % (path, ext))
 
     return res
 
@@ -310,13 +319,15 @@ class Scenario(ABC):
         self._id = id if id is not None else "".join(random.choices(string.ascii_lowercase + string.digits, k=10))
         self._logstream = logstream if logstream is not None else StringIO()
         self._progress = Progress(id=self._id)
+        self._attributes: Optional[Dict[str, Any]] = None
 
     def __init_subclass__(cls: Type["Scenario"], id: str) -> None:
         # Register scenario under the given name.
         cls._scenario = id
         Scenario.scenarios[id] = cls
-        if isinstance(Scenario.scenario, PropertyTag) and isinstance(Scenario.scenario.domain, set):
-            Scenario.scenario.domain.add(id)
+        assert isinstance(Scenario.scenario, PropertyTag)
+        assert isinstance(Scenario.scenario.domain, set)
+        Scenario.scenario.domain.add(id)
 
         # Extract domain of scenario.
         props = attribute.get_properties(cls)
@@ -369,19 +380,22 @@ class Scenario(ABC):
     def _run(self, progress_bar: bool = True, **kwargs: Any) -> None:
         raise NotImplementedError()
 
-    @abstractproperty
+    @property
+    @abstractmethod
     def completed(self) -> bool:
         raise NotImplementedError()
 
-    @abstractproperty
+    @property
+    @abstractmethod
     def dataframe(self) -> DataFrame:
         raise NotImplementedError()
 
     @attribute(domain=set())
     def scenario(self) -> str:
         """Type of scenario."""
-        assert self.__class__._scenario is not None
-        return self.__class__._scenario
+        if self._scenario is None:
+            raise ValueError("Cannot call this on an abstract class instance.")
+        return self._scenario
 
     @attribute
     def id(self) -> str:
@@ -407,6 +421,13 @@ class Scenario(ABC):
         result = "\n".join(self._logstream.readlines())
         self._logstream.seek(0, SEEK_END)
         return result
+
+    @property
+    def attributes(self) -> Dict[str, Any]:
+        if self._attributes is None:
+            props = attribute.get_properties(self.__class__)
+            self._attributes = dict((name, set(get_property_value(self, name))) for name in props.keys())
+        return self._attributes
 
     @classmethod
     def get_instances(cls, **kwargs: Any) -> Iterable["Scenario"]:
@@ -466,7 +487,9 @@ class Scenario(ABC):
 
     @classmethod
     def from_dict(cls, source: Dict[str, Any]) -> "Scenario":
-        return cls(**source)
+        scenario_id = source["scenario"]
+        scenario_cls = cls.scenarios[scenario_id]
+        return scenario_cls(**source)
 
     @classmethod
     def load(cls, path: str) -> "Scenario":
@@ -773,7 +796,7 @@ class Study:
 
         # Load all scenarios.
         scenarios: List[Scenario] = []
-        for attpath in glob("**/attributes.yaml"):
+        for attpath in glob(os.path.join(path, "**/attributes.yaml"), recursive=True):
             exppath = os.path.dirname(attpath)
             scenario = Scenario.load(exppath)
             scenarios.append(scenario)
@@ -829,9 +852,71 @@ class Study:
         attributes = list(Scenario.attribute_domains.keys())
         return Table[Scenario](self._scenarios, attributes, "id")
 
+    @property
+    def dataframe(self) -> DataFrame:
+        return pd.concat([scenario.dataframe for scenario in self.scenarios], ignore_index=True)
+
     def get_scenarios(self, **attributes: Dict[str, Any]) -> Sequence[Scenario]:
         res: List[Scenario] = []
         for exp in self.scenarios:
             if all(has_attribute_value(exp, name, value) for (name, value) in attributes.items()):
                 res.append(exp)
         return res
+
+
+class Report(ABC):
+
+    reports: Dict[str, Type["Report"]] = {}
+    _report: Optional[str] = None
+
+    def __init__(
+        self, study: Study, id: Optional[str] = None, attributes: Optional[Dict[str, Any]] = None, **kwargs: Any
+    ) -> None:
+        super().__init__()
+        self._study = study
+        self._id = id if id is not None else "".join(random.choices(string.ascii_lowercase + string.digits, k=10))
+        self._attributes: Dict[str, Any] = {} if attributes is None else attributes
+
+    def __init_subclass__(cls: Type["Report"], id: str) -> None:
+        cls._report = id
+        cls.reports[id] = cls
+
+    @property
+    def report(self) -> str:
+        if self._report is None:
+            raise ValueError("Cannot call this on an abstract class instance.")
+        return self._report
+
+    @property
+    def id(self) -> str:
+        """A unique identifier of the report."""
+        return self._id
+
+    @property
+    def attributes(self) -> Dict[str, Any]:
+        return self._attributes
+
+    @property
+    def study(self) -> Study:
+        return self._study
+
+    @abstractmethod
+    def generate(self) -> None:
+        raise NotImplementedError()
+
+    def save(self, path: Optional[str] = None, use_attributes: bool = True, use_id: bool = False) -> None:
+        if path is None:
+            path = os.path.join(self._study.path, "reports")
+        if use_attributes:
+            attributes = [self._attributes[key] for key in sorted(self.attributes.keys())]
+            path = os.path.join(path, *attributes)
+        if use_id:
+            path = os.path.join(path, self._id)
+        if os.path.splitext(path)[1] != "":
+            raise ValueError("The provided path '%s' is not a valid directory path." % path)
+        os.makedirs(path, exist_ok=True)
+
+        # Save results as separate files.
+        props = result.get_properties(type(self))
+        results = dict((name, prop.fget(self) if prop.fget is not None else None) for (name, prop) in props.items())
+        save_dict(results, path, "report")

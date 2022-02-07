@@ -6,14 +6,13 @@ from datascope.importance.common import SklearnModelUtility, binarize, get_indic
 from datascope.importance.shapley import ShapleyImportance, ImportanceMethod
 from enum import Enum
 from numpy import ndarray
+from pandas import DataFrame
+from sklearn.metrics import accuracy_score
+from typing import Any, Iterable, Optional
 
 from .base import Scenario, attribute, result
 from ..dataset import Dataset
 from ..pipelines import Pipeline, get_model, ModelType
-
-from pandas import DataFrame
-from sklearn.metrics import accuracy_score
-from typing import Any, Iterable, Optional
 
 
 class RepairMethod(str, Enum):
@@ -43,6 +42,7 @@ class LabelRepairScenario(Scenario, id="label-repair"):
         iteration: int,
         dirty_ratio: float = DEFAULT_DIRTY_RATIO,
         seed: int = DEFAULT_SEED,
+        evolution: Optional[pd.DataFrame] = None,
         **kwargs: Any
     ) -> None:
         super().__init__(**kwargs)
@@ -52,7 +52,7 @@ class LabelRepairScenario(Scenario, id="label-repair"):
         self._iteration = iteration
         self._dirty_ratio = dirty_ratio
         self._seed = seed
-        self._evolution = pd.DataFrame()
+        self._evolution = pd.DataFrame() if evolution is None else evolution
 
     @attribute(domain=Dataset.datasets.keys())
     def dataset(self) -> str:
@@ -126,7 +126,7 @@ class LabelRepairScenario(Scenario, id="label-repair"):
         else:
             method = IMPORTANCE_METHODS[self.method]
             importance = ShapleyImportance(method=method, utility=utility)
-            importances = importance.fit(X_train, y_train).score(X_val, y_val)
+            importances = importance.fit(X_train_dirty, y_train_dirty).score(X_val, y_val)
 
         # Run the model to get initial score.
         model.fit(X_train_dirty, y_train_dirty)
@@ -170,7 +170,7 @@ class LabelRepairScenario(Scenario, id="label-repair"):
 
             # Recompute if needed.
             if importance is not None and self.method == RepairMethod.KNN_Interactive:
-                importances = importance.fit(X_train, y_train).score(X_val, y_val)
+                importances = importance.fit(X_train_dirty, y_train_dirty).score(X_val, y_val)
 
             # Update progress bar.
             if progress_bar:
@@ -202,10 +202,12 @@ class LabelRepairScenario(Scenario, id="label-repair"):
         if progress_bar:
             self.progress.close()
 
+    @property
     def completed(self) -> bool:
         dataset = Dataset.datasets[self.dataset]()
         return len(self._evolution) == dataset.trainsize + 1
 
+    @property
     def dataframe(self) -> DataFrame:
         result = self._evolution.assign(
             id=self.id, dataset=self.dataset, pipeline=self.pipeline, method=self.method, iteration=self.iteration
