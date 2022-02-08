@@ -8,6 +8,7 @@ from enum import Enum
 from numpy import ndarray
 from pandas import DataFrame
 from sklearn.metrics import accuracy_score
+from time import perf_counter_ns
 from typing import Any, Iterable, Optional
 
 from .base import Scenario, attribute, result
@@ -18,14 +19,30 @@ from ..pipelines import Pipeline, get_model, ModelType
 class RepairMethod(str, Enum):
     KNN_Single = "shapley-knn-single"
     KNN_Interactive = "shapley-knn-interactive"
-    TMC = "shapley-tmc"
+    TMC_10 = "shapley-tmc-10"
+    TMC_50 = "shapley-tmc-50"
+    TMC_100 = "shapley-tmc-100"
+    TMC_500 = "shapley-tmc-500"
     RANDOM = "random"
 
 
 IMPORTANCE_METHODS = {
     RepairMethod.KNN_Single: ImportanceMethod.NEIGHBOR,
     RepairMethod.KNN_Interactive: ImportanceMethod.NEIGHBOR,
-    RepairMethod.TMC: ImportanceMethod.MONTECARLO,
+    RepairMethod.TMC_10: ImportanceMethod.MONTECARLO,
+    RepairMethod.TMC_50: ImportanceMethod.MONTECARLO,
+    RepairMethod.TMC_100: ImportanceMethod.MONTECARLO,
+    RepairMethod.TMC_500: ImportanceMethod.MONTECARLO,
+}
+
+
+MC_ITERATIONS = {
+    RepairMethod.KNN_Single: 0,
+    RepairMethod.KNN_Interactive: 0,
+    RepairMethod.TMC_10: 10,
+    RepairMethod.TMC_50: 50,
+    RepairMethod.TMC_100: 100,
+    RepairMethod.TMC_500: 500,
 }
 
 
@@ -53,6 +70,7 @@ class LabelRepairScenario(Scenario, id="label-repair"):
         self._dirty_ratio = dirty_ratio
         self._seed = seed
         self._evolution = pd.DataFrame() if evolution is None else evolution
+        self._importance_compute_time: Optional[float] = None
 
     @attribute(domain=Dataset.datasets.keys())
     def dataset(self) -> str:
@@ -78,6 +96,11 @@ class LabelRepairScenario(Scenario, id="label-repair"):
     def evolution(self) -> DataFrame:
         """The evolution of the experimental parameters."""
         return self._evolution
+
+    @result
+    def importance_compute_time(self) -> Optional[float]:
+        """The time it takes to compute importance."""
+        return self._importance_compute_time
 
     def _run(self, progress_bar: bool = True, **kwargs: Any) -> None:
 
@@ -118,15 +141,19 @@ class LabelRepairScenario(Scenario, id="label-repair"):
         model = get_model(ModelType.LogisticRegression)
         utility = SklearnModelUtility(model, accuracy_score)
 
-        # Compute importance scores.
+        # Compute importance scores and time it.
+        time_start = perf_counter_ns()
         importance: Optional[ShapleyImportance] = None
         importances: Optional[Iterable[float]] = None
         if self.method == RepairMethod.RANDOM:
             importances = list(random.rand(dataset.trainsize))
         else:
             method = IMPORTANCE_METHODS[self.method]
-            importance = ShapleyImportance(method=method, utility=utility)
+            mc_iterations = MC_ITERATIONS[self.method]
+            importance = ShapleyImportance(method=method, utility=utility, mc_iterations=mc_iterations)
             importances = importance.fit(X_train_dirty, y_train_dirty).score(X_val, y_val)
+        time_end = perf_counter_ns()
+        self._importance_compute_time = (time_end - time_start) / 1000000.0
 
         # Run the model to get initial score.
         model.fit(X_train_dirty, y_train_dirty)
@@ -210,7 +237,12 @@ class LabelRepairScenario(Scenario, id="label-repair"):
     @property
     def dataframe(self) -> DataFrame:
         result = self._evolution.assign(
-            id=self.id, dataset=self.dataset, pipeline=self.pipeline, method=self.method, iteration=self.iteration
+            id=self.id,
+            dataset=self.dataset,
+            pipeline=self.pipeline,
+            method=self.method,
+            iteration=self.iteration,
+            importance_compute_time=self.importance_compute_time,
         )
         return result
 
