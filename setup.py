@@ -15,7 +15,7 @@ extras_require["complete"] = extras_require_all
 setup(
     name="datascope",
     version="0.1",
-    packages=["datascope", "datascope.algorithms", "datascope.utils", "datascope.inspection"],
+    packages=["datascope", "datascope.algorithms", "datascope.utils", "datascope.inspection", "datascope.importance"],
     license="MIT",
     description="Measuring data importance over ML pipelines using the Shapley value.",
     long_description=open("README.md").read(),
