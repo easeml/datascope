@@ -8,7 +8,7 @@ from enum import Enum
 from numpy import ndarray
 from pandas import DataFrame
 from sklearn.metrics import accuracy_score
-from time import perf_counter_ns
+from time import process_time_ns
 from typing import Any, Iterable, Optional
 
 from .base import Scenario, attribute, result
@@ -60,6 +60,7 @@ class LabelRepairScenario(Scenario, id="label-repair"):
         dirty_ratio: float = DEFAULT_DIRTY_RATIO,
         seed: int = DEFAULT_SEED,
         evolution: Optional[pd.DataFrame] = None,
+        importance_compute_time: Optional[float] = None,
         **kwargs: Any
     ) -> None:
         super().__init__(**kwargs)
@@ -70,7 +71,7 @@ class LabelRepairScenario(Scenario, id="label-repair"):
         self._dirty_ratio = dirty_ratio
         self._seed = seed
         self._evolution = pd.DataFrame() if evolution is None else evolution
-        self._importance_compute_time: Optional[float] = None
+        self._importance_compute_time: Optional[float] = importance_compute_time
 
     @attribute(domain=Dataset.datasets.keys())
     def dataset(self) -> str:
@@ -111,7 +112,8 @@ class LabelRepairScenario(Scenario, id="label-repair"):
         # Create the dirty dataset and apply the data corruption.
         dataset_dirty = deepcopy(dataset)
         random = np.random.RandomState(seed=self._seed + self._iteration)
-        dirty_idx = random.choice(a=[False, True], size=(dataset_dirty.trainsize))
+        dirty_probs = [1 - self._dirty_ratio, self._dirty_ratio]
+        dirty_idx = random.choice(a=[False, True], size=(dataset_dirty.trainsize), p=dirty_probs)
         assert dataset_dirty.y_train is not None
         dataset_dirty.y_train[dirty_idx] = 1 - dataset_dirty.y_train[dirty_idx]
 
@@ -142,7 +144,7 @@ class LabelRepairScenario(Scenario, id="label-repair"):
         utility = SklearnModelUtility(model, accuracy_score)
 
         # Compute importance scores and time it.
-        time_start = perf_counter_ns()
+        time_start = process_time_ns()
         importance: Optional[ShapleyImportance] = None
         importances: Optional[Iterable[float]] = None
         if self.method == RepairMethod.RANDOM:
@@ -152,8 +154,8 @@ class LabelRepairScenario(Scenario, id="label-repair"):
             mc_iterations = MC_ITERATIONS[self.method]
             importance = ShapleyImportance(method=method, utility=utility, mc_iterations=mc_iterations)
             importances = importance.fit(X_train_dirty, y_train_dirty).score(X_val, y_val)
-        time_end = perf_counter_ns()
-        self._importance_compute_time = (time_end - time_start) / 1000000.0
+        time_end = process_time_ns()
+        self._importance_compute_time = (time_end - time_start) / 1e9
 
         # Run the model to get initial score.
         model.fit(X_train_dirty, y_train_dirty)

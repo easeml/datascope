@@ -1,9 +1,12 @@
 import argparse
-from enum import Enum
-from typing import Any, Callable, List, Optional
+import experiments.reports
+import experiments.scenarios
 
-from .base import run, finalize, DEFAULT_OUTPUT_PATH
-from .scenarios import Scenario
+from enum import Enum
+from typing import Any, Callable, Dict, List, Optional, Set
+
+from .base import run, finalize
+from .scenarios import DEFAULT_RESULTS_PATH, DEFAULT_REPORTS_PATH, DEFAULT_STUDY_PATH
 
 
 def make_type_parser(target: Optional[type]) -> Callable[[str], Any]:
@@ -22,6 +25,32 @@ def make_type_parser(target: Optional[type]) -> Callable[[str], Any]:
     return parser
 
 
+def add_dynamic_arguments(
+    parser: argparse.ArgumentParser,
+    attribute_domains: Dict[str, Set],
+    attribute_types: Dict[str, Optional[type]],
+    attribute_defaults: Dict[str, Optional[Any]],
+    attribute_helpstrings: Dict[str, Optional[str]],
+) -> None:
+    for name in attribute_domains:
+        default = attribute_defaults[name]
+        domain: Optional[List] = [x.value if isinstance(x, Enum) else x for x in attribute_domains[name]]
+        if domain == [None]:
+            domain = None
+        helpstring = attribute_helpstrings[name] or ("Scenario " + name + ".")
+        if default is None:
+            helpstring += " Default: [all]"
+        else:
+            helpstring += " Default: %s" % str(default)
+        parser.add_argument(
+            "--%s" % name,
+            help=helpstring,
+            type=make_type_parser(attribute_types[name]),
+            choices=domain,
+            nargs="+",
+        )
+
+
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(
@@ -35,8 +64,8 @@ if __name__ == "__main__":
         "-o",
         "--output-path",
         type=str,
-        default=DEFAULT_OUTPUT_PATH,
-        help="Path where the data is stored. Default: '%s'" % DEFAULT_OUTPUT_PATH,
+        default=DEFAULT_RESULTS_PATH,
+        help="Path where the data is stored. Default: '%s'" % DEFAULT_RESULTS_PATH,
     )
 
     parser_run.add_argument(
@@ -53,33 +82,56 @@ if __name__ == "__main__":
     )
 
     # Build arguments from scenario attributes.
-    for name in Scenario.attribute_domains:
-        dtype = Scenario.attribute_types[name]
-        default = Scenario.attribute_defaults[name]
-        domain: Optional[List] = [x.value if isinstance(x, Enum) else x for x in Scenario.attribute_domains[name]]
-        if domain == [None]:
-            domain = None
-        helpstring = Scenario.attribute_helpstrings[name] or ("Scenario " + name + ".")
-        if default is None:
-            helpstring += " Default: [all]"
-        else:
-            helpstring += " Default: %s" % str(default)
-        parser_run.add_argument(
-            "--%s" % name,
-            help=helpstring,
-            type=make_type_parser(Scenario.attribute_types[name]),
-            choices=domain,
-            nargs="+",
-        )
+    add_dynamic_arguments(
+        parser_run,
+        experiments.scenarios.Scenario.attribute_domains,
+        experiments.scenarios.Scenario.attribute_types,
+        experiments.scenarios.Scenario.attribute_defaults,
+        experiments.scenarios.Scenario.attribute_helpstrings,
+    )
 
-    parser_finalize = subparsers.add_parser("finalize")
+    parser_report = subparsers.add_parser("report")
+
+    parser_report.add_argument(
+        "-s",
+        "--study-path",
+        type=str,
+        default=DEFAULT_STUDY_PATH,
+        help="Path where the target study is stored. Default: '%s'" % DEFAULT_STUDY_PATH,
+    )
+
+    parser_report.add_argument(
+        "-o",
+        "--output-path",
+        type=str,
+        help="Path where the reports are stored. Default: same as study path",
+    )
+
+    parser_report.add_argument(
+        "-g",
+        "--groupby",
+        type=str,
+        nargs="+",
+        help="List of columns used to group results.",
+    )
+
+    # Build arguments from report attributes.
+    add_dynamic_arguments(
+        parser_report,
+        experiments.scenarios.Report.attribute_domains,
+        experiments.scenarios.Report.attribute_types,
+        experiments.scenarios.Report.attribute_defaults,
+        experiments.scenarios.Report.attribute_helpstrings,
+    )
+
+    # print(Report.attribute_domains)
 
     args = parser.parse_args()
+    kwargs = vars(args)
 
     if args.command == "run":
-        kwargs = vars(args)
         run(**kwargs)
-    elif args.command == "finalize":
-        finalize()
+    elif args.command == "report":
+        finalize(**kwargs)
     else:
         parser.print_help()

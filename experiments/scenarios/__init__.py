@@ -1,4 +1,23 @@
-from .base import Scenario, Study, Report, attribute, result, DEFAULT_OUTPUT_PATH
+from .base import (
+    Scenario,
+    Study,
+    Report,
+    attribute,
+    result,
+    DEFAULT_RESULTS_PATH,
+    DEFAULT_REPORTS_PATH,
+    DEFAULT_STUDY_PATH,
+)
 from .label_repair import LabelRepairScenario
 
-__all__ = ["Scenario", "Study", "Report", "attribute", "result", "DEFAULT_OUTPUT_PATH", "LabelRepairScenario"]
+__all__ = [
+    "Scenario",
+    "Study",
+    "Report",
+    "attribute",
+    "result",
+    "DEFAULT_RESULTS_PATH",
+    "DEFAULT_REPORTS_PATH",
+    "DEFAULT_STUDY_PATH",
+    "LabelRepairScenario",
+]

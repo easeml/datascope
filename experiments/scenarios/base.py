@@ -1,3 +1,4 @@
+import collections.abc
 import datetime
 import logging
 import logging.handlers
@@ -128,7 +129,12 @@ def get_property_and_getter(target: object, name: str) -> Tuple[property, Callab
 def get_property_type(target: object, name: str) -> Optional[Type]:
     _, getter = get_property_and_getter(target, name)
     sign = signature(getter)
-    return sign.return_annotation if isinstance(sign.return_annotation, type) else None
+    a = sign.return_annotation
+    if get_origin(a) in [collections.abc.Sequence, collections.abc.Iterable, list, set] and len(get_args(a)) > 0:
+        a = get_args(a)[0]
+    if get_origin(a) == Union:
+        a = next(x for x in get_args(a) if x is not None)
+    return a if isinstance(a, type) else None
 
 
 def get_property_domain(target: object, name: str) -> List[Any]:
@@ -432,9 +438,10 @@ class Scenario(ABC):
     @classmethod
     def get_instances(cls, **kwargs: Any) -> Iterable["Scenario"]:
         if cls == Scenario:
-            for scenario in Scenario.scenarios.values():
-                for instance in scenario.get_instances(**kwargs):
-                    yield instance
+            for id, scenario in Scenario.scenarios.items():
+                if "scenario" not in kwargs or id == kwargs["scenario"]:
+                    for instance in scenario.get_instances(**kwargs):
+                        yield instance
         else:
             domains = []
             names = Scenario.attribute_domains.keys()
@@ -497,7 +504,7 @@ class Scenario(ABC):
             raise ValueError("The provided path '%s' does not point to a directory." % path)
 
         # Load the log file.
-        logpath = os.path.join(path, "study.log")
+        logpath = os.path.join(path, "scenario.log")
         logstream: Optional[TextIOBase] = None
         if os.path.isfile(logpath):
             with open(logpath, "r") as f:
@@ -553,7 +560,10 @@ class Table(Sequence[V]):
         return self.df._repr_html_()
 
 
-DEFAULT_OUTPUT_PATH = os.path.join("var", "results")
+DEFAULT_RESULTS_PATH = os.path.join("var", "results")
+DEFAULT_REPORTS_PATH = os.path.join("var", "reports")
+ALL_STUDY_PATHS = glob(os.path.join(DEFAULT_RESULTS_PATH, "*"))
+DEFAULT_STUDY_PATH = max(ALL_STUDY_PATHS, key=lambda x: os.path.getmtime(x)) if len(ALL_STUDY_PATHS) > 0 else None
 DEFAULT_SCENARIO_PATH_FORMAT = "{id}"
 
 
@@ -562,7 +572,7 @@ class Study:
         self,
         scenarios: Sequence[Scenario],
         id: Optional[str] = None,
-        outpath: str = DEFAULT_OUTPUT_PATH,
+        outpath: str = DEFAULT_RESULTS_PATH,
         scenario_path_format: str = DEFAULT_SCENARIO_PATH_FORMAT,
         logstream: Optional[TextIOBase] = None,
     ) -> None:
@@ -867,56 +877,120 @@ class Study:
 class Report(ABC):
 
     reports: Dict[str, Type["Report"]] = {}
+    report_domains: Dict[str, Dict[str, Set[Any]]] = {}
+    attribute_domains: Dict[str, Set[Any]] = {}
+    attribute_helpstrings: Dict[str, Optional[str]] = {}
+    attribute_types: Dict[str, Optional[type]] = {}
+    attribute_defaults: Dict[str, Optional[Any]] = {}
     _report: Optional[str] = None
 
     def __init__(
-        self, study: Study, id: Optional[str] = None, attributes: Optional[Dict[str, Any]] = None, **kwargs: Any
+        self, study: Study, id: Optional[str] = None, groupby: Optional[Dict[str, Any]] = None, **kwargs: Any
     ) -> None:
         super().__init__()
         self._study = study
         self._id = id if id is not None else "".join(random.choices(string.ascii_lowercase + string.digits, k=10))
-        self._attributes: Dict[str, Any] = {} if attributes is None else attributes
+        self._groupby: Dict[str, Any] = {} if groupby is None else groupby
 
     def __init_subclass__(cls: Type["Report"], id: str) -> None:
         cls._report = id
         cls.reports[id] = cls
 
-    @property
+        # Extract domain of scenario.
+        props = attribute.get_properties(cls)
+        domain = dict((name, set(get_property_domain(cls, name))) for name in props.keys())
+        Report.report_domains[id] = domain
+
+        # Include the new domain into the total domain.
+        for name, values in domain.items():
+            Report.attribute_domains.setdefault(name, set()).update(values)
+
+        # Extract types of the scenario attributes.
+        types = dict((name, get_property_type(cls, name)) for name in props.keys())
+        Report.attribute_types.update(types)
+
+        # Extract helpstrings of the scenario attributes.
+        helpstrings = dict((name, get_property_helpstring(cls, name)) for name in props.keys())
+        Report.attribute_helpstrings.update(helpstrings)
+
+        # Extract types of the scenario attributes.
+        defaults = dict((name, get_property_default(cls, name)) for name in props.keys())
+        Report.attribute_defaults.update(defaults)
+
+    @attribute
     def report(self) -> str:
         if self._report is None:
             raise ValueError("Cannot call this on an abstract class instance.")
         return self._report
 
-    @property
+    @attribute
     def id(self) -> str:
         """A unique identifier of the report."""
         return self._id
 
     @property
-    def attributes(self) -> Dict[str, Any]:
-        return self._attributes
+    def groupby(self) -> Dict[str, Any]:
+        return self._groupby
 
     @property
     def study(self) -> Study:
         return self._study
 
+    @classmethod
+    def is_valid_config(cls, **attributes: Any) -> bool:
+        return True
+
     @abstractmethod
     def generate(self) -> None:
         raise NotImplementedError()
 
-    def save(self, path: Optional[str] = None, use_attributes: bool = True, use_id: bool = False) -> None:
+    def save(
+        self, path: Optional[str] = None, use_groupby: bool = True, use_id: bool = False, use_subdirs: bool = False
+    ) -> None:
         if path is None:
             path = os.path.join(self._study.path, "reports")
-        if use_attributes:
-            attributes = [self._attributes[key] for key in sorted(self.attributes.keys())]
-            path = os.path.join(path, *attributes)
-        if use_id:
-            path = os.path.join(path, self._id)
-        if os.path.splitext(path)[1] != "":
-            raise ValueError("The provided path '%s' is not a valid directory path." % path)
+        basename = "report"
+        if use_subdirs:
+            if use_groupby:
+                groupby = [self._groupby[key] for key in sorted(self.groupby.keys())]
+                path = os.path.join(path, *groupby)
+            if use_id:
+                path = os.path.join(path, self._id)
+            if os.path.splitext(path)[1] != "":
+                raise ValueError("The provided path '%s' is not a valid directory path." % path)
+        else:
+            if use_groupby:
+                groupby = [self._groupby[key] for key in sorted(self.groupby.keys())]
+                basename = "_".join(
+                    [basename] + ["%s=%s" % (str(key), repr(self._groupby[key])) for key in sorted(self.groupby.keys())]
+                )
+            if use_id:
+                basename = basename + "_id=" + self._id
+
         os.makedirs(path, exist_ok=True)
 
         # Save results as separate files.
         props = result.get_properties(type(self))
         results = dict((name, prop.fget(self) if prop.fget is not None else None) for (name, prop) in props.items())
-        save_dict(results, path, "report")
+        save_dict(results, path, basename)
+
+    @classmethod
+    def get_instances(
+        cls: Type["Report"], study: Study, groupby: Optional[Sequence[str]], **kwargs: Any
+    ) -> Iterable["Report"]:
+        if cls == Report:
+            for id, report in Report.reports.items():
+                if kwargs.get("report", None) is None or id == kwargs["report"]:
+                    for instance in report.get_instances(study=study, groupby=groupby, **kwargs):
+                        yield instance
+        else:
+            # If grouping attributes were not specified, then we return only a single instance.
+            if groupby is None:
+                yield cls(study=study, **kwargs)
+
+            else:
+                # Find distinct grouping attribute assignments.
+                all_values = study.dataframe.groupby(groupby).groups.keys()
+                for values in all_values:
+                    groupby_values = dict((k, v) for (k, v) in zip(groupby, values))
+                    yield cls(study=study, groupby=groupby_values, **kwargs)

@@ -1,11 +1,13 @@
 import os
-from typing import Any, Optional
+from typing import Any, Optional, Sequence
 
-from .scenarios import Study, Scenario, DEFAULT_OUTPUT_PATH
+from experiments.scenarios.base import Report
+
+from .scenarios import Study, Scenario, DEFAULT_RESULTS_PATH, DEFAULT_STUDY_PATH
 
 
 def run(
-    output_path: str = DEFAULT_OUTPUT_PATH,
+    output_path: str = DEFAULT_RESULTS_PATH,
     no_parallelism: bool = False,
     ray_address: Optional[str] = None,
     **attributes: Any
@@ -43,5 +45,19 @@ def run(
     study.save()
 
 
-def finalize() -> None:
-    pass
+def finalize(
+    study_path: str = DEFAULT_STUDY_PATH,
+    groupby: Optional[Sequence[str]] = None,
+    output_path: Optional[str] = None,
+    **attributes: Any
+) -> None:
+
+    # Load the study.
+    study = Study.load(study_path)
+
+    # Get applicable instances of reports.
+    reports = Report.get_instances(study=study, groupby=groupby, **attributes)
+
+    for report in reports:
+        report.generate()
+        report.save(path=output_path)
