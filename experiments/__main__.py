@@ -6,7 +6,7 @@ from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Set
 
 from .base import run, finalize
-from .scenarios import DEFAULT_RESULTS_PATH, DEFAULT_REPORTS_PATH, DEFAULT_STUDY_PATH
+from .scenarios import DEFAULT_RESULTS_PATH, DEFAULT_STUDY_PATH
 
 
 def make_type_parser(target: Optional[type]) -> Callable[[str], Any]:

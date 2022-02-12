@@ -439,7 +439,7 @@ class Scenario(ABC):
     def get_instances(cls, **kwargs: Any) -> Iterable["Scenario"]:
         if cls == Scenario:
             for id, scenario in Scenario.scenarios.items():
-                if "scenario" not in kwargs or id == kwargs["scenario"]:
+                if kwargs.get("scenario", None) is None or id in kwargs["scenario"]:
                     for instance in scenario.get_instances(**kwargs):
                         yield instance
         else:
