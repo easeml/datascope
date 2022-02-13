@@ -9,7 +9,7 @@ from numpy import ndarray
 from pandas import DataFrame
 from sklearn.metrics import accuracy_score
 from time import process_time_ns
-from typing import Any, Iterable, Optional, Dict
+from typing import Any, Iterable, List, Optional, Dict
 
 from .base import Scenario, attribute, result
 from ..dataset import Dataset, DEFAULT_TRAINSIZE, DEFAULT_VALSIZE
@@ -67,6 +67,7 @@ KEYWORD_REPLACEMENTS = {
 
 DEFAULT_DIRTY_RATIO = 0.5
 DEFAULT_SEED = 1
+DEFAULT_CHECKPOINTS = 100
 
 
 class LabelRepairScenario(Scenario, id="label-repair"):
@@ -80,6 +81,7 @@ class LabelRepairScenario(Scenario, id="label-repair"):
         seed: int = DEFAULT_SEED,
         trainsize: int = DEFAULT_TRAINSIZE,
         valsize: int = DEFAULT_VALSIZE,
+        checkpoints: int = DEFAULT_CHECKPOINTS,
         evolution: Optional[pd.DataFrame] = None,
         importance_compute_time: Optional[float] = None,
         **kwargs: Any
@@ -93,6 +95,7 @@ class LabelRepairScenario(Scenario, id="label-repair"):
         self._seed = seed
         self._trainsize = trainsize
         self._valsize = valsize
+        self._checkpoints = checkpoints
         self._evolution = pd.DataFrame() if evolution is None else evolution
         self._importance_compute_time: Optional[float] = importance_compute_time
 
@@ -125,6 +128,14 @@ class LabelRepairScenario(Scenario, id="label-repair"):
     def valsize(self) -> int:
         """The size of the validation dataset to use. The value 0 means maximal value."""
         return self._valsize
+
+    @attribute
+    def checkpoints(self) -> int:
+        """
+        The number of checkpoints to record in the workflow.
+        The value 0 means that a checkpoint will be recorded for each training data example.
+        """
+        return self._checkpoints
 
     @result
     def evolution(self) -> DataFrame:
@@ -189,6 +200,10 @@ class LabelRepairScenario(Scenario, id="label-repair"):
             importances = importance.fit(X_train_dirty, y_train_dirty).score(X_val, y_val)
         time_end = process_time_ns()
         self._importance_compute_time = (time_end - time_start) / 1e9
+        n_units = dataset.trainsize
+        visited_units = np.zeros(n_units, dtype=bool)
+        argsorted_importances = np.array(importances).argsort()
+        # argsorted_importances = np.ma.array(importances, mask=visited_units).argsort()
 
         # Run the model to get initial score.
         model.fit(X_train_dirty, y_train_dirty)
@@ -196,26 +211,34 @@ class LabelRepairScenario(Scenario, id="label-repair"):
         accuracy = accuracy_score(y_val, y_pred)
 
         # Update result table.
-        evolution = [[0.0, accuracy, 0, 0.0, 0, 0.0]]
+        evolution = [[0.0, accuracy, accuracy, 0, 0.0, 0, 0.0]]
         accuracy_start = accuracy
 
         # Set up progress bar.
+        checkpoints = self.checkpoints if self.checkpoints > 0 and self.checkpoints < n_units else n_units
+        n_units_per_checkpoint = round(n_units / checkpoints)
         if progress_bar:
-            self.progress.start(total=dataset.trainsize, desc="%s Repairs" % str(self))
+            self.progress.start(total=checkpoints, desc="%s Repairs" % str(self))
         # pbar = None if not progress_bar else tqdm(total=dataset.trainsize, desc="%s Repairs" % str(self))
 
         # Iterate over the repair process.
-        visited_units = np.zeros(dataset.trainsize, dtype=bool)
-        for i in range(dataset.trainsize):
+        # visited_units = np.zeros(dataset.trainsize, dtype=bool)
+        for i in range(checkpoints):
 
             # Determine indices of data examples that should be repaired given the unit with the highest importance.
-            target_unit = np.ma.array(importances, mask=visited_units).argmin()
-            target_query = np.eye(1, visited_units.shape[0], target_unit, dtype=int).flatten()
+            unvisited_units = np.invert(visited_units)
+            target_units = argsorted_importances[unvisited_units[argsorted_importances]]
+            if i + 1 < checkpoints:
+                target_units = target_units[:n_units_per_checkpoint]
+            target_query = np.zeros(n_units, dtype=int)
+            target_query[target_units] = 1
+            # target_unit = np.ma.array(importances, mask=visited_units).argmin()
+            # target_query = np.eye(1, visited_units.shape[0], target_unit, dtype=int).flatten()
             target_idx = get_indices(provenance, target_query)
 
             # Repair the data example.
             y_train_dirty[target_idx] = y_train[target_idx]
-            visited_units[target_unit] = True
+            visited_units[target_units] = True
 
             # Run the model.
             model.fit(X_train_dirty, y_train_dirty)
@@ -223,9 +246,9 @@ class LabelRepairScenario(Scenario, id="label-repair"):
             accuracy = accuracy_score(y_val, y_pred)
 
             # Update result table.
-            steps_rel = (i + 1) / float(dataset.trainsize)
+            steps_rel = (i + 1) / float(checkpoints)
             repaired = visited_units.sum(dtype=int)
-            repaired_rel = repaired / float(dataset.trainsize)
+            repaired_rel = repaired / float(n_units)
             discovered = np.logical_and(visited_units, dirty_idx).sum(dtype=int)
             discovered_rel = discovered / dirty_idx.sum(dtype=float)
             evolution.append([steps_rel, accuracy, accuracy, repaired, repaired_rel, discovered, discovered_rel])
@@ -233,6 +256,8 @@ class LabelRepairScenario(Scenario, id="label-repair"):
             # Recompute if needed.
             if importance is not None and self.method == RepairMethod.KNN_Interactive:
                 importances = importance.fit(X_train_dirty, y_train_dirty).score(X_val, y_val)
+                argsorted_importances = np.array(importances).argsort()
+                # argsorted_importances = np.ma.array(importances, mask=visited_units).argsort()
 
             # Update progress bar.
             if progress_bar:
