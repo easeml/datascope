@@ -662,6 +662,7 @@ class Study:
         console_log: bool = True,
         parallel: bool = True,
         ray_address: Optional[str] = None,
+        ray_numprocs: Optional[int] = None,
         eagersave: bool = True,
         **kwargs: Any
     ) -> None:
@@ -703,7 +704,7 @@ class Study:
             if parallel:
                 monitor = threading.Thread(target=Study._status_monitor, args=(queue, self.logger))
                 monitor.start()
-                pool = Pool(ray_address=ray_address)
+                pool = Pool(processes=ray_numprocs, ray_address=ray_address)
                 for scenario in pool.imap_unordered(runner, self.scenarios):
                     scenarios.append(scenario)
                     if pbar is not None:

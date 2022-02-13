@@ -82,6 +82,13 @@ if __name__ == "__main__":
         help="Address of the ray server. If omitted, a new server ad-hoc will be created.",
     )
 
+    parser_run.add_argument(
+        "--ray-numprocs",
+        type=int,
+        default=None,
+        help="Number of ray processes to start if running in parallel. Defaults to the number of cores.",
+    )
+
     # Build arguments from scenario attributes.
     attribute_isiterable = dict((k, True) for k in experiments.scenarios.Scenario.attribute_types.keys())
     add_dynamic_arguments(

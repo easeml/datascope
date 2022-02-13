@@ -10,6 +10,7 @@ def run(
     output_path: str = DEFAULT_RESULTS_PATH,
     no_parallelism: bool = False,
     ray_address: Optional[str] = None,
+    ray_numprocs: Optional[int] = None,
     **attributes: Any
 ) -> None:
     # print("run", output_path, attributes)
@@ -39,7 +40,7 @@ def run(
         study = Study(scenarios=scenarios, outpath=output_path)
 
     # Run the study.
-    study.run(parallel=not no_parallelism, ray_address=ray_address, eagersave=True)
+    study.run(parallel=not no_parallelism, ray_address=ray_address, ray_numprocs=ray_numprocs, eagersave=True)
 
     # Save the study.
     study.save()
