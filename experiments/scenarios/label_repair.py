@@ -139,7 +139,7 @@ class LabelRepairScenario(Scenario, id="label-repair"):
     def _run(self, progress_bar: bool = True, **kwargs: Any) -> None:
 
         # Load dataset.
-        dataset = Dataset.datasets[self.dataset]()
+        dataset = Dataset.datasets[self.dataset](trainsize=self.trainsize, valsize=self.valsize)
         dataset.load()
 
         # Create the dirty dataset and apply the data corruption.
