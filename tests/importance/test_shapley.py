@@ -64,11 +64,11 @@ def test_simple_3(method: ImportanceMethod):
     assert any(np.array_equal(result, candidate) for candidate in expected)
 
 
-@pytest.mark.parametrize("n_samples", [100, 500, 1000])
+@pytest.mark.parametrize("n_samples", [100, 500, 1000, 10000])
 def test_neighbor_benchmark_1(n_samples: int, benchmark):
-
+    test_size = 100
     X, y = make_classification(
-        n_samples=n_samples,
+        n_samples=n_samples + test_size,
         n_features=1,
         n_redundant=0,
         n_informative=1,
@@ -77,7 +77,8 @@ def test_neighbor_benchmark_1(n_samples: int, benchmark):
         n_clusters_per_class=1,
         random_state=7,
     )
-    X, X_test, y, y_test = train_test_split(X, y, test_size=0.1, random_state=7)
+
+    X, X_test, y, y_test = train_test_split(X, y, test_size=test_size, random_state=7)
 
     utility = SklearnModelUtility(KNeighborsClassifier(n_neighbors=1), accuracy_score)
     importance = ShapleyImportance(method=ImportanceMethod.NEIGHBOR, utility=utility)
