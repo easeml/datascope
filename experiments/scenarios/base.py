@@ -175,6 +175,13 @@ def get_property_value(target: object, name: str) -> Any:
         return member
 
 
+def get_property_isiterable(target: object, name: str) -> bool:
+    _, getter = get_property_and_getter(target, name)
+    sign = signature(getter)
+    a = sign.return_annotation
+    return get_origin(a) in [collections.abc.Sequence, collections.abc.Iterable, list, set]
+
+
 def has_attribute_value(target: object, name: str, value: Any, ignore_none: bool = True) -> bool:
     target_value = get_property_value(target, name)
     if not isinstance(value, Iterable):
@@ -202,7 +209,7 @@ def save_dict(source: Dict[str, Any], dirpath: str, basename: str) -> None:
                 data.to_csv(filename)
             elif isinstance(data, dict):
                 filename = os.path.join(dirpath, ".".join([basename, name, "yaml"]))
-                with open(filename) as f:
+                with open(filename, "w") as f:
                     yaml.safe_dump(data, f)
             elif isinstance(data, Figure):
                 filename = os.path.join(dirpath, ".".join([basename, name, "pdf"]))
@@ -318,6 +325,7 @@ class Scenario(ABC):
     attribute_helpstrings: Dict[str, Optional[str]] = {}
     attribute_types: Dict[str, Optional[type]] = {}
     attribute_defaults: Dict[str, Optional[Any]] = {}
+    attribute_isiterable: Dict[str, bool] = {}
     _scenario: Optional[str] = None
 
     def __init__(self, id: Optional[str] = None, logstream: Optional[TextIOBase] = None, **kwargs: Any) -> None:
@@ -355,6 +363,9 @@ class Scenario(ABC):
         # Extract types of the scenario attributes.
         defaults = dict((name, get_property_default(cls, name)) for name in props.keys())
         Scenario.attribute_defaults.update(defaults)
+
+        # Set all attributes to be iterable when passed to get_instances.
+        Scenario.attribute_isiterable = dict((k, True) for k in props.keys())
 
     def run(self, progress_bar: bool = True, console_log: bool = True) -> None:
         # Set up logging.
@@ -434,6 +445,10 @@ class Scenario(ABC):
             props = attribute.get_properties(self.__class__)
             self._attributes = dict((name, set(get_property_value(self, name))) for name in props.keys())
         return self._attributes
+
+    @property
+    def keyword_replacements(self) -> Dict[str, str]:
+        return {}
 
     @classmethod
     def get_instances(cls, **kwargs: Any) -> Iterable["Scenario"]:
@@ -882,6 +897,7 @@ class Report(ABC):
     attribute_helpstrings: Dict[str, Optional[str]] = {}
     attribute_types: Dict[str, Optional[type]] = {}
     attribute_defaults: Dict[str, Optional[Any]] = {}
+    attribute_isiterable: Dict[str, bool] = {}
     _report: Optional[str] = None
 
     def __init__(
@@ -916,6 +932,10 @@ class Report(ABC):
         # Extract types of the scenario attributes.
         defaults = dict((name, get_property_default(cls, name)) for name in props.keys())
         Report.attribute_defaults.update(defaults)
+
+        # Specify if attributes should be iterable when passed to get_instances.
+        Report.attribute_isiterable = dict((name, get_property_isiterable(cls, name)) for name in props.keys())
+        Report.attribute_isiterable["report"] = True  # We hard code that we allow multiple report argument values.
 
     @attribute
     def report(self) -> str:
@@ -980,7 +1000,7 @@ class Report(ABC):
     ) -> Iterable["Report"]:
         if cls == Report:
             for id, report in Report.reports.items():
-                if kwargs.get("report", None) is None or id == kwargs["report"]:
+                if kwargs.get("report", None) is None or id in kwargs["report"]:
                     for instance in report.get_instances(study=study, groupby=groupby, **kwargs):
                         yield instance
         else:
@@ -990,7 +1010,9 @@ class Report(ABC):
 
             else:
                 # Find distinct grouping attribute assignments.
-                all_values = study.dataframe.groupby(groupby).groups.keys()
+                all_values: List[Tuple] = []
+                if len(study.scenarios) > 0:
+                    all_values = list(study.dataframe.groupby(groupby).groups.keys())
                 for values in all_values:
                     groupby_values = dict((k, v) for (k, v) in zip(groupby, values))
                     yield cls(study=study, groupby=groupby_values, **kwargs)

@@ -97,10 +97,15 @@ class UCI(Dataset, modality=DatasetModality.TABULAR):
         data = fetch_openml(data_id=1590, as_frame=False)
         X = np.nan_to_num(data.data)  # TODO: Maybe leave nan values.
         y = np.array(data.target == ">50K", dtype=int)
+        trainsize = self.trainsize if self.trainsize > 0 else None
+        valsize = self.valsize if self.valsize > 0 else None
         self._X_train, self._X_val, self._y_train, self._y_val = train_test_split(
-            X, y, train_size=self.trainsize, test_size=self.valsize, random_state=self._seed
+            X, y, train_size=trainsize, test_size=valsize, random_state=self._seed
         )
         self._loaded = True
+        assert self._X_train is not None and self._X_val is not None
+        self._trainsize = self._X_train.shape[0]
+        self._valsize = self._X_val.shape[0]
 
 
 class FashionMNIST(Dataset, modality=DatasetModality.IMAGE):
@@ -130,22 +135,27 @@ class FashionMNIST(Dataset, modality=DatasetModality.IMAGE):
 
         # Produce random samples of the training and validation sets based on the provided set sizes.
         random = np.random.RandomState(seed=self._seed)
-        train_idx_sample = random.choice(train_idx, size=self.trainsize, replace=False)
-        val_idx_sample = random.choice(val_idx, size=self.valsize, replace=False)
-        train_sample = train.select(train_idx_sample)
-        val_sample = val.select(val_idx_sample)
+        if self.trainsize > 0:
+            train_idx = random.choice(train_idx, size=self.trainsize, replace=False)
+        if self.valsize > 0:
+            val_idx = random.choice(val_idx, size=self.valsize, replace=False)
+        train_subset = train.select(train_idx)
+        val_subset = val.select(val_idx)
 
         # Extract features.
-        self._X_train = np.stack(train_sample["image"])
-        self._X_val = np.stack(val_sample["image"])
+        self._X_train = np.stack(train_subset["image"])
+        self._X_val = np.stack(val_subset["image"])
         # TODO: Handle reshaping.
 
         # Encode labels.
         encoder = LabelEncoder()
-        self._y_train = encoder.fit_transform(np.array(train_sample["label"], dtype=int))
-        self._y_val = encoder.transform(np.array(val_sample["label"], dtype=int))
+        self._y_train = encoder.fit_transform(np.array(train_subset["label"], dtype=int))
+        self._y_val = encoder.transform(np.array(val_subset["label"], dtype=int))
 
         self._loaded = True
+        assert self._X_train is not None and self._X_val is not None
+        self._trainsize = self._X_train.shape[0]
+        self._valsize = self._X_val.shape[0]
 
 
 class TwentyNewsGroups(Dataset, modality=DatasetModality.TEXT):
@@ -154,8 +164,12 @@ class TwentyNewsGroups(Dataset, modality=DatasetModality.TEXT):
         train = fetch_20newsgroups(subset="train", categories=categories, shuffle=True, random_state=self._seed)
         val = fetch_20newsgroups(subset="test", categories=categories, shuffle=True, random_state=self._seed)
 
-        self._X_train, self._y_train = np.array(train.data)[: self.trainsize], np.array(train.target)[: self.trainsize]
-        self._X_val, self._y_val = np.array(val.data)[: self.valsize], np.array(val.target)[: self.valsize]
+        self._X_train, self._y_train = np.array(train.data), np.array(train.target)
+        if self.trainsize > 0:
+            self._X_train, self._y_train = self._X_train[: self.trainsize], self._y_train[: self.trainsize]
+        self._X_val, self._y_val = np.array(val.data), np.array(val.target)
+        if self.valsize > 0:
+            self._X_val, self._y_val = self._X_val[: self.valsize], self._y_val[: self.valsize]
         self._loaded = True
         self._trainsize = self._X_train.shape[0]
         self._valsize = self._X_val.shape[0]

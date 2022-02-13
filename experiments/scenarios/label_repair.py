@@ -9,18 +9,20 @@ from numpy import ndarray
 from pandas import DataFrame
 from sklearn.metrics import accuracy_score
 from time import process_time_ns
-from typing import Any, Iterable, Optional
+from typing import Any, Iterable, Optional, Dict
 
 from .base import Scenario, attribute, result
-from ..dataset import Dataset
+from ..dataset import Dataset, DEFAULT_TRAINSIZE, DEFAULT_VALSIZE
 from ..pipelines import Pipeline, get_model, ModelType
 
 
 class RepairMethod(str, Enum):
     KNN_Single = "shapley-knn-single"
     KNN_Interactive = "shapley-knn-interactive"
-    TMC_10 = "shapley-tmc-10"
-    TMC_50 = "shapley-tmc-50"
+    TMC_1 = "shapley-tmc-001"
+    TMC_5 = "shapley-tmc-005"
+    TMC_10 = "shapley-tmc-010"
+    TMC_50 = "shapley-tmc-050"
     TMC_100 = "shapley-tmc-100"
     TMC_500 = "shapley-tmc-500"
     RANDOM = "random"
@@ -29,6 +31,8 @@ class RepairMethod(str, Enum):
 IMPORTANCE_METHODS = {
     RepairMethod.KNN_Single: ImportanceMethod.NEIGHBOR,
     RepairMethod.KNN_Interactive: ImportanceMethod.NEIGHBOR,
+    RepairMethod.TMC_1: ImportanceMethod.MONTECARLO,
+    RepairMethod.TMC_5: ImportanceMethod.MONTECARLO,
     RepairMethod.TMC_10: ImportanceMethod.MONTECARLO,
     RepairMethod.TMC_50: ImportanceMethod.MONTECARLO,
     RepairMethod.TMC_100: ImportanceMethod.MONTECARLO,
@@ -39,10 +43,25 @@ IMPORTANCE_METHODS = {
 MC_ITERATIONS = {
     RepairMethod.KNN_Single: 0,
     RepairMethod.KNN_Interactive: 0,
+    RepairMethod.TMC_1: 1,
+    RepairMethod.TMC_5: 5,
     RepairMethod.TMC_10: 10,
     RepairMethod.TMC_50: 50,
     RepairMethod.TMC_100: 100,
     RepairMethod.TMC_500: 500,
+}
+
+KEYWORD_REPLACEMENTS = {
+    "random": "Random",
+    "shapley-tmc": "Shapley TMC",
+    "shapley-knn-single": "Shapley KNN Single",
+    "shapley-knn-interactive": "Shapley KNN Interactive",
+    "shapley-tmc-001": "Shapley TMC x1",
+    "shapley-tmc-005": "Shapley TMC x5",
+    "shapley-tmc-010": "Shapley TMC x10",
+    "shapley-tmc-050": "Shapley TMC x50",
+    "shapley-tmc-100": "Shapley TMC x100",
+    "shapley-tmc-500": "Shapley TMC x500",
 }
 
 
@@ -59,6 +78,8 @@ class LabelRepairScenario(Scenario, id="label-repair"):
         iteration: int,
         dirty_ratio: float = DEFAULT_DIRTY_RATIO,
         seed: int = DEFAULT_SEED,
+        trainsize: int = DEFAULT_TRAINSIZE,
+        valsize: int = DEFAULT_VALSIZE,
         evolution: Optional[pd.DataFrame] = None,
         importance_compute_time: Optional[float] = None,
         **kwargs: Any
@@ -70,6 +91,8 @@ class LabelRepairScenario(Scenario, id="label-repair"):
         self._iteration = iteration
         self._dirty_ratio = dirty_ratio
         self._seed = seed
+        self._trainsize = trainsize
+        self._valsize = valsize
         self._evolution = pd.DataFrame() if evolution is None else evolution
         self._importance_compute_time: Optional[float] = importance_compute_time
 
@@ -92,6 +115,16 @@ class LabelRepairScenario(Scenario, id="label-repair"):
     def iteration(self) -> int:
         """The ordinal number of the experiment repetition. Also serves as the random seed."""
         return self._iteration
+
+    @attribute
+    def trainsize(self) -> int:
+        """The size of the training dataset to use. The value 0 means maximal value."""
+        return self._trainsize
+
+    @attribute
+    def valsize(self) -> int:
+        """The size of the validation dataset to use. The value 0 means maximal value."""
+        return self._valsize
 
     @result
     def evolution(self) -> DataFrame:
@@ -247,6 +280,10 @@ class LabelRepairScenario(Scenario, id="label-repair"):
             importance_compute_time=self.importance_compute_time,
         )
         return result
+
+    @property
+    def keyword_replacements(self) -> Dict[str, str]:
+        return KEYWORD_REPLACEMENTS
 
     @classmethod
     def is_valid_config(cls, **attributes: Any) -> bool:

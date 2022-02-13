@@ -5,7 +5,7 @@ import pandas as pd
 from enum import Enum
 from functools import partial
 from matplotlib.figure import Figure
-from typing import Callable, Optional, Dict, Any, Sequence
+from typing import Callable, Optional, Dict, Any, Sequence, List
 
 from pandas import DataFrame
 
@@ -62,56 +62,134 @@ VALUE_MEASURES: Dict[AggregationMode, Dict[str, Callable]] = {
     },
 }
 
+VALUE_MEASURE_C: Dict[AggregationMode, str] = {
+    AggregationMode.MEAN_STD: "mean",
+    AggregationMode.MEDIAN_PERC_90: "median",
+    AggregationMode.MEDIAN_PERC_95: "median",
+    AggregationMode.MEDIAN_PERC_99: "median",
+}
+
+DEFAULT_LABEL_FORMAT = "{compare}"
+
+
+def filter(
+    dataframe: DataFrame,
+    attributes: Optional[Dict[str, Any]] = None,
+) -> DataFrame:
+    if attributes is None:
+        return dataframe
+    slicequery = " & ".join("%s == %s" % (str(k), repr(v)) for (k, v) in attributes.items())
+    return dataframe.query(slicequery)
+
 
 def aggregate(
     dataframe: DataFrame,
+    targetval: str,
     index: str,
-    compare: str,
-    value: str,
+    compare: Optional[Sequence[str]] = None,
     aggmode: Optional[AggregationMode] = None,
-    attributes: Optional[Dict[str, Any]] = None,
 ) -> DataFrame:
+    if aggmode is None:
+        aggmode = AggregationMode.MEDIAN_PERC_95
+
+    if compare is None:
+        compare = []
+    value_measures = VALUE_MEASURES[aggmode]
+
+    groupbycols = [index] + list(compare)
+    values = [
+        dataframe.groupby(groupbycols)[[targetval]].agg(f).add_suffix(":" + k) for (k, f) in value_measures.items()
+    ]
+    dataframe = pd.concat(values, axis=1)
+    if len(compare) > 0:
+        dataframe = dataframe.unstack()
+        dataframe.columns = dataframe.columns.swaplevel().map(">".join)
+    return dataframe
+
+
+def summarize(
+    dataframe: DataFrame,
+    summarize: str,
+    compare: Optional[Sequence[str]] = None,
+    summode: Optional[AggregationMode] = None,
+) -> dict:
+    if summode is None:
+        summode = AggregationMode.MEAN_STD
+    if compare is None:
+        compare = []
+    value_measures = VALUE_MEASURES[summode]
+    values = [dataframe.groupby(compare)[[summarize]].agg(f).add_suffix(":" + k) for (k, f) in value_measures.items()]
+    axis = 0 if len(compare) == 0 else 1
+    dataframe = pd.concat(values, axis=axis)
+    return dataframe.to_dict(orient="index")
+
+
+def replace_keywords(source: str, keyword_replacements: Dict[str, str]) -> str:
+    for k, v in sorted(keyword_replacements.items(), key=lambda x: len(x[1]), reverse=True):
+        source = source.replace(k, v)
+    return source
+
+
+def plot(
+    dataframe: DataFrame,
+    index: str,
+    targetval: str,
+    compare: Optional[Sequence[str]] = None,
+    aggmode: Optional[AggregationMode] = None,
+    labelformat: Optional[str] = None,
+    attributes: Optional[Dict[str, Any]] = None,
+    summary: Optional[dict] = None,
+    keyword_replacements: Optional[Dict[str, str]] = None,
+) -> Figure:
     if aggmode is None:
         aggmode = AggregationMode.MEDIAN_PERC_95
     if attributes is None:
         attributes = {}
-    value_measures = VALUE_MEASURES[aggmode]
+    if compare is None:
+        compare = []
+    if labelformat is None:
+        if len(compare) > 0:
+            labelformat = "; ".join("%%(%s)s" % c for c in compare)
+        else:
+            labelformat = targetval
+    if keyword_replacements is None:
+        keyword_replacements = {}
 
-    slicequery = " & ".join("%s == %s" % (str(k), repr(v)) for (k, v) in attributes.items())
-    dataframe = dataframe.query(slicequery)
-    values = [
-        dataframe.groupby([index] + [compare])[[value]].agg(f).add_suffix(":" + k) for (k, f) in value_measures.items()
-    ]
-    dataframe = pd.concat(values, axis=1)
-    dataframe = dataframe.unstack()
-    dataframe.columns = dataframe.columns.swaplevel().map(">".join)
-    return dataframe
-
-
-def plot(dataframe: DataFrame, index: str, value: str, attributes: Optional[Dict[str, Any]] = None) -> Figure:
-    if attributes is None:
-        attributes = {}
-
-    compare = sorted(list(set(c.split(">")[0] for c in dataframe.columns)))
-    idx = dataframe.index.values
-
-    dataframe.columns = dataframe.columns.map(lambda x: (x.split(">")[0], x.split(":")[-1]))
+    comparison = []
+    if len(compare) > 0:
+        comparison = sorted(list(set(tuple(c.split(">")[:-1]) for c in dataframe.columns)))
+        dataframe.columns = dataframe.columns.map(lambda x: (x.split(">")[0], x.split(":")[-1]))
+    else:
+        comparison = [(targetval,)]
+        dataframe.columns = dataframe.columns.map(lambda x: (targetval, x))
 
     figure = plt.figure(figsize=(10, 8))
     ax: plt.Axes = figure.subplots()
 
-    for i, comp in enumerate(compare):
-        upper = dataframe[comp]["95perc-h"]
-        lower = dataframe[comp]["95perc-l"]
-        ax.fill_between(idx, upper, lower, color=COLORS[i], alpha=0.2)
+    for i, comp in enumerate(comparison):
+        cols: List[str] = dataframe[comp].columns.to_list()
+        uppercol = next(c for c in cols if c.endswith("-h"))
+        lowercol = next(c for c in cols if c.endswith("-l"))
+        upper = dataframe[comp][uppercol]
+        lower = dataframe[comp][lowercol]
+        ax.fill_between(dataframe.index.values, upper, lower, color=COLORS[i], alpha=0.2)
 
-    for i, comp in enumerate(compare):
-        ax.plot(dataframe[comp]["median"], color=COLORS[i], label=LABELS[comp])
+    for i, comp in enumerate(comparison):
+        centercol = VALUE_MEASURE_C[aggmode]
+        formatdict = dict(zip(compare, comp))
+        if summary is not None:
+            comp_summary = summary
+            for c in comp:
+                comp_summary = comp_summary.get(c, comp_summary)
+            formatdict.update(comp_summary)
+        label = labelformat % formatdict
+        label = replace_keywords(label, keyword_replacements)
+        ax.plot(dataframe[comp][centercol], color=COLORS[i], label=label)
 
     ax.set_title(" ".join("%s=%s" % (str(k), repr(v)) for (k, v) in attributes.items()))
     ax.set_ylim([0, 1])
-    ax.set_ylabel(value)
-    ax.set_xlabel(index)
+    ax.set_ylabel(targetval.title())
+    ax.set_xlabel(index.title())
     ax.legend(loc="lower right")
     return figure
 
@@ -120,28 +198,37 @@ class AggregatePlot(Report, id="aggplot"):
     def __init__(
         self,
         study: Study,
-        eval: str,
+        targetval: str,
+        index: str,
         compare: Optional[Sequence[str]] = None,
-        index: Optional[str] = None,
+        summarize: Optional[str] = None,
         errdisplay: Optional[ErrorDisplay] = None,
         aggmode: Optional[AggregationMode] = None,
+        summode: Optional[AggregationMode] = None,
         groupby: Optional[Dict[str, Any]] = None,
+        labelformat: Optional[str] = None,
         id: Optional[str] = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(study, id=id, groupby=groupby, **kwargs)
-        self._eval = eval
+        self._targetval = targetval
         self._compare: Sequence[str] = compare if compare is not None else []
         self._index = index
+        self._summarize = summarize
         self._errdisplay = errdisplay if errdisplay is not None else ErrorDisplay.SHADE
         self._aggmode = aggmode if aggmode is not None else AggregationMode.MEDIAN_PERC_95
+        self._summode = summode if summode is not None else AggregationMode.MEAN_STD
+        if labelformat is None:
+            labelformat = "; ".join("%%(%s)s" % x for x in self._compare) if len(self._compare) > 0 else targetval
+        self._labelformat = labelformat
         self._view: Optional[DataFrame] = None
         self._figure: Optional[Figure] = None
+        self._summary: Optional[dict] = None
 
     @attribute
-    def eval(self) -> str:
+    def targetval(self) -> str:
         """The result attribute to evaluate."""
-        return self._eval
+        return self._targetval
 
     @attribute
     def compare(self) -> Sequence[str]:
@@ -149,9 +236,14 @@ class AggregatePlot(Report, id="aggplot"):
         return self._compare
 
     @attribute
-    def index(self) -> Optional[str]:
+    def index(self) -> str:
         """The attribute to use as index."""
         return self._index
+
+    @attribute
+    def summarize(self) -> Optional[str]:
+        """The attribute aggregate over the entire dataframe."""
+        return self._summarize
 
     @attribute
     def aggmode(self) -> AggregationMode:
@@ -159,20 +251,53 @@ class AggregatePlot(Report, id="aggplot"):
         return self._aggmode
 
     @attribute
+    def summode(self) -> AggregationMode:
+        """The mode of summarization to apply."""
+        return self._summode
+
+    @attribute
     def errdisplay(self) -> ErrorDisplay:
         """The method of displaying error bars."""
         return self._errdisplay
 
+    @attribute
+    def labelformat(self) -> str:
+        """
+        The string used to format labels in figures. A wildcard such as %(attrname)s of %(attrname).f can be used.
+        It will be replaced with a value where 'attrname' is either comparison attribute or a summary attribute.
+        """
+        return self._labelformat
+
     def generate(self) -> None:
+        dataframe = filter(self.study.dataframe, attributes=self.groupby)
+
         self._view = aggregate(
-            self.study.dataframe,
-            index=self.index,
-            compare=self.compare,
-            value=self.eval,
-            attributes=self.groupby,
-            aggmode=self.aggmode,
+            dataframe=dataframe,
+            index=self._index,
+            compare=self._compare,
+            targetval=self._targetval,
+            aggmode=self._aggmode,
         )
-        self._figure = plot(self._view, index=self.index, value=self.eval, attributes=self.groupby)
+        if self._summarize:
+            self._summary = summarize(
+                dataframe=dataframe, summarize=self._summarize, compare=self._compare, summode=self._summode
+            )
+
+        keyword_replacements: Dict[str, str] = {}
+        for scenario in self.study.scenarios:
+            keyword_replacements.update(scenario.keyword_replacements)
+
+        self._figure = plot(
+            self._view,
+            index=self._index,
+            targetval=self._targetval,
+            attributes=self._groupby,
+            summary=self._summary,
+            compare=self._compare,
+            labelformat=self._labelformat,
+            aggmode=self._aggmode,
+            keyword_replacements=keyword_replacements,
+        )
 
     @result
     def view(self) -> Optional[DataFrame]:
@@ -181,3 +306,7 @@ class AggregatePlot(Report, id="aggplot"):
     @result
     def figure(self) -> Optional[Figure]:
         return self._figure
+
+    @result
+    def summary(self) -> Optional[dict]:
+        return self._summary

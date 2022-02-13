@@ -31,6 +31,7 @@ def add_dynamic_arguments(
     attribute_types: Dict[str, Optional[type]],
     attribute_defaults: Dict[str, Optional[Any]],
     attribute_helpstrings: Dict[str, Optional[str]],
+    attribute_isiterable: Dict[str, bool],
 ) -> None:
     for name in attribute_domains:
         default = attribute_defaults[name]
@@ -47,7 +48,7 @@ def add_dynamic_arguments(
             help=helpstring,
             type=make_type_parser(attribute_types[name]),
             choices=domain,
-            nargs="+",
+            nargs="+" if attribute_isiterable[name] else None,  # type: ignore
         )
 
 
@@ -82,12 +83,14 @@ if __name__ == "__main__":
     )
 
     # Build arguments from scenario attributes.
+    attribute_isiterable = dict((k, True) for k in experiments.scenarios.Scenario.attribute_types.keys())
     add_dynamic_arguments(
         parser_run,
         experiments.scenarios.Scenario.attribute_domains,
         experiments.scenarios.Scenario.attribute_types,
         experiments.scenarios.Scenario.attribute_defaults,
         experiments.scenarios.Scenario.attribute_helpstrings,
+        experiments.scenarios.Scenario.attribute_isiterable,
     )
 
     parser_report = subparsers.add_parser("report")
@@ -122,6 +125,7 @@ if __name__ == "__main__":
         experiments.scenarios.Report.attribute_types,
         experiments.scenarios.Report.attribute_defaults,
         experiments.scenarios.Report.attribute_helpstrings,
+        experiments.scenarios.Report.attribute_isiterable,
     )
 
     # print(Report.attribute_domains)
