@@ -4,7 +4,7 @@ from enum import Enum
 from itertools import product
 from math import comb
 
-from numba import prange, jit
+# from numba import prange, jit
 from numpy import ndarray
 from scipy.sparse import csr_matrix, issparse, spmatrix
 from scipy.sparse.csgraph import connected_components
