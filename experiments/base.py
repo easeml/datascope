@@ -47,11 +47,14 @@ def run(
 
 
 def finalize(
-    study_path: str = DEFAULT_STUDY_PATH,
+    study_path: Optional[str] = DEFAULT_STUDY_PATH,
     groupby: Optional[Sequence[str]] = None,
     output_path: Optional[str] = None,
     **attributes: Any
 ) -> None:
+
+    if study_path is None:
+        raise ValueError("The provided study path cannot be None.")
 
     # Load the study.
     study = Study.load(study_path)

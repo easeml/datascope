@@ -4,12 +4,13 @@ import pandas as pd
 from copy import deepcopy
 from datascope.importance.common import SklearnModelUtility, binarize, get_indices
 from datascope.importance.shapley import ShapleyImportance, ImportanceMethod
+from datetime import timedelta
 from enum import Enum
 from numpy import ndarray
 from pandas import DataFrame
 from sklearn.metrics import accuracy_score
 from time import process_time_ns
-from typing import Any, Iterable, List, Optional, Dict
+from typing import Any, Iterable, Optional, Dict
 
 from .base import Scenario, attribute, result
 from ..dataset import Dataset, DEFAULT_TRAINSIZE, DEFAULT_VALSIZE
@@ -152,6 +153,9 @@ class LabelRepairScenario(Scenario, id="label-repair"):
         # Load dataset.
         dataset = Dataset.datasets[self.dataset](trainsize=self.trainsize, valsize=self.valsize)
         dataset.load()
+        self.logger.debug(
+            "Dataset '%s' loaded (trainsize=%d, valsize=%d).", self.dataset, dataset.trainsize, dataset.valsize
+        )
 
         # Create the dirty dataset and apply the data corruption.
         dataset_dirty = deepcopy(dataset)
@@ -164,6 +168,7 @@ class LabelRepairScenario(Scenario, id="label-repair"):
         # Load the pipeline and process the data.
         pipeline_class = Pipeline.pipelines[self.pipeline]
         pipeline = pipeline_class.construct(dataset)
+        assert dataset.X_train is not None
         X_train: ndarray = pipeline.fit_transform(
             dataset.X_train, dataset.y_train
         )  # TODO: Fit the pipeline with dirty data.
@@ -171,12 +176,15 @@ class LabelRepairScenario(Scenario, id="label-repair"):
         y_train, y_val, y_train_dirty = dataset.y_train, dataset.y_val, dataset_dirty.y_train
         X_val: ndarray = pipeline.transform(dataset.X_val)
         assert y_train is not None
+        self.logger.debug("Shape of X_train before feature extraction: %s", str(dataset.X_train.shape))
+        self.logger.debug("Shape of X_train after feature extraction: %s", str(X_train.shape))
 
         # Reshape datasets if needed.
         if X_train.ndim > 2:
             X_train = X_train.reshape(X_train.shape[0], -1)
             X_train_dirty = X_train_dirty.reshape(X_train_dirty.shape[0], -1)
             X_val = X_val.reshape(X_val.shape[0], -1)
+            self.logger.debug("Need to reshape. New shape: %s", str(X_train.shape))
 
         # Construct binarized provenance matrix.
         provenance = np.expand_dims(np.arange(dataset.trainsize, dtype=int), axis=(1, 2, 3))
@@ -188,7 +196,7 @@ class LabelRepairScenario(Scenario, id="label-repair"):
         utility = SklearnModelUtility(model, accuracy_score)
 
         # Compute importance scores and time it.
-        time_start = process_time_ns()
+        importance_time_start = process_time_ns()
         importance: Optional[ShapleyImportance] = None
         importances: Optional[Iterable[float]] = None
         if self.method == RepairMethod.RANDOM:
@@ -198,8 +206,9 @@ class LabelRepairScenario(Scenario, id="label-repair"):
             mc_iterations = MC_ITERATIONS[self.method]
             importance = ShapleyImportance(method=method, utility=utility, mc_iterations=mc_iterations)
             importances = importance.fit(X_train_dirty, y_train_dirty).score(X_val, y_val)
-        time_end = process_time_ns()
-        self._importance_compute_time = (time_end - time_start) / 1e9
+        importance_time_end = process_time_ns()
+        self._importance_compute_time = (importance_time_end - importance_time_start) / 1e9
+        self.logger.debug("Importance computed in: %s", str(timedelta(seconds=self._importance_compute_time)))
         n_units = dataset.trainsize
         visited_units = np.zeros(n_units, dtype=bool)
         argsorted_importances = np.array(importances).argsort()
