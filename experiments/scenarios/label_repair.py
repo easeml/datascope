@@ -227,7 +227,7 @@ class LabelRepairScenario(Scenario, id="label-repair"):
         checkpoints = self.checkpoints if self.checkpoints > 0 and self.checkpoints < n_units else n_units
         n_units_per_checkpoint = round(n_units / checkpoints)
         if progress_bar:
-            self.progress.start(total=checkpoints, desc="%s Repairs" % str(self))
+            self.progress.start(total=checkpoints, desc="(id=%s) Repairs" % self.id)
         # pbar = None if not progress_bar else tqdm(total=dataset.trainsize, desc="%s Repairs" % str(self))
 
         # Iterate over the repair process.
