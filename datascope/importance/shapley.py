@@ -4,7 +4,7 @@ from enum import Enum
 from itertools import product
 from math import comb
 
-# from numba import prange
+from numba import prange, jit
 from numpy import ndarray
 from scipy.sparse import csr_matrix, issparse, spmatrix
 from scipy.sparse.csgraph import connected_components
@@ -16,7 +16,7 @@ from .common import DEFAULT_SEED, DistanceCallable, Utility, binarize, get_indic
 from .importance import Importance
 
 
-prange = range
+# prange = range
 
 
 class ImportanceMethod(Enum):
@@ -89,6 +89,51 @@ def compute_shapley_add(
 
 
 # @jit(nopython=True)
+def get_unit_distances_and_utilities(
+    distances: ndarray, utilities: ndarray, provenance: ndarray, units: ndarray, world: ndarray
+) -> Tuple[ndarray, ndarray]:
+
+    n_test = distances.shape[1]
+    n_units = len(units)
+    # We check if we are dealing with the trivial situation, when we need only to return the trivial answer.
+    if provenance.ndim == 3 and provenance.shape[-1] == 1 and np.all(provenance[..., 0] == np.eye(n_units)):
+        return distances, utilities
+
+    # Compute the minimal distance for each unit and each test example.
+    unit_provenance = provenance[..., units, world].astype(np.bool_)
+    unit_distances = np.zeros((n_units, n_test))  # TODO: Make this faster.
+    unit_utilities = np.zeros((n_units, n_test))  # TODO: Make this faster.
+    for i in range(n_units):
+        # # Find minimal distance indices for each test example, among tuples associated with i-th unit.
+        # idx = np.argmin(distances[unit_provenance[:, i]], axis=0)
+        # # Given those indices, select the minimal distance value and the associated utility value.
+        # unit_distances[i] = distances[unit_provenance[:, i]][idx, np.arange(n_test)]
+        # unit_utilities[i] = utilities[unit_provenance[:, i]][idx, np.arange(n_test)]
+        pidx = unit_provenance[:, i]
+        pdistances = distances[pidx]
+        putilities = utilities[pidx]
+        for j in range(n_test):
+            idx = np.argmin(distances[pidx, j])
+            unit_distances[i, j] = pdistances[idx, j]
+            unit_utilities[i, j] = putilities[idx, j]
+    return unit_distances, unit_utilities
+
+
+def compute_all_importances(unit_distances: ndarray, unit_utilities: ndarray) -> ndarray:
+    # Compute unit importances.
+    n_units, n_test = unit_distances.shape
+    all_importances = np.zeros((n_units + 1, n_test))
+    unit_utilities = np.vstack((unit_utilities, np.ones((1, n_test)) * 0.5))
+    for j in range(n_test):
+        idxs = np.append(np.argsort(unit_distances[:, j]), [n_units])
+        for i in range(n_units - 1, -1, -1):
+            all_importances[idxs[i], j] = all_importances[idxs[i + 1], j] + (
+                unit_utilities[idxs[i], j] - unit_utilities[idxs[i + 1], j]
+            ) / float(i + 1)
+    return all_importances
+
+
+# @jit(nopython=True)
 # @njit(parallel=False)
 # @njit(parallel=True, fastmath=True)
 def compute_shapley_1nn_mapfork(
@@ -99,33 +144,37 @@ def compute_shapley_1nn_mapfork(
         raise ValueError("The provenance of all data examples must reference at most one unit.")
     provenance = np.squeeze(provenance, axis=1)
 
-    n_test = distances.shape[1]
+    # n_test = distances.shape[1]
     n_units = len(units)
 
-    # Compute the minimal distance for each unit and each test example.
-    unit_provenance = provenance[..., units, world].astype(np.bool_)
-    unit_distances = np.zeros((n_units, n_test))  # TODO: Make this faster.
-    unit_utilities = np.zeros((n_units, n_test))  # TODO: Make this faster.
-    for i in prange(n_units):
-        # # Find minimal distance indices for each test example, among tuples associated with i-th unit.
-        # idx = np.argmin(distances[unit_provenance[:, i]], axis=0)
-        # # Given those indices, select the minimal distance value and the associated utility value.
-        # unit_distances[i] = distances[unit_provenance[:, i]][idx, np.arange(n_test)]
-        # unit_utilities[i] = utilities[unit_provenance[:, i]][idx, np.arange(n_test)]
-        for j in prange(n_test):
-            idx = np.argmin(distances[unit_provenance[:, i], j])
-            unit_distances[i, j] = distances[unit_provenance[:, i]][idx, j]
-            unit_utilities[i, j] = utilities[unit_provenance[:, i]][idx, j]
+    # # Compute the minimal distance for each unit and each test example.
+    # unit_provenance = provenance[..., units, world].astype(np.bool_)
+    # unit_distances = np.zeros((n_units, n_test))  # TODO: Make this faster.
+    # unit_utilities = np.zeros((n_units, n_test))  # TODO: Make this faster.
+    # for i in prange(n_units):
+    #     # # Find minimal distance indices for each test example, among tuples associated with i-th unit.
+    #     # idx = np.argmin(distances[unit_provenance[:, i]], axis=0)
+    #     # # Given those indices, select the minimal distance value and the associated utility value.
+    #     # unit_distances[i] = distances[unit_provenance[:, i]][idx, np.arange(n_test)]
+    #     # unit_utilities[i] = utilities[unit_provenance[:, i]][idx, np.arange(n_test)]
+    #     for j in prange(n_test):
+    #         idx = np.argmin(distances[unit_provenance[:, i], j])
+    #         unit_distances[i, j] = distances[unit_provenance[:, i]][idx, j]
+    #         unit_utilities[i, j] = utilities[unit_provenance[:, i]][idx, j]
 
-    # Compute unit importances.
-    all_importances = np.zeros((n_units + 1, n_test))
-    unit_utilities = np.vstack((unit_utilities, np.ones((1, n_test)) * 0.5))
-    for j in prange(n_test):
-        idxs = np.append(np.argsort(unit_distances[:, j]), [n_units])
-        for i in range(n_units - 1, -1, -1):
-            all_importances[idxs[i], j] = all_importances[idxs[i + 1], j] + (
-                unit_utilities[idxs[i], j] - unit_utilities[idxs[i + 1], j]
-            ) / float(i + 1)
+    unit_distances, unit_utilities = get_unit_distances_and_utilities(distances, utilities, provenance, units, world)
+
+    # # Compute unit importances.
+    # all_importances = np.zeros((n_units + 1, n_test))
+    # unit_utilities = np.vstack((unit_utilities, np.ones((1, n_test)) * 0.5))
+    # for j in prange(n_test):
+    #     idxs = np.append(np.argsort(unit_distances[:, j]), [n_units])
+    #     for i in range(n_units - 1, -1, -1):
+    #         all_importances[idxs[i], j] = all_importances[idxs[i + 1], j] + (
+    #             unit_utilities[idxs[i], j] - unit_utilities[idxs[i + 1], j]
+    #         ) / float(i + 1)
+
+    all_importances = compute_all_importances(unit_distances, unit_utilities)
 
     # Aggregate results.
     # importances = np.mean(all_importances[:-1], axis=1)
