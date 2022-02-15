@@ -16,7 +16,7 @@ from .common import DEFAULT_SEED, DistanceCallable, Utility, binarize, get_indic
 from .importance import Importance
 
 
-# prange = range
+prange = range
 
 
 class ImportanceMethod(Enum):
@@ -179,7 +179,7 @@ def compute_shapley_1nn_mapfork(
     # Aggregate results.
     # importances = np.mean(all_importances[:-1], axis=1)
     importances = np.zeros(n_units)
-    for i in prange(n_units):
+    for i in range(n_units):
         importances[i] = np.mean(all_importances[i])
     return importances
 
