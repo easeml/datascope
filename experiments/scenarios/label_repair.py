@@ -2,13 +2,12 @@ import numpy as np
 import pandas as pd
 
 from copy import deepcopy
-from datascope.importance.common import SklearnModelUtility, binarize, get_indices
+from datascope.importance.common import SklearnModelAccuracy, binarize, get_indices
 from datascope.importance.shapley import ShapleyImportance, ImportanceMethod
 from datetime import timedelta
 from enum import Enum
 from numpy import ndarray
 from pandas import DataFrame
-from sklearn.metrics import accuracy_score
 from time import process_time_ns
 from typing import Any, Iterable, Optional, Dict
 
@@ -193,7 +192,7 @@ class LabelRepairScenario(Scenario, id="label-repair"):
 
         # Initialize the model and utility.
         model = get_model(ModelType.LogisticRegression)
-        utility = SklearnModelUtility(model, accuracy_score)
+        utility = SklearnModelAccuracy(model)
 
         # Compute importance scores and time it.
         importance_time_start = process_time_ns()
@@ -215,9 +214,8 @@ class LabelRepairScenario(Scenario, id="label-repair"):
         # argsorted_importances = np.ma.array(importances, mask=visited_units).argsort()
 
         # Run the model to get initial score.
-        model.fit(X_train_dirty, y_train_dirty)
-        y_pred = model.predict(X_val)
-        accuracy = accuracy_score(y_val, y_pred)
+        assert y_val is not None
+        accuracy = utility(X_train_dirty, y_train_dirty, X_val, y_val)
 
         # Update result table.
         evolution = [[0.0, accuracy, accuracy, 0, 0.0, 0, 0.0]]
@@ -250,9 +248,7 @@ class LabelRepairScenario(Scenario, id="label-repair"):
             visited_units[target_units] = True
 
             # Run the model.
-            model.fit(X_train_dirty, y_train_dirty)
-            y_pred = model.predict(X_val)
-            accuracy = accuracy_score(y_val, y_pred)
+            accuracy = utility(X_train_dirty, y_train_dirty, X_val, y_val)
 
             # Update result table.
             steps_rel = (i + 1) / float(checkpoints)

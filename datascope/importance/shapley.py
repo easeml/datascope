@@ -327,6 +327,9 @@ class ShapleyImportance(Importance):
         n_units_total = provenance.shape[2]
         n_candidates_total = provenance.shape[3]
         n_units = len(units)
+        simple_provenance = bool(
+            provenance.shape[1] == 1 and provenance.shape[3] == 1 and np.all(provenance[:, 0, :, 0] == np.eye(n_units))
+        )
         truncation_counter = 0
         all_importances = np.zeros((n_units, iterations))
         for i in range(iterations):
@@ -341,7 +344,7 @@ class ShapleyImportance(Importance):
 
                 # Get indices of data points selected based on the iteration query.
                 query[units[idx], world[idx]] = 1
-                indices = get_indices(provenance, query)
+                indices = get_indices(provenance, query, simple_provenance=simple_provenance)
 
                 # Train the model and score it. If we fail at any step we get zero score.
                 X_train = X[indices]
@@ -388,8 +391,7 @@ class ShapleyImportance(Importance):
         distances = distance(X, X_test)
 
         # Compute the utilitiy values between training and test labels.
-        # TODO: Enable different element-wise utilities.
-        utilities = np.equal.outer(y, y_test).astype(float)
+        utilities = self.utility.elementwise_score(X_train=X, y_train=y, X_test=X_test, y_test=y_test)
 
         if k == 1:
             return compute_shapley_1nn_mapfork(distances, utilities, provenance, units, world)

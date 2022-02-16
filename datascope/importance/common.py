@@ -6,6 +6,7 @@ from collections import defaultdict
 from numpy import ndarray
 from typing import Optional, Protocol, Callable, Union
 from sklearn.base import clone
+from sklearn.metrics import accuracy_score
 
 
 class SklearnModel(Protocol):
@@ -61,6 +62,16 @@ class Utility(ABC):
     ) -> float:
         pass
 
+    @abstractmethod
+    def elementwise_score(
+        self,
+        X_train: ndarray,
+        y_train: ndarray,
+        X_test: ndarray,
+        y_test: ndarray,
+    ) -> ndarray:
+        raise NotImplementedError("This utility does not implement elementwise scoring.")
+
 
 class SklearnModelUtility(Utility):
     def __init__(self, model: SklearnModel, metric: MetricCallable) -> None:
@@ -76,7 +87,7 @@ class SklearnModelUtility(Utility):
         null_score: Optional[float] = None,
         seed: int = DEFAULT_SEED,
     ) -> float:
-        score = null_score if null_score is not None else self.null_score(X_train, y_train, X_test, y_test)
+        score = 0.0
         try:
             # TODO: Ensure fit clears the model.
             np.random.seed(seed)
@@ -84,7 +95,7 @@ class SklearnModelUtility(Utility):
             y_pred = self._model_predict(model, X_test)
             score = self._metric_score(self.metric, y_test, y_pred)
         except ValueError:
-            pass
+            return null_score if null_score is not None else self.null_score(X_train, y_train, X_test, y_test)
         return score
 
     def _model_fit(self, model: SklearnModel, X_train: ndarray, y_train: ndarray) -> SklearnModel:
@@ -136,6 +147,25 @@ class SklearnModelUtility(Utility):
             idx = np.random.choice(len(y_test), int(len(y_test) * 0.5))
             scores.append(self._metric_score(self.metric, y_test[idx], y_pred[idx]))
         return np.mean(scores)
+
+
+class SklearnModelAccuracy(SklearnModelUtility):
+    def __init__(self, model: SklearnModel) -> None:
+        super().__init__(model, accuracy_score)
+
+    def elementwise_score(
+        self,
+        X_train: ndarray,
+        y_train: ndarray,
+        X_test: ndarray,
+        y_test: ndarray,
+    ) -> ndarray:
+        return np.equal.outer(y_train, y_test).astype(float)
+
+
+class SklearnModelEqualizedOddsDifference(SklearnModelUtility):
+    def __init__(self, model: SklearnModel, sensitive_feature: int) -> None:
+        super().__init__(model, metric)
 
 
 def get_dimensions(array, level=0):
@@ -215,11 +245,17 @@ def binarize(provenance: ndarray) -> ndarray:
     return result
 
 
-def get_indices(provenance: ndarray, query: ndarray) -> ndarray:
+def get_indices(provenance: ndarray, query: ndarray, simple_provenance: bool = False) -> ndarray:
     assert provenance.ndim == 4
     assert query.ndim in [1, 2]
     if query.ndim == 1:
         query = np.broadcast_to(query[:, np.newaxis], query.shape + (provenance.shape[-1],))
+
+    n_units = query.shape[0]
+    if simple_provenance or (
+        provenance.shape[1] == 1 and provenance.shape[3] == 1 and np.all(provenance[:, 0, :, 0] == np.eye(n_units))
+    ):
+        return query[:, 0].astype(bool)
     # newshape = provenance.shape[:1] + tuple(1 for _ in range(3 - provenance.ndim)) + provenance.shape[1:]
     # provenance = provenance.reshape(newshape)
     query = np.broadcast_to(query, provenance.shape)
