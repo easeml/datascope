@@ -263,7 +263,7 @@ class AggregatePlot(Report, id="aggplot"):
     @attribute
     def labelformat(self) -> str:
         """
-        The string used to format labels in figures. A wildcard such as %(attrname)s of %(attrname).f can be used.
+        The string used to format labels in figures. A wildcard such as %%(attrname)s of %%(attrname).2f can be used.
         It will be replaced with a value where 'attrname' is either comparison attribute or a summary attribute.
         """
         return self._labelformat

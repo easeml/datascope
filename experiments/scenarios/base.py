@@ -252,20 +252,17 @@ def load_dict(dirpath: str, basename: str) -> Dict[str, Any]:
     return res
 
 
-class ProgressEventType(Enum):
-    START = "start"
-    UPDATE = "update"
-    CLOSE = "close"
-
-
-class ProgressEvent:
-    def __init__(self, type: ProgressEventType, id: str, **kwargs: Any) -> None:
-        self.type = type
-        self.id = id
-        self.kwargs = kwargs
-
-
 class Progress:
+    class Event:
+        class Type(Enum):
+            START = "start"
+            UPDATE = "update"
+            CLOSE = "close"
+
+        def __init__(self, type: "Progress.Event.Type", id: str, **kwargs: Any) -> None:
+            self.type = type
+            self.id = id
+            self.kwargs = kwargs
 
     pbars: Dict[str, tqdm] = {}
 
@@ -274,15 +271,15 @@ class Progress:
         self._id = id if id is not None else "".join(random.choices(string.ascii_lowercase + string.digits, k=10))
 
     def start(self, total: Optional[int] = None, desc: Optional[str] = None) -> None:
-        self._submit(ProgressEvent(ProgressEventType.START, self._id, total=total, desc=desc))
+        self._submit(Progress.Event(Progress.Event.Type.START, self._id, total=total, desc=desc))
 
     def update(self, n: int = 1) -> None:
-        self._submit(ProgressEvent(ProgressEventType.UPDATE, self._id, n=n))
+        self._submit(Progress.Event(Progress.Event.Type.UPDATE, self._id, n=n))
 
     def close(self) -> None:
-        self._submit(ProgressEvent(ProgressEventType.CLOSE, self._id))
+        self._submit(Progress.Event(Progress.Event.Type.CLOSE, self._id))
 
-    def _submit(self, event: ProgressEvent) -> None:
+    def _submit(self, event: "Progress.Event") -> None:
         if self._queue is None:
             self.handle(event)
         else:
@@ -305,12 +302,12 @@ class Progress:
             pbar.refresh()
 
     @classmethod
-    def handle(cls: Type["Progress"], event: ProgressEvent) -> None:
-        if event.type == ProgressEventType.START:
+    def handle(cls: Type["Progress"], event: "Progress.Event") -> None:
+        if event.type == Progress.Event.Type.START:
             cls.pbars[event.id] = tqdm(desc=event.kwargs["desc"], total=event.kwargs["total"])
-        elif event.type == ProgressEventType.UPDATE:
+        elif event.type == Progress.Event.Type.UPDATE:
             cls.pbars[event.id].update(event.kwargs["n"])
-        elif event.type == ProgressEventType.CLOSE:
+        elif event.type == Progress.Event.Type.CLOSE:
             cls.pbars[event.id].close()
             del cls.pbars[event.id]
             # Ensure that bars get redrawn properly after they reshuffle due to closure of one of them.
@@ -645,10 +642,10 @@ class Study:
     @staticmethod
     def _status_monitor(queue: Queue, logger: Logger) -> None:
         while True:
-            record: Optional[Union[logging.LogRecord, ProgressEvent]] = queue.get()
+            record: Optional[Union[logging.LogRecord, Progress.Event]] = queue.get()
             if record is None:
                 break
-            if isinstance(record, ProgressEvent):
+            if isinstance(record, Progress.Event):
                 Progress.handle(record)
             else:
                 # logger = logging.getLogger(record.name)

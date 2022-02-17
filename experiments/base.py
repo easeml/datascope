@@ -9,6 +9,7 @@ from .scenarios import Study, Scenario, DEFAULT_RESULTS_PATH, DEFAULT_STUDY_PATH
 def run(
     output_path: str = DEFAULT_RESULTS_PATH,
     no_parallelism: bool = False,
+    no_save: bool = False,
     ray_address: Optional[str] = None,
     ray_numprocs: Optional[int] = None,
     **attributes: Any
@@ -40,10 +41,11 @@ def run(
         study = Study(scenarios=scenarios, outpath=output_path)
 
     # Run the study.
-    study.run(parallel=not no_parallelism, ray_address=ray_address, ray_numprocs=ray_numprocs, eagersave=True)
+    study.run(parallel=not no_parallelism, ray_address=ray_address, ray_numprocs=ray_numprocs, eagersave=not no_save)
 
     # Save the study.
-    study.save()
+    if not no_save:
+        study.save()
 
 
 def finalize(

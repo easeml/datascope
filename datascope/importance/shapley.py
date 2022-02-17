@@ -330,7 +330,6 @@ class ShapleyImportance(Importance):
         simple_provenance = bool(
             provenance.shape[1] == 1 and provenance.shape[3] == 1 and np.all(provenance[:, 0, :, 0] == np.eye(n_units))
         )
-        truncation_counter = 0
         all_importances = np.zeros((n_units, iterations))
         for i in range(iterations):
             idxs = self.randomstate.permutation(n_units)
@@ -338,6 +337,7 @@ class ShapleyImportance(Importance):
             query = np.zeros((n_units_total, n_candidates_total))
 
             new_score = null_score
+            truncation_counter = 0
 
             for idx in idxs:
                 old_score = new_score

@@ -76,6 +76,12 @@ if __name__ == "__main__":
     )
 
     parser_run.add_argument(
+        "--no-save",
+        action="store_true",
+        help="Prevent saving the scenario.",
+    )
+
+    parser_run.add_argument(
         "--ray-address",
         type=str,
         default=None,
