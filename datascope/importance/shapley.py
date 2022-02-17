@@ -4,7 +4,7 @@ from enum import Enum
 from itertools import product
 from math import comb
 
-# from numba import prange, jit
+from numba import prange, jit
 from numpy import ndarray
 from scipy.sparse import csr_matrix, issparse, spmatrix
 from scipy.sparse.csgraph import connected_components
@@ -90,13 +90,20 @@ def compute_shapley_add(
 
 # @jit(nopython=True)
 def get_unit_distances_and_utilities(
-    distances: ndarray, utilities: ndarray, provenance: ndarray, units: ndarray, world: ndarray
+    distances: ndarray,
+    utilities: ndarray,
+    provenance: ndarray,
+    units: ndarray,
+    world: ndarray,
+    simple_provenance: bool = False,
 ) -> Tuple[ndarray, ndarray]:
 
     n_test = distances.shape[1]
     n_units = len(units)
     # We check if we are dealing with the trivial situation, when we need only to return the trivial answer.
-    if provenance.ndim == 3 and provenance.shape[-1] == 1 and np.all(provenance[..., 0] == np.eye(n_units)):
+    if simple_provenance or (
+        provenance.ndim == 3 and provenance.shape[-1] == 1 and np.all(provenance[..., 0] == np.eye(n_units))
+    ):
         return distances, utilities
 
     # Compute the minimal distance for each unit and each test example.
@@ -119,16 +126,19 @@ def get_unit_distances_and_utilities(
     return unit_distances, unit_utilities
 
 
+@jit(nopython=True, nogil=True, cache=True)
 def compute_all_importances(unit_distances: ndarray, unit_utilities: ndarray) -> ndarray:
     # Compute unit importances.
     n_units, n_test = unit_distances.shape
     all_importances = np.zeros((n_units + 1, n_test))
     unit_utilities = np.vstack((unit_utilities, np.ones((1, n_test)) * 0.5))
-    for j in range(n_test):
+    for j in prange(n_test):
         idxs = np.append(np.argsort(unit_distances[:, j]), [n_units])
-        for i in range(n_units - 1, -1, -1):
-            all_importances[idxs[i], j] = all_importances[idxs[i + 1], j] + (
-                unit_utilities[idxs[i], j] - unit_utilities[idxs[i + 1], j]
+        for i in prange(n_units - 1, -1, -1):
+            i_1 = idxs[i]
+            i_2 = idxs[i + 1]
+            all_importances[i_1, j] = all_importances[i_2, j] + (
+                unit_utilities[i_1, j] - unit_utilities[i_2, j]
             ) / float(i + 1)
     return all_importances
 
@@ -137,7 +147,12 @@ def compute_all_importances(unit_distances: ndarray, unit_utilities: ndarray) ->
 # @njit(parallel=False)
 # @njit(parallel=True, fastmath=True)
 def compute_shapley_1nn_mapfork(
-    distances: ndarray, utilities: ndarray, provenance: ndarray, units: ndarray, world: ndarray
+    distances: ndarray,
+    utilities: ndarray,
+    provenance: ndarray,
+    units: ndarray,
+    world: ndarray,
+    simple_provenance: bool = False,
 ) -> Iterable[float]:
 
     if not np.all(provenance.sum(axis=2) == 1):
@@ -162,7 +177,9 @@ def compute_shapley_1nn_mapfork(
     #         unit_distances[i, j] = distances[unit_provenance[:, i]][idx, j]
     #         unit_utilities[i, j] = utilities[unit_provenance[:, i]][idx, j]
 
-    unit_distances, unit_utilities = get_unit_distances_and_utilities(distances, utilities, provenance, units, world)
+    unit_distances, unit_utilities = get_unit_distances_and_utilities(
+        distances, utilities, provenance, units, world, simple_provenance=simple_provenance
+    )
 
     # # Compute unit importances.
     # all_importances = np.zeros((n_units + 1, n_test))
@@ -207,6 +224,7 @@ class ShapleyImportance(Importance):
         self.X: Optional[ndarray] = None
         self.y: Optional[ndarray] = None
         self.provenance: Optional[ndarray] = None
+        self._simple_provenance = False
         self.randomstate = np.random.RandomState(seed)
 
     def _fit(self, X: ndarray, y: ndarray, provenance: Optional[ndarray] = None) -> "ShapleyImportance":
@@ -214,6 +232,7 @@ class ShapleyImportance(Importance):
         self.y = y
         if provenance is None:
             provenance = np.arange(X.shape[0])
+            self._simple_provenance = True
         self.provenance = reshape(provenance)
         return self
 
@@ -327,7 +346,7 @@ class ShapleyImportance(Importance):
         n_units_total = provenance.shape[2]
         n_candidates_total = provenance.shape[3]
         n_units = len(units)
-        simple_provenance = bool(
+        simple_provenance = self._simple_provenance or bool(
             provenance.shape[1] == 1 and provenance.shape[3] == 1 and np.all(provenance[:, 0, :, 0] == np.eye(n_units))
         )
         all_importances = np.zeros((n_units, iterations))
@@ -394,6 +413,8 @@ class ShapleyImportance(Importance):
         utilities = self.utility.elementwise_score(X_train=X, y_train=y, X_test=X_test, y_test=y_test)
 
         if k == 1:
-            return compute_shapley_1nn_mapfork(distances, utilities, provenance, units, world)
+            return compute_shapley_1nn_mapfork(
+                distances, utilities, provenance, units, world, simple_provenance=self._simple_provenance
+            )
         else:
             raise ValueError("The value '%d' for the k-parameter is not possible.")
