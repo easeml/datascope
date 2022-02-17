@@ -1,10 +1,10 @@
-from abc import abstractmethod
+import collections
 import numpy as np
 
-from abc import ABC
+from abc import ABC, abstractmethod
 from collections import defaultdict
 from numpy import ndarray
-from typing import Optional, Protocol, Callable, Union
+from typing import Iterable, Optional, Protocol, Callable, Tuple, Union
 from sklearn.base import clone
 from sklearn.metrics import accuracy_score
 
@@ -62,7 +62,6 @@ class Utility(ABC):
     ) -> float:
         pass
 
-    @abstractmethod
     def elementwise_score(
         self,
         X_train: ndarray,
@@ -74,7 +73,7 @@ class Utility(ABC):
 
 
 class SklearnModelUtility(Utility):
-    def __init__(self, model: SklearnModel, metric: MetricCallable) -> None:
+    def __init__(self, model: SklearnModel, metric: Optional[MetricCallable]) -> None:
         self.model = model
         self.metric = metric
 
@@ -93,7 +92,7 @@ class SklearnModelUtility(Utility):
             np.random.seed(seed)
             model = self._model_fit(self.model, X_train, y_train)
             y_pred = self._model_predict(model, X_test)
-            score = self._metric_score(self.metric, y_test, y_pred)
+            score = self._metric_score(self.metric, y_test, y_pred, X_test=X_test)
         except ValueError:
             return null_score if null_score is not None else self.null_score(X_train, y_train, X_test, y_test)
         return score
@@ -106,7 +105,16 @@ class SklearnModelUtility(Utility):
     def _model_predict(self, model: SklearnModel, X_test: ndarray) -> ndarray:
         return model.predict(X_test)
 
-    def _metric_score(self, metric: MetricCallable, y_test: ndarray, y_pred: ndarray) -> float:
+    def _metric_score(
+        self,
+        metric: Optional[MetricCallable],
+        y_test: ndarray,
+        y_pred: ndarray,
+        *,
+        X_test: Optional[ndarray] = None,
+    ) -> float:
+        if metric is None:
+            raise ValueError("The metric was not provided.")
         return metric(y_test, y_pred)
 
     def null_score(
@@ -126,7 +134,7 @@ class SklearnModelUtility(Utility):
         for _ in range(maxiter):
             idx = np.random.randint(len(y_test))
             y_spoof = np.repeat(y_pred[[idx]], len(y_test), axis=0)
-            scores.append(self._metric_score(self.metric, y_test, y_spoof))
+            scores.append(self._metric_score(self.metric, y_test, y_spoof, X_test=X_test))
         return min(scores)
 
     def mean_score(
@@ -145,7 +153,7 @@ class SklearnModelUtility(Utility):
         np.random.seed(seed)
         for _ in range(maxiter):
             idx = np.random.choice(len(y_test), int(len(y_test) * 0.5))
-            scores.append(self._metric_score(self.metric, y_test[idx], y_pred[idx]))
+            scores.append(self._metric_score(self.metric, y_test[idx], y_pred[idx], X_test=X_test))
         return np.mean(scores)
 
 
@@ -163,9 +171,112 @@ class SklearnModelAccuracy(SklearnModelUtility):
         return np.equal.outer(y_train, y_test).astype(float)
 
 
+def compute_groupings(X_test: ndarray, sensitive_features: Iterable[int]) -> ndarray:
+    X = X_test[:, sensitive_features]
+    unique_values = np.unique(X, axis=0)
+    groupings = np.zeros(X_test.shape[0], dtype=int)
+    for i, unique in enumerate(unique_values):
+        idx = (X == unique).all(axis=1).nonzero()
+        groupings[idx] = i
+    return groupings
+
+
+def compute_tpr_and_fpr(
+    y_test: ndarray, y_pred: ndarray, *, groupings: Optional[ndarray] = None
+) -> Tuple[ndarray, ndarray]:
+    groups = sorted(np.unique(groupings))
+    n_groups = len(groups)
+    tpr = np.zeros(n_groups, dtype=float)
+    fpr = np.zeros(n_groups, dtype=float)
+
+    for g in range(n_groups):
+        idx_g = groupings == g
+        y_test_g = y_test[idx_g]
+        y_pred_g = y_pred[idx_g]
+        y_eq = y_test_g == y_pred_g
+        y_neq = y_test_g != y_pred_g
+        y_pos = y_pred_g == 1
+        y_neg = y_pred_g == 0
+        tp = np.sum(y_eq & y_pos)
+        tn = np.sum(y_eq & y_neg)
+        fp = np.sum(y_neq & y_pos)
+        fn = np.sum(y_neq & y_neg)
+        fpr[g] = fp / (tn + fp) if fp > 0.0 else 0.0
+        tpr[g] = tp / (tp + fn) if tp > 0.0 else 0.0
+
+    return tpr, fpr
+
+
+def equalized_odds_diff(y_test: ndarray, y_pred: ndarray, *, groupings: Optional[ndarray] = None) -> float:
+
+    tpr, fpr = compute_tpr_and_fpr(y_test, y_pred, groupings=groupings)
+
+    tpr_d = np.max(tpr) - np.min(tpr)
+    fpr_d = np.max(fpr) - np.min(fpr)
+    return max(tpr_d, fpr_d)
+
+
 class SklearnModelEqualizedOddsDifference(SklearnModelUtility):
-    def __init__(self, model: SklearnModel, sensitive_feature: int) -> None:
-        super().__init__(model, metric)
+    def __init__(self, model: SklearnModel, sensitive_features: Union[int, Iterable[int]]) -> None:
+        super().__init__(model, None)
+        if not isinstance(sensitive_features, collections.Iterable):
+            sensitive_features = [sensitive_features]
+        self._sensitive_features = sensitive_features
+
+    def _metric_score(
+        self,
+        metric: Optional[MetricCallable],
+        y_test: ndarray,
+        y_pred: ndarray,
+        *,
+        X_test: Optional[ndarray] = None,
+    ) -> float:
+        assert X_test is not None
+        if list(sorted(np.unique(y_test))) != [0, 1]:
+            raise ValueError("This utility works only on binary classification problems.")
+        groupings = compute_groupings(X_test, self._sensitive_features)
+        return equalized_odds_diff(y_test, y_pred, groupings=groupings)
+
+    def elementwise_score(
+        self,
+        X_train: ndarray,
+        y_train: ndarray,
+        X_test: ndarray,
+        y_test: ndarray,
+    ) -> ndarray:
+        if list(sorted(np.unique(y_test))) != [0, 1]:
+            raise ValueError("This utility works only on binary classification problems.")
+
+        # Precompute the true positive rate and false positive rate by using the entire training dataset.
+        groupings = compute_groupings(X_test, self._sensitive_features)
+        model = self._model_fit(self.model, X_train, y_train)
+        y_pred = self._model_predict(model, X_test)
+        tpr, fpr = compute_tpr_and_fpr(y_test, y_pred, groupings=groupings)
+
+        n_train, n_test = X_train.shape[0], X_test.shape[0]
+        utilities = np.zeros((n_train, n_test), dtype=float)
+        utilities_eq = np.equal.outer(y_train, y_test).astype(float)
+        utilities_neq = 1 - utilities_eq
+        idx_y_pos = y_test == 1
+        idx_y_neg = y_test == 0
+        if np.max(tpr) - np.min(tpr) > np.max(fpr) - np.min(fpr):
+            g_max, g_min = np.argmax(tpr), np.argmin(tpr)
+            idx_g_max = groupings == g_max
+            idx_g_min = groupings == g_min
+            idx_max = idx_g_max & idx_y_pos
+            idx_min = idx_g_min & idx_y_pos
+            utilities[:, idx_max] = utilities_eq[:, idx_max] / np.sum(idx_max)
+            utilities[:, idx_min] = utilities_eq[:, idx_min] / np.sum(idx_min)
+        else:
+            g_max, g_min = np.argmax(fpr), np.argmin(fpr)
+            idx_g_max = groupings == g_max
+            idx_g_min = groupings == g_min
+            idx_max = idx_g_max & idx_y_neg
+            idx_min = idx_g_min & idx_y_neg
+            utilities[:, idx_max] = utilities_neq[:, idx_max] / np.sum(idx_max)
+            utilities[:, idx_min] = utilities_neq[:, idx_min] / np.sum(idx_min)
+
+        return utilities
 
 
 def get_dimensions(array, level=0):
