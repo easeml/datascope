@@ -186,15 +186,15 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
             y_train_present = y_train[present_idx]
 
             # Display message about current target units that are going to be discarded.
-            y_train_target = y_train_orig[target_units]
-            X_train_target_sf = X_train_orig[target_units, dataset.sensitive_feature]
-            self.logger.debug(
-                "Discarding %d units. Label 1 ratio: %.2f. Sensitive feature 1 ratio %.2f. Matching ratio: %.2f.",
-                len(target_units),
-                y_train_target.mean(),
-                X_train_target_sf.mean(),
-                np.mean(y_train_target == X_train_target_sf),
-            )
+            # y_train_target = y_train_orig[target_units]
+            # X_train_target_sf = X_train_orig[target_units, dataset.sensitive_feature]
+            # self.logger.debug(
+            #     "Discarding %d units. Label 1 ratio: %.2f. Sensitive feature 1 ratio %.2f. Matching ratio: %.2f.",
+            #     len(target_units),
+            #     y_train_target.mean(),
+            #     X_train_target_sf.mean(),
+            #     np.mean(y_train_target == X_train_target_sf),
+            # )
 
             # target_query = np.zeros(n_units, dtype=int)
             # target_query[target_units] = 1
