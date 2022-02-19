@@ -72,6 +72,74 @@ class Utility(ABC):
         raise NotImplementedError("This utility does not implement elementwise scoring.")
 
 
+class JointUtility(Utility):
+    def __init__(self, *utilities: Utility, weights: Optional[Iterable[float]] = None) -> None:
+        self._utilities = list(utilities)
+        if weights is None:
+            self._weights = [1.0 / len(self._utilities) for _ in range(len(self._utilities))]
+        else:
+            self._weights = list(weights)
+            if len(self._weights) != len(self._utilities):
+                raise ValueError("The list of weights must be the same length as the list of utilities.")
+            # s = sum(self._weights)
+            # self._weights = [w / s for w in self._weights]
+        super().__init__()
+
+    def __call__(
+        self,
+        X_train: ndarray,
+        y_train: ndarray,
+        X_test: ndarray,
+        y_test: ndarray,
+        null_score: Optional[float] = None,
+        seed: int = DEFAULT_SEED,
+    ) -> float:
+        return sum(
+            w * u(X_train, y_train, X_test, y_test, null_score=null_score, seed=seed)
+            for w, u in zip(self._weights, self._utilities)
+        )
+
+    def null_score(
+        self,
+        X_train: ndarray,
+        y_train: ndarray,
+        X_test: ndarray,
+        y_test: ndarray,
+        maxiter: int = DEFAULT_SCORING_MAXITER,
+        seed: int = DEFAULT_SEED,
+    ) -> float:
+        return sum(
+            w * u.null_score(X_train, y_train, X_test, y_test, maxiter=maxiter, seed=seed)
+            for w, u in zip(self._weights, self._utilities)
+        )
+
+    def mean_score(
+        self,
+        X_train: ndarray,
+        y_train: ndarray,
+        X_test: ndarray,
+        y_test: ndarray,
+        maxiter: int = DEFAULT_SCORING_MAXITER,
+        seed: int = DEFAULT_SEED,
+    ) -> float:
+        return sum(
+            w * u.null_score(X_train, y_train, X_test, y_test, maxiter=maxiter, seed=seed)
+            for w, u in zip(self._weights, self._utilities)
+        )
+
+    def elementwise_score(
+        self,
+        X_train: ndarray,
+        y_train: ndarray,
+        X_test: ndarray,
+        y_test: ndarray,
+    ) -> ndarray:
+        scores = np.stack(
+            [w * u.elementwise_score(X_train, y_train, X_test, y_test) for w, u in zip(self._weights, self._utilities)]
+        )
+        return np.sum(scores, axis=0)
+
+
 class SklearnModelUtility(Utility):
     def __init__(self, model: SklearnModel, metric: Optional[MetricCallable]) -> None:
         self.model = model
@@ -94,7 +162,10 @@ class SklearnModelUtility(Utility):
             y_pred = self._model_predict(model, X_test)
             score = self._metric_score(self.metric, y_test, y_pred, X_test=X_test)
         except ValueError:
-            return null_score if null_score is not None else self.null_score(X_train, y_train, X_test, y_test)
+            try:
+                return null_score if null_score is not None else self.null_score(X_train, y_train, X_test, y_test)
+            except ValueError:
+                return score
         return score
 
     def _model_fit(self, model: SklearnModel, X_train: ndarray, y_train: ndarray) -> SklearnModel:
@@ -112,6 +183,7 @@ class SklearnModelUtility(Utility):
         y_pred: ndarray,
         *,
         X_test: Optional[ndarray] = None,
+        indices: Optional[ndarray] = None,
     ) -> float:
         if metric is None:
             raise ValueError("The metric was not provided.")
@@ -153,7 +225,7 @@ class SklearnModelUtility(Utility):
         np.random.seed(seed)
         for _ in range(maxiter):
             idx = np.random.choice(len(y_test), int(len(y_test) * 0.5))
-            scores.append(self._metric_score(self.metric, y_test[idx], y_pred[idx], X_test=X_test))
+            scores.append(self._metric_score(self.metric, y_test[idx], y_pred[idx], X_test=X_test[idx, :], indices=idx))
         return np.mean(scores)
 
 
@@ -171,12 +243,14 @@ class SklearnModelAccuracy(SklearnModelUtility):
         return np.equal.outer(y_train, y_test).astype(float)
 
 
-def compute_groupings(X_test: ndarray, sensitive_features: Iterable[int]) -> ndarray:
-    X = X_test[:, sensitive_features]
-    unique_values = np.unique(X, axis=0)
-    groupings = np.zeros(X_test.shape[0], dtype=int)
+def compute_groupings(X: ndarray, sensitive_features: Union[int, Iterable[int]]) -> ndarray:
+    if not isinstance(sensitive_features, collections.Iterable):
+        sensitive_features = [sensitive_features]
+    X_sf = X[:, sensitive_features]
+    unique_values = np.unique(X_sf, axis=0)
+    groupings = np.zeros(X.shape[0], dtype=int)
     for i, unique in enumerate(unique_values):
-        idx = (X == unique).all(axis=1).nonzero()
+        idx = (X_sf == unique).all(axis=1).nonzero()
         groupings[idx] = i
     return groupings
 
@@ -217,11 +291,14 @@ def equalized_odds_diff(y_test: ndarray, y_pred: ndarray, *, groupings: Optional
 
 
 class SklearnModelEqualizedOddsDifference(SklearnModelUtility):
-    def __init__(self, model: SklearnModel, sensitive_features: Union[int, Iterable[int]]) -> None:
+    def __init__(
+        self, model: SklearnModel, sensitive_features: Union[int, Iterable[int]], groupings: Optional[ndarray] = None
+    ) -> None:
         super().__init__(model, None)
         if not isinstance(sensitive_features, collections.Iterable):
             sensitive_features = [sensitive_features]
         self._sensitive_features = sensitive_features
+        self._groupings = groupings
 
     def _metric_score(
         self,
@@ -230,11 +307,16 @@ class SklearnModelEqualizedOddsDifference(SklearnModelUtility):
         y_pred: ndarray,
         *,
         X_test: Optional[ndarray] = None,
+        indices: Optional[ndarray] = None,
     ) -> float:
         assert X_test is not None
         if list(sorted(np.unique(y_test))) != [0, 1]:
             raise ValueError("This utility works only on binary classification problems.")
-        groupings = compute_groupings(X_test, self._sensitive_features)
+        groupings = self._groupings
+        if groupings is None:
+            groupings = compute_groupings(X_test, self._sensitive_features)
+        elif indices is not None:
+            groupings = groupings[indices]
         return equalized_odds_diff(y_test, y_pred, groupings=groupings)
 
     def elementwise_score(
@@ -247,34 +329,40 @@ class SklearnModelEqualizedOddsDifference(SklearnModelUtility):
         if list(sorted(np.unique(y_test))) != [0, 1]:
             raise ValueError("This utility works only on binary classification problems.")
 
-        # Precompute the true positive rate and false positive rate by using the entire training dataset.
-        groupings = compute_groupings(X_test, self._sensitive_features)
-        model = self._model_fit(self.model, X_train, y_train)
-        y_pred = self._model_predict(model, X_test)
-        tpr, fpr = compute_tpr_and_fpr(y_test, y_pred, groupings=groupings)
-
         n_train, n_test = X_train.shape[0], X_test.shape[0]
         utilities = np.zeros((n_train, n_test), dtype=float)
-        utilities_eq = np.equal.outer(y_train, y_test).astype(float)
-        utilities_neq = 1 - utilities_eq
-        idx_y_pos = y_test == 1
-        idx_y_neg = y_test == 0
-        if np.max(tpr) - np.min(tpr) > np.max(fpr) - np.min(fpr):
-            g_max, g_min = np.argmax(tpr), np.argmin(tpr)
-            idx_g_max = groupings == g_max
-            idx_g_min = groupings == g_min
-            idx_max = idx_g_max & idx_y_pos
-            idx_min = idx_g_min & idx_y_pos
-            utilities[:, idx_max] = utilities_eq[:, idx_max] / np.sum(idx_max)
-            utilities[:, idx_min] = utilities_eq[:, idx_min] / np.sum(idx_min)
-        else:
-            g_max, g_min = np.argmax(fpr), np.argmin(fpr)
-            idx_g_max = groupings == g_max
-            idx_g_min = groupings == g_min
-            idx_max = idx_g_max & idx_y_neg
-            idx_min = idx_g_min & idx_y_neg
-            utilities[:, idx_max] = utilities_neq[:, idx_max] / np.sum(idx_max)
-            utilities[:, idx_min] = utilities_neq[:, idx_min] / np.sum(idx_min)
+
+        try:
+            # Precompute the true positive rate and false positive rate by using the entire training dataset.
+            groupings = (
+                self._groupings if self._groupings is not None else compute_groupings(X_test, self._sensitive_features)
+            )
+            model = self._model_fit(self.model, X_train, y_train)
+            y_pred = self._model_predict(model, X_test)
+            tpr, fpr = compute_tpr_and_fpr(y_test, y_pred, groupings=groupings)
+
+            utilities_eq = np.equal.outer(y_train, y_test).astype(float)
+            utilities_neq = 1 - utilities_eq
+            idx_y_pos = y_test == 1
+            idx_y_neg = y_test == 0
+            if np.max(tpr) - np.min(tpr) > np.max(fpr) - np.min(fpr):
+                g_max, g_min = np.argmax(tpr), np.argmin(tpr)
+                idx_g_max = groupings == g_max
+                idx_g_min = groupings == g_min
+                idx_max = idx_g_max & idx_y_pos
+                idx_min = idx_g_min & idx_y_pos
+                utilities[:, idx_max] = utilities_eq[:, idx_max] / np.sum(idx_max)
+                utilities[:, idx_min] = -utilities_eq[:, idx_min] / np.sum(idx_min)
+            else:
+                g_max, g_min = np.argmax(fpr), np.argmin(fpr)
+                idx_g_max = groupings == g_max
+                idx_g_min = groupings == g_min
+                idx_max = idx_g_max & idx_y_neg
+                idx_min = idx_g_min & idx_y_neg
+                utilities[:, idx_max] = utilities_neq[:, idx_max] / np.sum(idx_max)
+                utilities[:, idx_min] = -utilities_neq[:, idx_min] / np.sum(idx_min)
+        except ValueError:
+            pass
 
         return utilities
 

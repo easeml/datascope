@@ -9,6 +9,7 @@ from .base import (
     DEFAULT_STUDY_PATH,
 )
 from .label_repair import LabelRepairScenario
+from .data_discard import DataDiscardScenario
 
 __all__ = [
     "Scenario",
@@ -20,4 +21,5 @@ __all__ = [
     "DEFAULT_REPORTS_PATH",
     "DEFAULT_STUDY_PATH",
     "LabelRepairScenario",
+    "DataDiscardScenario",
 ]

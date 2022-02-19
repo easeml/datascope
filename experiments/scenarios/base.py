@@ -332,7 +332,10 @@ class Scenario(ABC):
         self._progress = Progress(id=self._id)
         self._attributes: Optional[Dict[str, Any]] = None
 
-    def __init_subclass__(cls: Type["Scenario"], id: str) -> None:
+    def __init_subclass__(cls: Type["Scenario"], id: Optional[str] = None) -> None:
+        if id is None:
+            return
+
         # Register scenario under the given name.
         cls._scenario = id
         Scenario.scenarios[id] = cls
