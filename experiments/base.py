@@ -1,7 +1,8 @@
 import os
-from typing import Any, Optional, Sequence
 
 from experiments.scenarios.base import Report
+from tqdm import tqdm
+from typing import Any, Optional, Sequence
 
 from .scenarios import Study, Scenario, DEFAULT_RESULTS_PATH, DEFAULT_STUDY_PATH
 
@@ -62,8 +63,8 @@ def finalize(
     study = Study.load(study_path)
 
     # Get applicable instances of reports.
-    reports = Report.get_instances(study=study, groupby=groupby, **attributes)
+    reports = list(Report.get_instances(study=study, groupby=groupby, **attributes))
 
-    for report in reports:
+    for report in tqdm(reports, desc="Reports"):
         report.generate()
         report.save(path=output_path)
