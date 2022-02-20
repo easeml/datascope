@@ -62,6 +62,7 @@ KEYWORD_REPLACEMENTS = {
     "shapley-tmc-050": "Shapley TMC x50",
     "shapley-tmc-100": "Shapley TMC x100",
     "shapley-tmc-500": "Shapley TMC x500",
+    "eqodds": "Equalized Odds Difference",
 }
 
 DEFAULT_SEED = 1
@@ -162,6 +163,7 @@ class DatascopeScenario(Scenario):
             dataset=self.dataset,
             pipeline=self.pipeline,
             method=self.method,
+            utility=self.utility,
             iteration=self.iteration,
             importance_compute_time=self.importance_compute_time,
         )

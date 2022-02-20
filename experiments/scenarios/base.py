@@ -880,7 +880,9 @@ class Study:
 
     @property
     def dataframe(self) -> DataFrame:
-        return pd.concat([scenario.dataframe for scenario in self.scenarios], ignore_index=True)
+        df = pd.concat([scenario.dataframe for scenario in self.scenarios], ignore_index=True)
+        df.sort_index(inplace=True)
+        return df
 
     def get_scenarios(self, **attributes: Dict[str, Any]) -> Sequence[Scenario]:
         res: List[Scenario] = []

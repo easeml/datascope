@@ -101,6 +101,7 @@ def aggregate(
         dataframe.groupby(groupbycols)[[targetval]].agg(f).add_suffix(":" + k) for (k, f) in value_measures.items()
     ]
     dataframe = pd.concat(values, axis=1)
+    dataframe.sort_index(inplace=True)
     if len(compare) > 0:
         dataframe = dataframe.unstack()
         dataframe.columns = dataframe.columns.swaplevel().map(">".join)
@@ -121,6 +122,7 @@ def summarize(
     values = [dataframe.groupby(compare)[[summarize]].agg(f).add_suffix(":" + k) for (k, f) in value_measures.items()]
     axis = 0 if len(compare) == 0 else 1
     dataframe = pd.concat(values, axis=axis)
+    dataframe.sort_index(inplace=True)
     return dataframe.to_dict(orient="index")
 
 
@@ -159,6 +161,7 @@ def plot(
     if len(compare) > 0:
         comparison = sorted(list(set(tuple(c.split(">")[:-1]) for c in dataframe.columns)))
         dataframe.columns = dataframe.columns.map(lambda x: (x.split(">")[0], x.split(":")[-1]))
+        dataframe.sort_index(axis=1, inplace=True)
     else:
         comparison = [(targetval,)]
         dataframe.columns = dataframe.columns.map(lambda x: (targetval, x))
@@ -187,7 +190,8 @@ def plot(
         ax.plot(dataframe[comp][centercol], color=COLORS[i], label=label)
 
     ax.set_title(" ".join("%s=%s" % (str(k), repr(v)) for (k, v) in attributes.items()))
-    ax.set_ylim([0, 1])
+    ax.set_xlim([dataframe.index.values[0], (dataframe.index.values[-1] - dataframe.index.values[0]) * 1.2])
+    ax.set_ylim([-0.2, 1])
     ax.set_ylabel(targetval.title())
     ax.set_xlabel(index.title())
     ax.legend(loc="lower right")
