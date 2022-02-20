@@ -177,7 +177,10 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
 
             # Recompute if needed.
             if importance is not None and self.method == RepairMethod.KNN_Interactive:
+                importance_time_start = process_time_ns()
                 importances = importance.fit(X_train_dirty, y_train_dirty).score(X_val, y_val)
+                importance_time_end = process_time_ns()
+                self._importance_compute_time += (importance_time_end - importance_time_start) / 1e9
                 argsorted_importances = np.array(importances).argsort()
                 # argsorted_importances = np.ma.array(importances, mask=visited_units).argsort()
 
