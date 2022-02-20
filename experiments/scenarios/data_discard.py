@@ -78,7 +78,8 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
     def _run(self, progress_bar: bool = True, **kwargs: Any) -> None:
 
         # Load dataset.
-        dataset = Dataset.datasets[self.dataset](trainsize=self.trainsize, valsize=self.valsize)
+        seed = self._seed + self._iteration
+        dataset = Dataset.datasets[self.dataset](trainsize=self.trainsize, valsize=self.valsize, seed=seed)
         assert isinstance(dataset, BiasedMixin)
         dataset.load_biased(train_bias=self._train_bias)
         self.logger.debug(
@@ -135,7 +136,7 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
             target_utility = JointUtility(accuracy_utility, eqodds_utility, weights=[-0.5, 0.5])
 
         # Compute importance scores and time it.
-        random = np.random.RandomState(seed=self._seed + self._iteration)
+        random = np.random.RandomState(seed=seed)
         importance_time_start = process_time_ns()
         importance: Optional[ShapleyImportance] = None
         importances: Optional[Iterable[float]] = None
