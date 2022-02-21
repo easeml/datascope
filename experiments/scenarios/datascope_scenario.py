@@ -19,7 +19,24 @@ class RepairMethod(str, Enum):
     TMC_50 = "shapley-tmc-050"
     TMC_100 = "shapley-tmc-100"
     TMC_500 = "shapley-tmc-500"
+    TMC_PIPE_1 = "shapley-tmc-pipe-001"
+    TMC_PIPE_5 = "shapley-tmc-pipe-005"
+    TMC_PIPE_10 = "shapley-tmc-pipe-010"
+    TMC_PIPE_50 = "shapley-tmc-pipe-050"
+    TMC_PIPE_100 = "shapley-tmc-pipe-100"
+    TMC_PIPE_500 = "shapley-tmc-pipe-500"
     RANDOM = "random"
+
+    @staticmethod
+    def is_pipe(method: "RepairMethod") -> bool:
+        return method in [
+            RepairMethod.TMC_PIPE_1,
+            RepairMethod.TMC_PIPE_5,
+            RepairMethod.TMC_PIPE_10,
+            RepairMethod.TMC_PIPE_50,
+            RepairMethod.TMC_PIPE_100,
+            RepairMethod.TMC_PIPE_500,
+        ]
 
 
 class UtilityType(str, Enum):
@@ -37,6 +54,12 @@ IMPORTANCE_METHODS = {
     RepairMethod.TMC_50: ImportanceMethod.MONTECARLO,
     RepairMethod.TMC_100: ImportanceMethod.MONTECARLO,
     RepairMethod.TMC_500: ImportanceMethod.MONTECARLO,
+    RepairMethod.TMC_PIPE_1: ImportanceMethod.MONTECARLO,
+    RepairMethod.TMC_PIPE_5: ImportanceMethod.MONTECARLO,
+    RepairMethod.TMC_PIPE_10: ImportanceMethod.MONTECARLO,
+    RepairMethod.TMC_PIPE_50: ImportanceMethod.MONTECARLO,
+    RepairMethod.TMC_PIPE_100: ImportanceMethod.MONTECARLO,
+    RepairMethod.TMC_PIPE_500: ImportanceMethod.MONTECARLO,
 }
 
 
@@ -49,6 +72,12 @@ MC_ITERATIONS = {
     RepairMethod.TMC_50: 50,
     RepairMethod.TMC_100: 100,
     RepairMethod.TMC_500: 500,
+    RepairMethod.TMC_PIPE_1: 1,
+    RepairMethod.TMC_PIPE_5: 5,
+    RepairMethod.TMC_PIPE_10: 10,
+    RepairMethod.TMC_PIPE_50: 50,
+    RepairMethod.TMC_PIPE_100: 100,
+    RepairMethod.TMC_PIPE_500: 500,
 }
 
 KEYWORD_REPLACEMENTS = {
@@ -62,11 +91,18 @@ KEYWORD_REPLACEMENTS = {
     "shapley-tmc-050": "Shapley TMC x50",
     "shapley-tmc-100": "Shapley TMC x100",
     "shapley-tmc-500": "Shapley TMC x500",
+    "shapley-tmc-pipe-001": "Shapley TMC Pipe x1",
+    "shapley-tmc-pipe-005": "Shapley TMC Pipe x5",
+    "shapley-tmc-pipe-010": "Shapley TMC Pipe x10",
+    "shapley-tmc-pipe-050": "Shapley TMC Pipe x50",
+    "shapley-tmc-pipe-100": "Shapley TMC Pipe x100",
+    "shapley-tmc-pipe-500": "Shapley TMC Pipe x500",
     "eqodds": "Equalized Odds Difference",
 }
 
 DEFAULT_SEED = 1
 DEFAULT_CHECKPOINTS = 100
+DEFAULT_TIMEOUT = 3600
 
 
 class DatascopeScenario(Scenario):
@@ -80,6 +116,7 @@ class DatascopeScenario(Scenario):
         seed: int = DEFAULT_SEED,
         trainsize: int = DEFAULT_TRAINSIZE,
         valsize: int = DEFAULT_VALSIZE,
+        timeout: int = DEFAULT_TIMEOUT,
         checkpoints: int = DEFAULT_CHECKPOINTS,
         evolution: Optional[pd.DataFrame] = None,
         importance_compute_time: Optional[float] = None,
@@ -94,6 +131,7 @@ class DatascopeScenario(Scenario):
         self._seed = seed
         self._trainsize = trainsize
         self._valsize = valsize
+        self._timeout = timeout
         self._checkpoints = checkpoints
         self._evolution = pd.DataFrame() if evolution is None else evolution
         self._importance_compute_time: Optional[float] = importance_compute_time
@@ -132,6 +170,11 @@ class DatascopeScenario(Scenario):
     def valsize(self) -> int:
         """The size of the validation dataset to use. The value 0 means maximal value."""
         return self._valsize
+
+    @attribute
+    def timeout(self) -> int:
+        """The maximum time in seconds that a Monte-Carlo importance method is allowed to run."""
+        return self._timeout
 
     @attribute
     def checkpoints(self) -> int:

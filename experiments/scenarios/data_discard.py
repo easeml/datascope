@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 
+from copy import deepcopy
 from datascope.importance.common import (
     JointUtility,
     SklearnModelAccuracy,
@@ -125,6 +126,10 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
 
         # Initialize the model and utility.
         model = get_model(ModelType.LogisticRegression)
+        if RepairMethod.is_pipe(self.method):
+            model_pipeline = deepcopy(pipeline)
+            model_pipeline.steps.append(("model", model))
+            model = model_pipeline
         accuracy_utility = SklearnModelAccuracy(model)
         eqodds_utility = SklearnModelEqualizedOddsDifference(
             model, sensitive_features=dataset.sensitive_feature, groupings=groupings
@@ -145,7 +150,9 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
         else:
             method = IMPORTANCE_METHODS[self.method]
             mc_iterations = MC_ITERATIONS[self.method]
-            importance = ShapleyImportance(method=method, utility=target_utility, mc_iterations=mc_iterations)
+            importance = ShapleyImportance(
+                method=method, utility=target_utility, mc_iterations=mc_iterations, mc_timeout=self.timeout
+            )
             importances = importance.fit(X_train, y_train).score(X_val, y_val)
         importance_time_end = process_time_ns()
         self._importance_compute_time = (importance_time_end - importance_time_start) / 1e9

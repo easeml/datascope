@@ -1,10 +1,11 @@
 import numpy as np
+import time
 
 from enum import Enum
 from itertools import product
 from math import comb
 
-from numba import prange, jit
+# from numba import prange, jit
 from numpy import ndarray
 from scipy.sparse import csr_matrix, issparse, spmatrix
 from scipy.sparse.csgraph import connected_components
@@ -16,7 +17,9 @@ from .common import DEFAULT_SEED, DistanceCallable, Utility, binarize, get_indic
 from .importance import Importance
 
 
-# prange = range
+# from .shapley_cy import compute_all_importances_cy
+
+prange = range
 
 
 class ImportanceMethod(Enum):
@@ -26,6 +29,7 @@ class ImportanceMethod(Enum):
 
 
 DEFAULT_MC_ITERATIONS = 500
+DEFAULT_MC_TIMEOUT = 0
 DEFAULT_MC_TOLERANCE = 0.1
 DEFAULT_MC_TRUNCATION_STEPS = 5
 DEFAULT_NN_K = 1
@@ -126,7 +130,7 @@ def get_unit_distances_and_utilities(
     return unit_distances, unit_utilities
 
 
-@jit(nopython=True, nogil=True, cache=True)
+# @jit(nopython=True, nogil=True, cache=True)
 def compute_all_importances(unit_distances: ndarray, unit_utilities: ndarray) -> ndarray:
     # Compute unit importances.
     n_units, n_test = unit_distances.shape
@@ -207,6 +211,7 @@ class ShapleyImportance(Importance):
         method: Literal[ImportanceMethod.BRUTEFORCE, ImportanceMethod.MONTECARLO, ImportanceMethod.NEIGHBOR],
         utility: Utility,
         mc_iterations: int = DEFAULT_MC_ITERATIONS,
+        mc_timeout: int = DEFAULT_MC_TIMEOUT,
         mc_tolerance: float = DEFAULT_MC_TOLERANCE,
         mc_truncation_steps: int = DEFAULT_MC_TRUNCATION_STEPS,
         nn_k: int = DEFAULT_NN_K,
@@ -217,6 +222,7 @@ class ShapleyImportance(Importance):
         self.method = ImportanceMethod(method)
         self.utility = utility
         self.mc_iterations = mc_iterations
+        self.mc_timeout = mc_timeout
         self.mc_tolerance = mc_tolerance
         self.mc_truncation_steps = mc_truncation_steps
         self.nn_k = nn_k
@@ -269,6 +275,7 @@ class ShapleyImportance(Importance):
                 units,
                 world,
                 self.mc_iterations,
+                self.mc_timeout,
                 self.mc_tolerance,
                 self.mc_truncation_steps,
             )
@@ -331,6 +338,7 @@ class ShapleyImportance(Importance):
         units: ndarray,
         world: ndarray,
         iterations: int = DEFAULT_MC_ITERATIONS,
+        timeout: int = DEFAULT_MC_TIMEOUT,
         tolerance: float = DEFAULT_MC_TOLERANCE,
         truncation_steps: int = DEFAULT_MC_TRUNCATION_STEPS,
     ) -> Iterable[float]:
@@ -350,6 +358,7 @@ class ShapleyImportance(Importance):
             provenance.shape[1] == 1 and provenance.shape[3] == 1 and np.all(provenance[:, 0, :, 0] == np.eye(n_units))
         )
         all_importances = np.zeros((n_units, iterations))
+        start_time = time.time()
         for i in range(iterations):
             idxs = self.randomstate.permutation(n_units)
             importance = np.zeros(n_units)
@@ -380,6 +389,12 @@ class ShapleyImportance(Importance):
                     truncation_counter = 0
 
             all_importances[:, i] = importance
+
+            # Check if we have timed out.
+            elapsed_time = time.time() - start_time
+            if timeout > 0 and elapsed_time > timeout:
+                all_importances = all_importances[:, :i]
+                break
 
         scores = np.average(all_importances, axis=1)
         return scores
