@@ -187,7 +187,7 @@ def has_attribute_value(target: object, name: str, value: Any, ignore_none: bool
     if not isinstance(value, Iterable):
         value = [value]
     if ignore_none:
-        return target_value is None or target_value in value
+        return target_value is None or value == [None] or target_value in value
     else:
         return target_value in value
 
@@ -891,7 +891,7 @@ class Study:
     def get_scenarios(self, **attributes: Dict[str, Any]) -> Sequence[Scenario]:
         res: List[Scenario] = []
         for exp in self.scenarios:
-            if all(has_attribute_value(exp, name, value) for (name, value) in attributes.items()):
+            if all(has_attribute_value(exp, name, value) for (name, value) in attributes.items() if hasattr(exp, name)):
                 res.append(exp)
         return res
 

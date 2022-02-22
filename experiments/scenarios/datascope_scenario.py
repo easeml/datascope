@@ -224,8 +224,7 @@ class DatascopeScenario(Scenario):
 
     @property
     def completed(self) -> bool:
-        dataset = Dataset.datasets[self.dataset]()
-        return len(self._evolution) == dataset.trainsize + 1
+        return len(self._evolution) == self.checkpoints + 1
 
     @property
     def dataframe(self) -> DataFrame:
