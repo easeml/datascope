@@ -1,7 +1,6 @@
 import numpy as np
 import pandas as pd
 
-from copy import deepcopy
 from datascope.importance.common import (
     JointUtility,
     SklearnModelAccuracy,
@@ -27,11 +26,13 @@ from .datascope_scenario import (
     DEFAULT_CHECKPOINTS,
     UtilityType,
 )
+from .base import attribute
 from ..dataset import Dataset, DEFAULT_TRAINSIZE, DEFAULT_VALSIZE
 from ..pipelines import Pipeline, get_model, ModelType
 
 
 DEFAULT_TRAIN_BIAS = 0.8
+DEFAULT_VAL_BIAS = 0.0
 
 
 class DataDiscardScenario(DatascopeScenario, id="data-discard"):
@@ -42,7 +43,8 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
         method: RepairMethod,
         utility: UtilityType,
         iteration: int,
-        train_bias: float = DEFAULT_TRAIN_BIAS,
+        trainbias: float = DEFAULT_TRAIN_BIAS,
+        valbias: float = DEFAULT_VAL_BIAS,
         seed: int = DEFAULT_SEED,
         trainsize: int = DEFAULT_TRAINSIZE,
         valsize: int = DEFAULT_VALSIZE,
@@ -65,7 +67,18 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
             importance_compute_time=importance_compute_time,
             **kwargs
         )
-        self._train_bias = train_bias
+        self._trainbias = trainbias
+        self._valbias = valbias
+
+    @attribute
+    def trainbias(self) -> float:
+        """The bias of the training dataset used in fairness experiments."""
+        return self._trainbias
+
+    @attribute
+    def valbias(self) -> float:
+        """The bias of the validation dataset used in fairness experiments."""
+        return self._valbias
 
     @classmethod
     def is_valid_config(cls, **attributes: Any) -> bool:
@@ -83,7 +96,7 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
         seed = self._seed + self._iteration
         dataset = Dataset.datasets[self.dataset](trainsize=self.trainsize, valsize=self.valsize, seed=seed)
         assert isinstance(dataset, BiasedMixin)
-        dataset.load_biased(train_bias=self._train_bias)
+        dataset.load_biased(train_bias=self._trainbias)
         self.logger.debug(
             "Dataset '%s' loaded (trainsize=%d, valsize=%d).", self.dataset, dataset.trainsize, dataset.valsize
         )
@@ -185,7 +198,7 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
 
         # Set up progress bar.
         checkpoints = self.checkpoints if self.checkpoints > 0 and self.checkpoints < n_units else n_units
-        n_units_per_checkpoint = round(self._train_bias * n_units / checkpoints)
+        n_units_per_checkpoint = round(self._trainbias * n_units / checkpoints)
         if progress_bar:
             self.progress.start(total=checkpoints, desc="(id=%s) Repairs" % self.id)
         # pbar = None if not progress_bar else tqdm(total=dataset.trainsize, desc="%s Repairs" % str(self))
@@ -231,7 +244,7 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
             # Update result table.
             steps_rel = (i + 1) / float(checkpoints)
             discarded = discarded_units.sum(dtype=int)
-            discarded_rel = discarded / float(n_units) / self._train_bias
+            discarded_rel = discarded / float(n_units)
             dataset_bias = compute_bias(X_train_present, y_train_present, dataset.sensitive_feature)
             mean_label = np.mean(y_train_present)
             evolution.append(
