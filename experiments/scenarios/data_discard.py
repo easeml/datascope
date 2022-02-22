@@ -102,16 +102,19 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
         # Load the pipeline and process the data.
         pipeline_class = Pipeline.pipelines[self.pipeline]
         pipeline = pipeline_class.construct(dataset)
-        assert dataset.X_train is not None and dataset.y_train is not None
+        X_train, y_train = dataset.X_train, dataset.y_train
+        X_val, y_val = dataset.X_val, dataset.y_val
         X_train_orig, y_train_orig = dataset.X_train, dataset.y_train
-        X_train: ndarray = pipeline.fit_transform(
-            dataset.X_train, dataset.y_train
-        )  # TODO: Fit the pipeline with dirty data.
-        y_train, y_val = dataset.y_train, dataset.y_val
-        X_val: ndarray = pipeline.transform(dataset.X_val)
-        assert y_train is not None
-        self.logger.debug("Shape of X_train before feature extraction: %s", str(dataset.X_train.shape))
-        self.logger.debug("Shape of X_train after feature extraction: %s", str(X_train.shape))
+        assert X_train is not None and y_train is not None
+        assert X_train_orig is not None and y_train_orig is not None
+        assert X_val is not None and y_val is not None
+        if not RepairMethod.is_pipe(self.method):
+            self.logger.debug("Shape of X_train before feature extraction: %s", str(X_train.shape))
+            X_train = pipeline.fit_transform(X_train, y_train)  # TODO: Fit the pipeline with dirty data.
+            assert isinstance(X_train, ndarray)
+            X_val = pipeline.transform(X_val)
+            assert isinstance(X_val, ndarray)
+            self.logger.debug("Shape of X_train after feature extraction: %s", str(X_train.shape))
 
         # Reshape datasets if needed.
         if X_train.ndim > 2:

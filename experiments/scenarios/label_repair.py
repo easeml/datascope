@@ -85,16 +85,21 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
         # Load the pipeline and process the data.
         pipeline_class = Pipeline.pipelines[self.pipeline]
         pipeline = pipeline_class.construct(dataset)
-        assert dataset.X_train is not None
-        X_train: ndarray = pipeline.fit_transform(
-            dataset.X_train, dataset.y_train
-        )  # TODO: Fit the pipeline with dirty data.
-        X_train_dirty: ndarray = pipeline.transform(dataset_dirty.X_train)
-        y_train, y_val, y_train_dirty = dataset.y_train, dataset.y_val, dataset_dirty.y_train
-        X_val: ndarray = pipeline.transform(dataset.X_val)
-        assert y_train is not None
-        self.logger.debug("Shape of X_train before feature extraction: %s", str(dataset.X_train.shape))
-        self.logger.debug("Shape of X_train after feature extraction: %s", str(X_train.shape))
+        X_train, y_train = dataset.X_train, dataset.y_train
+        X_val, y_val = dataset.X_val, dataset.y_val
+        X_train_dirty, y_train_dirty = dataset_dirty.X_train, dataset_dirty.y_train
+        assert X_train is not None and y_train is not None
+        assert X_train_dirty is not None and y_train_dirty is not None
+        assert X_val is not None and y_val is not None
+        if not RepairMethod.is_pipe(self.method):
+            self.logger.debug("Shape of X_train before feature extraction: %s", str(X_train.shape))
+            X_train = pipeline.fit_transform(X_train, y_train)  # TODO: Fit the pipeline with dirty data.
+            assert isinstance(X_train, ndarray)
+            X_train_dirty = pipeline.transform(X_train_dirty)
+            assert isinstance(X_train_dirty, ndarray)
+            X_val = pipeline.transform(X_val)
+            assert isinstance(X_val, ndarray)
+            self.logger.debug("Shape of X_train after feature extraction: %s", str(X_train.shape))
 
         # Reshape datasets if needed.
         if X_train.ndim > 2:
