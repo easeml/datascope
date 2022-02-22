@@ -4,7 +4,7 @@ import numpy as np
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from numpy import ndarray
-from typing import Iterable, Optional, Protocol, Callable, Tuple, Union
+from typing import Iterable, Optional, Protocol, Callable, Sequence, Tuple, Union
 from sklearn.base import clone
 from sklearn.metrics import accuracy_score
 
@@ -243,8 +243,8 @@ class SklearnModelAccuracy(SklearnModelUtility):
         return np.equal.outer(y_train, y_test).astype(float)
 
 
-def compute_groupings(X: ndarray, sensitive_features: Union[int, Iterable[int]]) -> ndarray:
-    if not isinstance(sensitive_features, collections.Iterable):
+def compute_groupings(X: ndarray, sensitive_features: Union[int, Sequence[int]]) -> ndarray:
+    if not isinstance(sensitive_features, collections.Sequence):
         sensitive_features = [sensitive_features]
     X_sf = X[:, sensitive_features]
     unique_values = np.unique(X_sf, axis=0)
@@ -255,9 +255,7 @@ def compute_groupings(X: ndarray, sensitive_features: Union[int, Iterable[int]])
     return groupings
 
 
-def compute_tpr_and_fpr(
-    y_test: ndarray, y_pred: ndarray, *, groupings: Optional[ndarray] = None
-) -> Tuple[ndarray, ndarray]:
+def compute_tpr_and_fpr(y_test: ndarray, y_pred: ndarray, *, groupings: ndarray) -> Tuple[ndarray, ndarray]:
     groups = sorted(np.unique(groupings))
     n_groups = len(groups)
     tpr = np.zeros(n_groups, dtype=float)
@@ -281,7 +279,7 @@ def compute_tpr_and_fpr(
     return tpr, fpr
 
 
-def equalized_odds_diff(y_test: ndarray, y_pred: ndarray, *, groupings: Optional[ndarray] = None) -> float:
+def equalized_odds_diff(y_test: ndarray, y_pred: ndarray, *, groupings: ndarray) -> float:
 
     tpr, fpr = compute_tpr_and_fpr(y_test, y_pred, groupings=groupings)
 
@@ -292,10 +290,10 @@ def equalized_odds_diff(y_test: ndarray, y_pred: ndarray, *, groupings: Optional
 
 class SklearnModelEqualizedOddsDifference(SklearnModelUtility):
     def __init__(
-        self, model: SklearnModel, sensitive_features: Union[int, Iterable[int]], groupings: Optional[ndarray] = None
+        self, model: SklearnModel, sensitive_features: Union[int, Sequence[int]], groupings: Optional[ndarray] = None
     ) -> None:
         super().__init__(model, None)
-        if not isinstance(sensitive_features, collections.Iterable):
+        if not isinstance(sensitive_features, collections.Sequence):
             sensitive_features = [sensitive_features]
         self._sensitive_features = sensitive_features
         self._groupings = groupings
@@ -317,6 +315,7 @@ class SklearnModelEqualizedOddsDifference(SklearnModelUtility):
             groupings = compute_groupings(X_test, self._sensitive_features)
         elif indices is not None:
             groupings = groupings[indices]
+            assert isinstance(groupings, ndarray)
         return equalized_odds_diff(y_test, y_pred, groupings=groupings)
 
     def elementwise_score(
