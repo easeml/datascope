@@ -1,5 +1,6 @@
 import collections
 import numpy as np
+import warnings
 
 from abc import ABC, abstractmethod
 from collections import defaultdict
@@ -155,17 +156,18 @@ class SklearnModelUtility(Utility):
         seed: int = DEFAULT_SEED,
     ) -> float:
         score = 0.0
-        try:
-            # TODO: Ensure fit clears the model.
-            np.random.seed(seed)
-            model = self._model_fit(self.model, X_train, y_train)
-            y_pred = self._model_predict(model, X_test)
-            score = self._metric_score(self.metric, y_test, y_pred, X_test=X_test)
-        except ValueError:
+        with warnings.catch_warnings():
             try:
-                return null_score if null_score is not None else self.null_score(X_train, y_train, X_test, y_test)
-            except ValueError:
-                return score
+                # TODO: Ensure fit clears the model.
+                np.random.seed(seed)
+                model = self._model_fit(self.model, X_train, y_train)
+                y_pred = self._model_predict(model, X_test)
+                score = self._metric_score(self.metric, y_test, y_pred, X_test=X_test)
+            except (ValueError, RuntimeWarning):
+                try:
+                    return null_score if null_score is not None else self.null_score(X_train, y_train, X_test, y_test)
+                except (ValueError, RuntimeWarning):
+                    return score
         return score
 
     def _model_fit(self, model: SklearnModel, X_train: ndarray, y_train: ndarray) -> SklearnModel:
