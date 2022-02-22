@@ -102,11 +102,11 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
             self.logger.debug("Shape of X_train after feature extraction: %s", str(X_train.shape))
 
         # Reshape datasets if needed.
-        if X_train.ndim > 2:
-            X_train = X_train.reshape(X_train.shape[0], -1)
-            X_train_dirty = X_train_dirty.reshape(X_train_dirty.shape[0], -1)
-            X_val = X_val.reshape(X_val.shape[0], -1)
-            self.logger.debug("Need to reshape. New shape: %s", str(X_train.shape))
+        # if X_train.ndim > 2:
+        #     X_train = X_train.reshape(X_train.shape[0], -1)
+        #     X_train_dirty = X_train_dirty.reshape(X_train_dirty.shape[0], -1)
+        #     X_val = X_val.reshape(X_val.shape[0], -1)
+        #     self.logger.debug("Need to reshape. New shape: %s", str(X_train.shape))
 
         # Construct binarized provenance matrix.
         provenance = np.expand_dims(np.arange(dataset.trainsize, dtype=int), axis=(1, 2, 3))

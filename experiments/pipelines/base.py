@@ -120,7 +120,10 @@ class GaussBlurPipeline(Pipeline, id="gauss-blur", modalities=[DatasetModality.I
     @classmethod
     def construct(cls: Type["GaussBlurPipeline"], dataset: Dataset) -> "GaussBlurPipeline":
         def gaussian_blur(x):
-            return gaussian_filter(x, sigma=5)
+            def gaussian_blur_single(x):
+                return gaussian_filter(x, sigma=5).flatten()
+
+            return np.array([gaussian_blur_single(img) for img in x])
 
         ops = [("blur", FunctionTransformer(gaussian_blur))]
         return GaussBlurPipeline(ops)

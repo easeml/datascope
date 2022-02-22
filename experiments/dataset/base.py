@@ -1,4 +1,5 @@
 from __future__ import absolute_import
+from copy import deepcopy
 from math import floor
 
 import datasets
@@ -9,6 +10,7 @@ from enum import Enum
 from numpy import ndarray
 from sklearn.datasets import fetch_openml, fetch_20newsgroups
 from sklearn.model_selection import train_test_split
+from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import LabelEncoder
 from typing import Dict, Optional, Sequence, Tuple, Type
 
@@ -77,20 +79,35 @@ class Dataset(ABC):
         return self._valsize
 
     @property
-    def X_train(self) -> Optional[ndarray]:
+    def X_train(self) -> ndarray:
+        if self._X_train is None:
+            raise ValueError("The dataset is not loaded yet.")
         return self._X_train
 
     @property
-    def y_train(self) -> Optional[ndarray]:
+    def y_train(self) -> ndarray:
+        if self._y_train is None:
+            raise ValueError("The dataset is not loaded yet.")
         return self._y_train
 
     @property
-    def X_val(self) -> Optional[ndarray]:
+    def X_val(self) -> ndarray:
+        if self._X_val is None:
+            raise ValueError("The dataset is not loaded yet.")
         return self._X_val
 
     @property
-    def y_val(self) -> Optional[ndarray]:
+    def y_val(self) -> ndarray:
+        if self._y_val is None:
+            raise ValueError("The dataset is not loaded yet.")
         return self._y_val
+
+    def apply(self, pipeline: Pipeline) -> "Dataset":
+        result = deepcopy(self)
+        pipeline = deepcopy(pipeline)
+        result._X_train, result._y_train = pipeline.fit_transform(result._X_train, result._y_train)
+        result._X_val = pipeline.transform(result._X_val)
+        return result
 
 
 class BiasedMixin:

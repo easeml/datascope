@@ -38,6 +38,34 @@ class RepairMethod(str, Enum):
             RepairMethod.TMC_PIPE_500,
         ]
 
+    @staticmethod
+    def is_tmc(method: "RepairMethod") -> bool:
+        return method in [
+            RepairMethod.TMC_1,
+            RepairMethod.TMC_5,
+            RepairMethod.TMC_10,
+            RepairMethod.TMC_50,
+            RepairMethod.TMC_100,
+            RepairMethod.TMC_500,
+            RepairMethod.TMC_PIPE_1,
+            RepairMethod.TMC_PIPE_5,
+            RepairMethod.TMC_PIPE_10,
+            RepairMethod.TMC_PIPE_50,
+            RepairMethod.TMC_PIPE_100,
+            RepairMethod.TMC_PIPE_500,
+        ]
+
+    @staticmethod
+    def is_tmc_nonpipe(method: "RepairMethod") -> bool:
+        return method in [
+            RepairMethod.TMC_1,
+            RepairMethod.TMC_5,
+            RepairMethod.TMC_10,
+            RepairMethod.TMC_50,
+            RepairMethod.TMC_100,
+            RepairMethod.TMC_500,
+        ]
+
 
 class UtilityType(str, Enum):
     ACCURACY = "acc"
