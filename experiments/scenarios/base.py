@@ -530,6 +530,10 @@ class Scenario(ABC):
         kwargs = {"logstream": logstream}
         return cls.from_dict({**attributes, **results, **kwargs})
 
+    def is_match(self, other: "Scenario") -> bool:
+        other_attributes = other.attributes
+        return all(other_attributes.get(k, None) == v for (k, v) in self.attributes.items() if k != "id")
+
 
 V = TypeVar("V")
 

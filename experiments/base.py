@@ -35,11 +35,15 @@ def run(
                 logstream=study._logstream,
             )
 
-    else:
-
-        # Construct a study from a set of scenarios.
-        scenarios = list(Scenario.get_instances(**attributes))
-        study = Study(scenarios=scenarios, outpath=output_path)
+    # Construct a study from a set of scenarios.
+    scenarios = list(Scenario.get_instances(**attributes))
+    if study is not None:
+        existing_scenarios = list(study.scenarios)
+        for cs in scenarios:
+            if all(not s.is_match(cs) for s in study.scenarios):
+                existing_scenarios.append(cs)
+        scenarios = existing_scenarios
+    study = Study(scenarios=scenarios, outpath=output_path)
 
     # Run the study.
     study.run(parallel=not no_parallelism, ray_address=ray_address, ray_numprocs=ray_numprocs, eagersave=not no_save)
