@@ -605,6 +605,7 @@ class Study:
         catch_exceptions: bool = True,
         progress_bar: bool = True,
         console_log: bool = True,
+        rerun: bool = False,
     ) -> Callable[[Scenario], Scenario]:
         def _scenario_runner(scenario: Scenario) -> Scenario:
             try:
@@ -621,11 +622,14 @@ class Study:
                     ch.setFormatter(formatter)
                     scenario.logger.addHandler(ch)
 
-                if queue is not None:
-                    scenario.run(progress_bar=progress_bar, console_log=False)
-                else:
-                    with logging_redirect_tqdm(loggers=[scenario.logger]):
+                if rerun or not scenario.completed:
+                    if queue is not None:
                         scenario.run(progress_bar=progress_bar, console_log=False)
+                    else:
+                        with logging_redirect_tqdm(loggers=[scenario.logger]):
+                            scenario.run(progress_bar=progress_bar, console_log=False)
+                else:
+                    scenario.logger.info("Scenario instance already completed. Skipping...")
             except Exception as e:
                 if catch_exceptions:
                     trace_output = traceback.format_exc()
