@@ -212,7 +212,7 @@ class ShapleyImportance(Importance):
         self,
         method: Literal[ImportanceMethod.BRUTEFORCE, ImportanceMethod.MONTECARLO, ImportanceMethod.NEIGHBOR],
         utility: Utility,
-        pipeline: Optional[Pipeline],
+        pipeline: Optional[Pipeline] = None,
         mc_iterations: int = DEFAULT_MC_ITERATIONS,
         mc_timeout: int = DEFAULT_MC_TIMEOUT,
         mc_tolerance: float = DEFAULT_MC_TOLERANCE,
