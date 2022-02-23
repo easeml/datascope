@@ -5,7 +5,6 @@ from copy import deepcopy
 from datascope.importance.common import SklearnModelAccuracy, binarize, get_indices
 from datascope.importance.shapley import ShapleyImportance
 from datetime import timedelta
-from numpy import ndarray
 from time import process_time_ns
 from typing import Any, Iterable, Optional
 
@@ -68,7 +67,8 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
     def _run(self, progress_bar: bool = True, **kwargs: Any) -> None:
 
         # Load dataset.
-        dataset = Dataset.datasets[self.dataset](trainsize=self.trainsize, valsize=self.valsize)
+        seed = self._seed + self._iteration
+        dataset = Dataset.datasets[self.dataset](trainsize=self.trainsize, valsize=self.valsize, seed=seed)
         dataset.load()
         self.logger.debug(
             "Dataset '%s' loaded (trainsize=%d, valsize=%d).", self.dataset, dataset.trainsize, dataset.valsize
@@ -83,23 +83,23 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
         dataset_dirty.y_train[dirty_idx] = 1 - dataset_dirty.y_train[dirty_idx]
 
         # Load the pipeline and process the data.
-        pipeline_class = Pipeline.pipelines[self.pipeline]
-        pipeline = pipeline_class.construct(dataset)
-        X_train, y_train = dataset.X_train, dataset.y_train
-        X_val, y_val = dataset.X_val, dataset.y_val
-        X_train_dirty, y_train_dirty = dataset_dirty.X_train, dataset_dirty.y_train
-        assert X_train is not None and y_train is not None
-        assert X_train_dirty is not None and y_train_dirty is not None
-        assert X_val is not None and y_val is not None
+        pipeline = Pipeline.pipelines[self.pipeline].construct(dataset)
+        # X_train, y_train = dataset.X_train, dataset.y_train
+        # X_val, y_val = dataset.X_val, dataset.y_val
+        # X_train_dirty, y_train_dirty = dataset_dirty.X_train, dataset_dirty.y_train
+        # assert X_train is not None and y_train is not None
+        # assert X_train_dirty is not None and y_train_dirty is not None
+        # assert X_val is not None and y_val is not None
         if not RepairMethod.is_pipe(self.method):
-            self.logger.debug("Shape of X_train before feature extraction: %s", str(X_train.shape))
-            X_train = pipeline.fit_transform(X_train, y_train)  # TODO: Fit the pipeline with dirty data.
-            assert isinstance(X_train, ndarray)
-            X_train_dirty = pipeline.transform(X_train_dirty)
-            assert isinstance(X_train_dirty, ndarray)
-            X_val = pipeline.transform(X_val)
-            assert isinstance(X_val, ndarray)
-            self.logger.debug("Shape of X_train after feature extraction: %s", str(X_train.shape))
+            raise ValueError("This is not supported at the moment.")
+            # self.logger.debug("Shape of X_train before feature extraction: %s", str(X_train.shape))
+            # X_train = pipeline.fit_transform(X_train, y_train)  # TODO: Fit the pipeline with dirty data.
+            # assert isinstance(X_train, ndarray)
+            # X_train_dirty = pipeline.transform(X_train_dirty)
+            # assert isinstance(X_train_dirty, ndarray)
+            # X_val = pipeline.transform(X_val)
+            # assert isinstance(X_val, ndarray)
+            # self.logger.debug("Shape of X_train after feature extraction: %s", str(X_train.shape))
 
         # Reshape datasets if needed.
         # if X_train.ndim > 2:
@@ -115,10 +115,11 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
 
         # Initialize the model and utility.
         model = get_model(ModelType.LogisticRegression)
-        if RepairMethod.is_pipe(self.method):
-            model_pipeline = deepcopy(pipeline)
-            model_pipeline.steps.append(("model", model))
-            model = model_pipeline
+        # if RepairMethod.is_pipe(self.method):
+        #     model_pipeline = deepcopy(pipeline)
+        #     model_pipeline.steps.append(("model", model))
+        #     model = model_pipeline
+        pipeline.steps.append(("model", model))
         utility = SklearnModelAccuracy(model)
 
         # Compute importance scores and time it.
@@ -133,7 +134,9 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
             importance = ShapleyImportance(
                 method=method, utility=utility, mc_iterations=mc_iterations, mc_timeout=self.timeout
             )
-            importances = importance.fit(X_train_dirty, y_train_dirty).score(X_val, y_val)
+            importances = importance.fit(dataset_dirty.X_train, dataset_dirty.y_train).score(
+                dataset.X_val, dataset.y_val
+            )
         importance_time_end = process_time_ns()
         self._importance_compute_time = (importance_time_end - importance_time_start) / 1e9
         self.logger.debug("Importance computed in: %s", str(timedelta(seconds=self._importance_compute_time)))
@@ -143,8 +146,8 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
         # argsorted_importances = np.ma.array(importances, mask=visited_units).argsort()
 
         # Run the model to get initial score.
-        assert y_val is not None
-        accuracy = utility(X_train_dirty, y_train_dirty, X_val, y_val)
+        # assert y_val is not None
+        accuracy = utility(dataset_dirty.X_train, dataset_dirty.y_train, dataset.X_val, dataset.y_val)
 
         # Update result table.
         evolution = [[0.0, accuracy, accuracy, 0, 0.0, 0, 0.0]]
@@ -173,11 +176,11 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
             target_idx = get_indices(provenance, target_query)
 
             # Repair the data example.
-            y_train_dirty[target_idx] = y_train[target_idx]
+            dataset_dirty.y_train[target_idx] = dataset.y_train[target_idx]
             visited_units[target_units] = True
 
             # Run the model.
-            accuracy = utility(X_train_dirty, y_train_dirty, X_val, y_val)
+            accuracy = utility(dataset_dirty.X_train, dataset_dirty.y_train, dataset.X_val, dataset.y_val)
 
             # Update result table.
             steps_rel = (i + 1) / float(checkpoints)
@@ -190,7 +193,9 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
             # Recompute if needed.
             if importance is not None and self.method == RepairMethod.KNN_Interactive:
                 importance_time_start = process_time_ns()
-                importances = importance.fit(X_train_dirty, y_train_dirty).score(X_val, y_val)
+                importances = importance.fit(dataset_dirty.X_train, dataset_dirty.y_train).score(
+                    dataset.X_val, dataset.y_val
+                )
                 importance_time_end = process_time_ns()
                 self._importance_compute_time += (importance_time_end - importance_time_start) / 1e9
                 argsorted_importances = np.array(importances).argsort()
