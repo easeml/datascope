@@ -72,13 +72,20 @@ VALUE_MEASURE_C: Dict[AggregationMode, str] = {
 DEFAULT_LABEL_FORMAT = "{compare}"
 
 
+def represent(x: Any):
+    if isinstance(x, Enum):
+        return repr(x.value)
+    else:
+        return repr(x)
+
+
 def filter(
     dataframe: DataFrame,
     attributes: Optional[Dict[str, Any]] = None,
 ) -> DataFrame:
     if attributes is None:
         return dataframe
-    slicequery = " & ".join("%s == %s" % (str(k), repr(v)) for (k, v) in attributes.items())
+    slicequery = " & ".join("%s == %s" % (str(k), represent(v)) for (k, v) in attributes.items())
     return dataframe.query(slicequery)
 
 
@@ -189,7 +196,7 @@ def plot(
         label = replace_keywords(label, keyword_replacements)
         ax.plot(dataframe[comp][centercol], color=COLORS[i], label=label)
 
-    ax.set_title(" ".join("%s=%s" % (str(k), repr(v)) for (k, v) in attributes.items()))
+    ax.set_title(" ".join("%s=%s" % (str(k), represent(v)) for (k, v) in attributes.items()))
     ax.set_xlim([dataframe.index.values[0], (dataframe.index.values[-1] - dataframe.index.values[0]) * 1.2])
     ax.set_ylim([-0.2, 1])
     ax.set_ylabel(targetval.title())
