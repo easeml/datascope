@@ -1,5 +1,6 @@
 import numpy as np
 import time
+import warnings
 
 from enum import Enum
 from itertools import product
@@ -10,6 +11,7 @@ from numpy import ndarray
 from scipy.sparse import csr_matrix, issparse, spmatrix
 from scipy.sparse.csgraph import connected_components
 from sklearn.metrics import DistanceMetric
+from sklearn.pipeline import Pipeline
 from typing import Dict, List, Literal, Optional, Iterable, Set, Tuple
 
 from .add import ADD
@@ -210,10 +212,12 @@ class ShapleyImportance(Importance):
         self,
         method: Literal[ImportanceMethod.BRUTEFORCE, ImportanceMethod.MONTECARLO, ImportanceMethod.NEIGHBOR],
         utility: Utility,
+        pipeline: Optional[Pipeline],
         mc_iterations: int = DEFAULT_MC_ITERATIONS,
         mc_timeout: int = DEFAULT_MC_TIMEOUT,
         mc_tolerance: float = DEFAULT_MC_TOLERANCE,
         mc_truncation_steps: int = DEFAULT_MC_TRUNCATION_STEPS,
+        mc_preextract: bool = False,
         nn_k: int = DEFAULT_NN_K,
         nn_distance: DistanceCallable = DEFAULT_NN_DISTANCE,
         seed: int = DEFAULT_SEED,
@@ -221,10 +225,12 @@ class ShapleyImportance(Importance):
         super().__init__()
         self.method = ImportanceMethod(method)
         self.utility = utility
+        self.pipeline = pipeline
         self.mc_iterations = mc_iterations
         self.mc_timeout = mc_timeout
         self.mc_tolerance = mc_tolerance
         self.mc_truncation_steps = mc_truncation_steps
+        self.mc_preextract = mc_preextract
         self.nn_k = nn_k
         self.nn_distance = nn_distance
         self.X: Optional[ndarray] = None
@@ -298,6 +304,11 @@ class ShapleyImportance(Importance):
         # Convert provenance and units to bit-arrays.
         provenance = binarize(provenance)
 
+        # Apply the feature extraction pipeline if it was provided.
+        if self.pipeline is not None:
+            self.pipeline.fit(X, y=y)
+            X_test = self.pipeline.transform(X_test)
+
         # Compute null score.
         null_score = self.utility.null_score(X, y, X_test, y_test)
         null_score = 0.5
@@ -317,9 +328,17 @@ class ShapleyImportance(Importance):
             indices = get_indices(provenance, query)
 
             # Train the model and score it. If we fail at any step we get zero score.
-            X_train = X[indices]
-            y_train = y[indices]
-            score = self.utility(X_train, y_train, X_test, y_test, null_score)
+            score = null_score
+            with warnings.catch_warnings():
+                warnings.simplefilter("error")
+                try:
+                    X_train = X[indices]
+                    y_train = y[indices]
+                    if self.pipeline is not None:
+                        X_train = self.pipeline.fit_transform(X_train, y=y)
+                    score = self.utility(X_train, y_train, X_test, y_test, null_score)
+                except (ValueError, RuntimeWarning):
+                    pass
 
             # Compute the factor and update the Shapley values of respective units.
             factor_0 = -1.0 / (comb(n_units - 1, min(s_iter, n_units - 1)) * n_units)
@@ -346,9 +365,19 @@ class ShapleyImportance(Importance):
         # Convert provenance and units to bit-arrays.
         provenance = binarize(provenance)
 
+        # Apply the feature extraction pipeline if it was provided.
+        X_t = X
+        if self.pipeline is not None:
+            X_t = self.pipeline.fit_transform(X, y=y)
+            X_test = self.pipeline.transform(X_test)
+
         # Compute mean score.
-        null_score = self.utility.null_score(X, y, X_test, y_test)
-        mean_score = self.utility.mean_score(X, y, X_test, y_test)
+        null_score = self.utility.null_score(X_t, y, X_test, y_test)
+        mean_score = self.utility.mean_score(X_t, y, X_test, y_test)
+
+        # If pre-extract was specified, run feature extraction once for the whole dataset.
+        if self.mc_preextract:
+            X = X_t  # TODO: Handle provenance if the pipeline is not a map pipeline.
 
         # Run a given number of iterations.
         n_units_total = provenance.shape[2]
@@ -375,9 +404,17 @@ class ShapleyImportance(Importance):
                 indices = get_indices(provenance, query, simple_provenance=simple_provenance)
 
                 # Train the model and score it. If we fail at any step we get zero score.
-                X_train = X[indices]
-                y_train = y[indices]
-                new_score = self.utility(X_train, y_train, X_test, y_test, null_score=null_score)
+                new_score = null_score
+                with warnings.catch_warnings():
+                    warnings.simplefilter("error")
+                    try:
+                        X_train = X[indices]
+                        y_train = y[indices]
+                        if self.pipeline is not None and not self.mc_preextract:
+                            X_train = self.pipeline.fit_transform(X_train, y=y)
+                        new_score = self.utility(X_train, y_train, X_test, y_test, null_score=null_score)
+                    except (ValueError, RuntimeWarning):
+                        pass
 
                 importance[idx] = (new_score - old_score) / n_units
 
@@ -414,6 +451,11 @@ class ShapleyImportance(Importance):
 
         # Convert provenance and units to bit-arrays.
         provenance = binarize(provenance)
+
+        # Apply the feature extraction pipeline if it was provided.
+        if self.pipeline is not None:
+            X = self.pipeline.fit_transform(X, y=y)
+            X_test = self.pipeline.transform(X_test)
 
         # Compute the distances between training and text data examples.
         if issparse(X):

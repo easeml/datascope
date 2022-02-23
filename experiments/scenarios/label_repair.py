@@ -62,6 +62,8 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
         result = True
         if "utility" in attributes:
             result = attributes["utility"] == UtilityType.ACCURACY
+        if "method" in attributes:
+            result = result and not RepairMethod.is_tmc_nonpipe(attributes["method"])
         return result and super().is_valid_config(**attributes)
 
     def _run(self, progress_bar: bool = True, **kwargs: Any) -> None:
@@ -90,16 +92,16 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
         # assert X_train is not None and y_train is not None
         # assert X_train_dirty is not None and y_train_dirty is not None
         # assert X_val is not None and y_val is not None
-        if not RepairMethod.is_pipe(self.method):
-            raise ValueError("This is not supported at the moment.")
-            # self.logger.debug("Shape of X_train before feature extraction: %s", str(X_train.shape))
-            # X_train = pipeline.fit_transform(X_train, y_train)  # TODO: Fit the pipeline with dirty data.
-            # assert isinstance(X_train, ndarray)
-            # X_train_dirty = pipeline.transform(X_train_dirty)
-            # assert isinstance(X_train_dirty, ndarray)
-            # X_val = pipeline.transform(X_val)
-            # assert isinstance(X_val, ndarray)
-            # self.logger.debug("Shape of X_train after feature extraction: %s", str(X_train.shape))
+        # if RepairMethod.is_tmc_nonpipe(self.method):
+        #     raise ValueError("This is not supported at the moment.")
+        #     self.logger.debug("Shape of X_train before feature extraction: %s", str(X_train.shape))
+        #     X_train = pipeline.fit_transform(X_train, y_train)  # TODO: Fit the pipeline with dirty data.
+        #     assert isinstance(X_train, ndarray)
+        #     X_train_dirty = pipeline.transform(X_train_dirty)
+        #     assert isinstance(X_train_dirty, ndarray)
+        #     X_val = pipeline.transform(X_val)
+        #     assert isinstance(X_val, ndarray)
+        #     self.logger.debug("Shape of X_train after feature extraction: %s", str(X_train.shape))
 
         # Reshape datasets if needed.
         # if X_train.ndim > 2:
@@ -119,7 +121,7 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
         #     model_pipeline = deepcopy(pipeline)
         #     model_pipeline.steps.append(("model", model))
         #     model = model_pipeline
-        pipeline.steps.append(("model", model))
+        # pipeline.steps.append(("model", model))
         utility = SklearnModelAccuracy(model)
 
         # Compute importance scores and time it.
@@ -131,8 +133,14 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
         else:
             method = IMPORTANCE_METHODS[self.method]
             mc_iterations = MC_ITERATIONS[self.method]
+            mc_preextract = RepairMethod.is_tmc_nonpipe(self.method)
             importance = ShapleyImportance(
-                method=method, utility=utility, mc_iterations=mc_iterations, mc_timeout=self.timeout
+                method=method,
+                utility=utility,
+                pipeline=pipeline,
+                mc_iterations=mc_iterations,
+                mc_timeout=self.timeout,
+                mc_preextract=mc_preextract,
             )
             importances = importance.fit(dataset_dirty.X_train, dataset_dirty.y_train).score(
                 dataset.X_val, dataset.y_val
@@ -147,7 +155,9 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
 
         # Run the model to get initial score.
         # assert y_val is not None
-        accuracy = utility(dataset_dirty.X_train, dataset_dirty.y_train, dataset.X_val, dataset.y_val)
+        dataset_f = dataset.apply(pipeline)
+        dataset_dirty_f = dataset_dirty.apply(pipeline)
+        accuracy = utility(dataset_dirty_f.X_train, dataset_dirty_f.y_train, dataset_f.X_val, dataset_f.y_val)
 
         # Update result table.
         evolution = [[0.0, accuracy, accuracy, 0, 0.0, 0, 0.0]]
@@ -180,7 +190,7 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
             visited_units[target_units] = True
 
             # Run the model.
-            accuracy = utility(dataset_dirty.X_train, dataset_dirty.y_train, dataset.X_val, dataset.y_val)
+            accuracy = utility(dataset_dirty_f.X_train, dataset_dirty.y_train, dataset_f.X_val, dataset_f.y_val)
 
             # Update result table.
             steps_rel = (i + 1) / float(checkpoints)

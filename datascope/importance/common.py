@@ -5,7 +5,7 @@ import warnings
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from numpy import ndarray
-from typing import Iterable, Optional, Protocol, Callable, Sequence, Tuple, Union
+from typing import Iterable, Optional, Protocol, Callable, Sequence, Tuple, Union, List
 from sklearn.base import clone
 from sklearn.metrics import accuracy_score
 
@@ -16,6 +16,21 @@ class SklearnModel(Protocol):
 
     def predict(self, X: ndarray) -> ndarray:
         pass
+
+
+class SklearnTransformer(Protocol):
+    def fit(self, X: ndarray, y: ndarray, sample_weight: Optional[ndarray] = None) -> None:
+        pass
+
+    def transform(self, X: ndarray) -> ndarray:
+        pass
+
+
+class SklearnPipeline(SklearnModel, SklearnTransformer):
+    steps: List[Tuple[str, Union[SklearnModel, SklearnTransformer]]]
+
+
+SklearnModelOrPipeline = Union[SklearnModel, SklearnPipeline]
 
 
 MetricCallable = Callable[[ndarray, ndarray], float]
@@ -142,7 +157,7 @@ class JointUtility(Utility):
 
 
 class SklearnModelUtility(Utility):
-    def __init__(self, model: SklearnModel, metric: Optional[MetricCallable]) -> None:
+    def __init__(self, model: SklearnModelOrPipeline, metric: Optional[MetricCallable]) -> None:
         self.model = model
         self.metric = metric
 
@@ -157,6 +172,7 @@ class SklearnModelUtility(Utility):
     ) -> float:
         score = 0.0
         with warnings.catch_warnings():
+            warnings.simplefilter("error")
             try:
                 # TODO: Ensure fit clears the model.
                 np.random.seed(seed)
@@ -170,12 +186,12 @@ class SklearnModelUtility(Utility):
                     return score
         return score
 
-    def _model_fit(self, model: SklearnModel, X_train: ndarray, y_train: ndarray) -> SklearnModel:
+    def _model_fit(self, model: SklearnModelOrPipeline, X_train: ndarray, y_train: ndarray) -> SklearnModelOrPipeline:
         model = clone(model)
         model.fit(X_train, y_train)
         return model
 
-    def _model_predict(self, model: SklearnModel, X_test: ndarray) -> ndarray:
+    def _model_predict(self, model: SklearnModelOrPipeline, X_test: ndarray) -> ndarray:
         return model.predict(X_test)
 
     def _metric_score(
@@ -232,7 +248,7 @@ class SklearnModelUtility(Utility):
 
 
 class SklearnModelAccuracy(SklearnModelUtility):
-    def __init__(self, model: SklearnModel) -> None:
+    def __init__(self, model: SklearnModelOrPipeline) -> None:
         super().__init__(model, accuracy_score)
 
     def elementwise_score(
@@ -292,7 +308,10 @@ def equalized_odds_diff(y_test: ndarray, y_pred: ndarray, *, groupings: ndarray)
 
 class SklearnModelEqualizedOddsDifference(SklearnModelUtility):
     def __init__(
-        self, model: SklearnModel, sensitive_features: Union[int, Sequence[int]], groupings: Optional[ndarray] = None
+        self,
+        model: SklearnModelOrPipeline,
+        sensitive_features: Union[int, Sequence[int]],
+        groupings: Optional[ndarray] = None,
     ) -> None:
         super().__init__(model, None)
         if not isinstance(sensitive_features, collections.Sequence):

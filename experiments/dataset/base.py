@@ -84,11 +84,19 @@ class Dataset(ABC):
             raise ValueError("The dataset is not loaded yet.")
         return self._X_train
 
+    @X_train.setter
+    def X_train(self, value: ndarray):
+        self._X_train = value
+
     @property
     def y_train(self) -> ndarray:
         if self._y_train is None:
             raise ValueError("The dataset is not loaded yet.")
         return self._y_train
+
+    @y_train.setter
+    def y_train(self, value: ndarray):
+        self._y_train = value
 
     @property
     def X_val(self) -> ndarray:
@@ -96,16 +104,24 @@ class Dataset(ABC):
             raise ValueError("The dataset is not loaded yet.")
         return self._X_val
 
+    @X_val.setter
+    def X_val(self, value: ndarray):
+        self._X_val = value
+
     @property
     def y_val(self) -> ndarray:
         if self._y_val is None:
             raise ValueError("The dataset is not loaded yet.")
         return self._y_val
 
+    @y_val.setter
+    def y_val(self, value: ndarray):
+        self._y_val = value
+
     def apply(self, pipeline: Pipeline) -> "Dataset":
         result = deepcopy(self)
         pipeline = deepcopy(pipeline)
-        result._X_train, result._y_train = pipeline.fit_transform(result._X_train, result._y_train)
+        result._X_train = pipeline.fit_transform(result._X_train, result._y_train)
         result._X_val = pipeline.transform(result._X_val)
         return result
 

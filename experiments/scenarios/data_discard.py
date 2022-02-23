@@ -1,3 +1,4 @@
+from copy import deepcopy
 import numpy as np
 import pandas as pd
 
@@ -15,7 +16,7 @@ from datetime import timedelta
 from time import process_time_ns
 from typing import Any, Iterable, Optional
 
-from experiments.dataset.base import BiasedMixin, compute_bias
+from experiments.dataset.base import BiasedMixin
 
 from .datascope_scenario import (
     DatascopeScenario,
@@ -138,27 +139,27 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
         # Initialize the model and utility.
         model = get_model(ModelType.LogisticRegression)
         # model_pipeline = deepcopy(pipeline)
-        pipeline.steps.append(("model", model))
+        # pipeline.steps.append(("model", model))
         # if RepairMethod.is_pipe(self.method):
         #     model = model_pipeline
-        accuracy_utility = SklearnModelAccuracy(pipeline)
+        accuracy_utility = SklearnModelAccuracy(model)
         eqodds_utility = SklearnModelEqualizedOddsDifference(
-            pipeline, sensitive_features=dataset.sensitive_feature, groupings=groupings
+            model, sensitive_features=dataset.sensitive_feature, groupings=groupings
         )
 
-        target_model = model if RepairMethod.is_tmc_nonpipe(self.method) else pipeline
+        # target_model = model if RepairMethod.is_tmc_nonpipe(self.method) else pipeline
         target_utility: Utility
         if self.utility == UtilityType.ACCURACY:
-            target_utility = JointUtility(SklearnModelAccuracy(target_model), weights=[-1.0])
+            target_utility = JointUtility(SklearnModelAccuracy(model), weights=[-1.0])
         elif self.utility == UtilityType.EQODDS:
             target_utility = SklearnModelEqualizedOddsDifference(
-                target_model, sensitive_features=dataset.sensitive_feature, groupings=groupings
+                model, sensitive_features=dataset.sensitive_feature, groupings=groupings
             )
         elif self.utility == UtilityType.EQODDS_AND_ACCURACY:
             target_utility = JointUtility(
-                SklearnModelAccuracy(target_model),
+                SklearnModelAccuracy(model),
                 SklearnModelEqualizedOddsDifference(
-                    target_model, sensitive_features=dataset.sensitive_feature, groupings=groupings
+                    model, sensitive_features=dataset.sensitive_feature, groupings=groupings
                 ),
                 weights=[-0.5, 0.5],
             )
@@ -175,8 +176,14 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
         else:
             method = IMPORTANCE_METHODS[self.method]
             mc_iterations = MC_ITERATIONS[self.method]
+            mc_preextract = RepairMethod.is_tmc_nonpipe(self.method)
             importance = ShapleyImportance(
-                method=method, utility=target_utility, mc_iterations=mc_iterations, mc_timeout=self.timeout
+                method=method,
+                utility=target_utility,
+                pipeline=pipeline,
+                mc_iterations=mc_iterations,
+                mc_timeout=self.timeout,
+                mc_preextract=mc_preextract,
             )
             importances = importance.fit(dataset.X_train, dataset.y_train).score(dataset.X_val, dataset.y_val)
         importance_time_end = process_time_ns()
@@ -188,8 +195,9 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
         # argsorted_importances = np.ma.array(importances, mask=discarded_units).argsort()
 
         # Run the model to get initial score.
-        eqodds = eqodds_utility(dataset.X_train, dataset.y_train, dataset.X_val, dataset.y_val)
-        accuracy = accuracy_utility(dataset.X_train, dataset.y_train, dataset.X_val, dataset.y_val)
+        dataset_f = dataset.apply(pipeline)
+        eqodds = eqodds_utility(dataset_f.X_train, dataset_f.y_train, dataset_f.X_val, dataset_f.y_val)
+        accuracy = accuracy_utility(dataset_f.X_train, dataset_f.y_train, dataset_f.X_val, dataset_f.y_val)
 
         # Update result table.
         evolution = [[0.0, eqodds, eqodds, accuracy, accuracy, 0, 0.0, dataset.train_bias, dataset.y_train.mean()]]
@@ -205,6 +213,7 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
 
         # Iterate over the repair process.
         # discarded_units = np.zeros(dataset.trainsize, dtype=bool)
+        dataset_current = deepcopy(dataset)
         for i in range(checkpoints):
 
             # Determine indices of data examples that should be discarded given the unit with the highest importance.
@@ -214,8 +223,8 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
             discarded_units[target_units] = True
             present_units = np.invert(discarded_units).astype(int)
             present_idx = get_indices(provenance, present_units)
-            X_train_present = dataset.X_train[present_idx, :]
-            y_train_present = dataset.y_train[present_idx]
+            dataset_current.X_train = dataset.X_train[present_idx, :]
+            dataset_current.y_train = dataset.y_train[present_idx]
 
             # Display message about current target units that are going to be discarded.
             # y_train_target = y_train_orig[target_units]
@@ -238,15 +247,20 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
             # discarded_units[target_units] = True
 
             # Run the model.
-            eqodds = eqodds_utility(X_train_present, y_train_present, dataset.X_val, dataset.y_val)
-            accuracy = accuracy_utility(X_train_present, y_train_present, dataset.X_val, dataset.y_val)
+            dataset_current_f = dataset_current.apply(pipeline)
+            eqodds = eqodds_utility(
+                dataset_current_f.X_train, dataset_current_f.y_train, dataset_current_f.X_val, dataset_current_f.y_val
+            )
+            accuracy = accuracy_utility(
+                dataset_current_f.X_train, dataset_current_f.y_train, dataset_current_f.X_val, dataset_current_f.y_val
+            )
 
             # Update result table.
             steps_rel = (i + 1) / float(checkpoints)
             discarded = discarded_units.sum(dtype=int)
             discarded_rel = discarded / float(n_units)
-            dataset_bias = compute_bias(X_train_present, y_train_present, dataset.sensitive_feature)
-            mean_label = np.mean(y_train_present)
+            dataset_bias = dataset_current.train_bias
+            mean_label = np.mean(dataset_current.y_train)
             evolution.append(
                 [steps_rel, eqodds, eqodds, accuracy, accuracy, discarded, discarded_rel, dataset_bias, mean_label]
             )
@@ -255,8 +269,8 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
             if importance is not None and self.method == RepairMethod.KNN_Interactive:
                 importance_time_start = process_time_ns()
                 importances = np.empty(n_units, dtype=float)
-                importances[present_idx] = importance.fit(X_train_present, y_train_present).score(
-                    dataset.X_val, dataset.y_val
+                importances[present_idx] = importance.fit(dataset_current.X_train, dataset_current.y_train).score(
+                    dataset_current.X_val, dataset_current.y_val
                 )
                 importance_time_end = process_time_ns()
                 self._importance_compute_time += (importance_time_end - importance_time_start) / 1e9
