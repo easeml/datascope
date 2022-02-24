@@ -1,12 +1,14 @@
+from copy import deepcopy
 import numpy as np
 import pandas as pd
 
-from copy import deepcopy
-from datascope.importance.common import SklearnModelAccuracy, binarize, get_indices
+from datascope.importance.common import SklearnModelAccuracy
 from datascope.importance.shapley import ShapleyImportance
 from datetime import timedelta
 from time import process_time_ns
-from typing import Any, Iterable, Optional
+from typing import Any, Iterable, List, Optional, Union
+
+from experiments.dataset.base import DirtyLabelDataset
 
 from .datascope_scenario import (
     DatascopeScenario,
@@ -15,6 +17,7 @@ from .datascope_scenario import (
     MC_ITERATIONS,
     DEFAULT_SEED,
     DEFAULT_CHECKPOINTS,
+    DEFAULT_PROVIDERS,
     UtilityType,
 )
 from ..dataset import Dataset, DEFAULT_TRAINSIZE, DEFAULT_VALSIZE
@@ -36,6 +39,7 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
         trainsize: int = DEFAULT_TRAINSIZE,
         valsize: int = DEFAULT_VALSIZE,
         checkpoints: int = DEFAULT_CHECKPOINTS,
+        providers: int = DEFAULT_PROVIDERS,
         evolution: Optional[pd.DataFrame] = None,
         importance_compute_time: Optional[float] = None,
         **kwargs: Any
@@ -51,6 +55,7 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
             trainsize=trainsize,
             valsize=valsize,
             checkpoints=checkpoints,
+            providers=providers,
             evolution=evolution,
             importance_compute_time=importance_compute_time,
             **kwargs
@@ -71,18 +76,26 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
         # Load dataset.
         seed = self._seed + self._iteration
         dataset = Dataset.datasets[self.dataset](trainsize=self.trainsize, valsize=self.valsize, seed=seed)
+        assert isinstance(dataset, DirtyLabelDataset)
         dataset.load()
         self.logger.debug(
             "Dataset '%s' loaded (trainsize=%d, valsize=%d).", self.dataset, dataset.trainsize, dataset.valsize
         )
 
         # Create the dirty dataset and apply the data corruption.
-        dataset_dirty = deepcopy(dataset)
-        random = np.random.RandomState(seed=self._seed + self._iteration)
-        dirty_probs = [1 - self._dirty_ratio, self._dirty_ratio]
-        dirty_idx = random.choice(a=[False, True], size=(dataset_dirty.trainsize), p=dirty_probs)
-        assert dataset_dirty.y_train is not None
-        dataset_dirty.y_train[dirty_idx] = 1 - dataset_dirty.y_train[dirty_idx]
+        # dataset_dirty = deepcopy(dataset)
+        # random = np.random.RandomState(seed=self._seed + self._iteration)
+        # dirty_probs = [1 - self._dirty_ratio, self._dirty_ratio]
+        # dirty_idx = random.choice(a=[False, True], size=(dataset_dirty.trainsize), p=dirty_probs)
+        # dataset_dirty.y_train[dirty_idx] = 1 - dataset_dirty.y_train[dirty_idx]
+        probabilities: Union[float, List[float]] = self._dirty_ratio
+        if self.providers > 1:
+            dirty_providers = round(self.providers * self._dirty_ratio)
+            clean_providers = self.providers - dirty_providers
+            probabilities = [float(i + 1) / dirty_providers for i in range(dirty_providers)]
+            probabilities += [0.0 for _ in range(clean_providers)]
+        dataset_dirty = dataset.corrupt_labels(probabilities=probabilities)
+        units_dirty = deepcopy(dataset_dirty.units_dirty)
 
         # Load the pipeline and process the data.
         pipeline = Pipeline.pipelines[self.pipeline].construct(dataset)
@@ -111,9 +124,9 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
         #     self.logger.debug("Need to reshape. New shape: %s", str(X_train.shape))
 
         # Construct binarized provenance matrix.
-        provenance = np.expand_dims(np.arange(dataset.trainsize, dtype=int), axis=(1, 2, 3))
-        provenance = np.pad(provenance, pad_width=((0, 0), (0, 0), (0, 0), (0, 1)))
-        provenance = binarize(provenance)
+        # provenance = np.expand_dims(np.arange(dataset.trainsize, dtype=int), axis=(1, 2, 3))
+        # provenance = np.pad(provenance, pad_width=((0, 0), (0, 0), (0, 0), (0, 1)))
+        # provenance = binarize(provenance)
 
         # Initialize the model and utility.
         model = get_model(ModelType.LogisticRegression)
@@ -128,6 +141,7 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
         importance_time_start = process_time_ns()
         importance: Optional[ShapleyImportance] = None
         importances: Optional[Iterable[float]] = None
+        random = np.random.RandomState(seed=self._seed + self._iteration)
         if self.method == RepairMethod.RANDOM:
             importances = list(random.rand(dataset.trainsize))
         else:
@@ -142,13 +156,13 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
                 mc_timeout=self.timeout,
                 mc_preextract=mc_preextract,
             )
-            importances = importance.fit(dataset_dirty.X_train, dataset_dirty.y_train).score(
-                dataset.X_val, dataset.y_val
-            )
+            importances = importance.fit(
+                dataset_dirty.X_train, dataset_dirty.y_train, provenance=dataset_dirty.provenance
+            ).score(dataset.X_val, dataset.y_val)
         importance_time_end = process_time_ns()
         self._importance_compute_time = (importance_time_end - importance_time_start) / 1e9
         self.logger.debug("Importance computed in: %s", str(timedelta(seconds=self._importance_compute_time)))
-        n_units = dataset.trainsize
+        n_units = dataset_dirty.units.shape[0]
         visited_units = np.zeros(n_units, dtype=bool)
         argsorted_importances = np.array(importances).argsort()
         # argsorted_importances = np.ma.array(importances, mask=visited_units).argsort()
@@ -183,29 +197,33 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
             target_query[target_units] = 1
             # target_unit = np.ma.array(importances, mask=visited_units).argmin()
             # target_query = np.eye(1, visited_units.shape[0], target_unit, dtype=int).flatten()
-            target_idx = get_indices(provenance, target_query)
+            # target_idx = get_indices(dataset_dirty.provenance, target_query)
 
             # Repair the data example.
-            dataset_dirty.y_train[target_idx] = dataset.y_train[target_idx]
+            # dataset_dirty.y_train[target_idx] = dataset.y_train[target_idx]
             visited_units[target_units] = True
+            dataset_dirty.units_dirty[target_units] = False
 
             # Run the model.
             accuracy = utility(dataset_dirty_f.X_train, dataset_dirty.y_train, dataset_f.X_val, dataset_f.y_val)
+
+            self.logger.debug("Dirty units: %.2f", np.sum(dataset_dirty.units_dirty))
+            self.logger.debug("Same labels: %.2f", np.sum(dataset_dirty.y_train == dataset.y_train))
 
             # Update result table.
             steps_rel = (i + 1) / float(checkpoints)
             repaired = visited_units.sum(dtype=int)
             repaired_rel = repaired / float(n_units)
-            discovered = np.logical_and(visited_units, dirty_idx).sum(dtype=int)
-            discovered_rel = discovered / dirty_idx.sum(dtype=float)
+            discovered = np.logical_and(visited_units, units_dirty).sum(dtype=int)
+            discovered_rel = discovered / units_dirty.sum(dtype=float)
             evolution.append([steps_rel, accuracy, accuracy, repaired, repaired_rel, discovered, discovered_rel])
 
             # Recompute if needed.
             if importance is not None and self.method == RepairMethod.KNN_Interactive:
                 importance_time_start = process_time_ns()
-                importances = importance.fit(dataset_dirty.X_train, dataset_dirty.y_train).score(
-                    dataset.X_val, dataset.y_val
-                )
+                importances = importance.fit(
+                    dataset_dirty.X_train, dataset_dirty.y_train, provenance=dataset_dirty.provenance
+                ).score(dataset.X_val, dataset.y_val)
                 importance_time_end = process_time_ns()
                 self._importance_compute_time += (importance_time_end - importance_time_start) / 1e9
                 argsorted_importances = np.array(importances).argsort()

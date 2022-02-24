@@ -1,6 +1,7 @@
 from __future__ import absolute_import
+import collections
 from copy import deepcopy
-from math import floor
+from math import ceil, floor
 
 import datasets
 import numpy as np
@@ -12,7 +13,9 @@ from sklearn.datasets import fetch_openml, fetch_20newsgroups
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import LabelEncoder
-from typing import Dict, Optional, Sequence, Tuple, Type
+from typing import Dict, Optional, Sequence, Tuple, Type, Union
+
+from datascope.importance.common import binarize, get_indices
 
 
 class DatasetId(str, Enum):
@@ -52,8 +55,15 @@ class Dataset(ABC):
         self._y_train: Optional[ndarray] = None
         self._X_val: Optional[ndarray] = None
         self._y_val: Optional[ndarray] = None
+        self._provenance: Optional[ndarray] = None
+        self._bin_provenance: Optional[ndarray] = None
+        self._units: Optional[ndarray] = None
 
-    def __init_subclass__(cls: Type["Dataset"], modality: DatasetModality, id: Optional[str] = None) -> None:
+    def __init_subclass__(
+        cls: Type["Dataset"], modality: Optional[DatasetModality] = None, id: Optional[str] = None
+    ) -> None:
+        if modality is None:
+            return
         cls._dataset = id if id is not None else cls.__name__
         cls._modality = modality
         Dataset.datasets[cls._dataset] = cls
@@ -118,11 +128,109 @@ class Dataset(ABC):
     def y_val(self, value: ndarray):
         self._y_val = value
 
+    @property
+    def provenance(self) -> ndarray:
+        if self._provenance is None:
+            raise ValueError("The dataset is not loaded yet.")
+        return self._provenance
+
+    @property
+    def units(self) -> ndarray:
+        if self._units is None:
+            raise ValueError("The dataset is not loaded yet.")
+        return self._units
+
+    def _construct_provenance(self, groupings: Optional[ndarray] = None) -> None:
+        if groupings is None:
+            groupings = np.arange(self._trainsize, dtype=int)
+        provenance = np.expand_dims(groupings, axis=(1, 2, 3))
+        self._provenance = np.pad(provenance, pad_width=((0, 0), (0, 0), (0, 0), (0, 1)))
+        self._units = np.sort(np.unique(groupings))
+
     def apply(self, pipeline: Pipeline) -> "Dataset":
         result = deepcopy(self)
         pipeline = deepcopy(pipeline)
         result._X_train = pipeline.fit_transform(result._X_train, result._y_train)
         result._X_val = pipeline.transform(result._X_val)
+        return result
+
+    # def corrupt_labels(self, probabilities: Union[float, Sequence[float]]) -> "Dataset":
+    #     if not isinstance(probabilities, collections.Sequence):
+    #         probabilities = [probabilities]
+    #     result = deepcopy(self)
+    #     n_groups = len(probabilities)
+    #     n_examples = result.X_train.shape[0]
+    #     n_examples_per_group = ceil(n_examples / float(n_groups))
+    #     groupings = np.sort(np.tile(np.arange(n_groups), n_examples_per_group)[:n_examples])
+    #     random = np.random.RandomState(seed=self._seed)
+    #     for i, p in enumerate(probabilities):
+    #         idx = groupings == i
+    #         n_elements = np.sum(idx)
+    #         idx[idx] = random.choice(a=[False, True], size=(n_elements), p=[1 - p, p])
+    #         result._y_train[idx] = 1 - result.y_train[idx]
+    #     result._provenance = result._construct_provenance(groupings=groupings)
+    #     return result
+
+
+class DirtyLabelDataset(Dataset):
+    def __init__(
+        self, trainsize: int = DEFAULT_TRAINSIZE, valsize: int = DEFAULT_VALSIZE, seed: int = DEFAULT_SEED, **kwargs
+    ) -> None:
+        super().__init__(trainsize, valsize, seed, **kwargs)
+        self._y_train_dirty: Optional[ndarray] = None
+        self._units_dirty: Optional[ndarray] = None
+        self._groupings: Optional[ndarray] = None
+
+    @property
+    def units_dirty(self) -> ndarray:
+        if self._X_train is None:
+            raise ValueError("The dataset is not loaded yet.")
+        if self._units_dirty is None:
+            return np.zeros(self.trainsize, dtype=bool)
+        else:
+            return self._units_dirty
+
+    @property
+    def y_train(self) -> ndarray:
+        y_train = super().y_train
+        if self._y_train_dirty is not None:
+            if self._bin_provenance is None:
+                self._bin_provenance = binarize(self.provenance)
+            idx_dirty = get_indices(self._bin_provenance, self.units_dirty)
+            y_train = np.where(idx_dirty, self._y_train_dirty, y_train)
+        return y_train
+
+    @y_train.setter
+    def y_train(self, value: ndarray):
+        self._y_train = value
+
+    def corrupt_labels(self, probabilities: Union[float, Sequence[float]]) -> "DirtyLabelDataset":
+        if not self.loaded:
+            raise ValueError("The dataset is not loaded yet.")
+        result = deepcopy(self)
+        assert result._y_train is not None
+        result._y_train_dirty = deepcopy(result._y_train)
+        n_examples = result.X_train.shape[0]
+        if not isinstance(probabilities, collections.Sequence):
+            probabilities = [probabilities for _ in range(n_examples)]
+        n_groups = len(probabilities)
+        n_examples_per_group = ceil(n_examples / float(n_groups))
+        groupings = np.tile(np.arange(n_groups), n_examples_per_group)[:n_examples]
+        random = np.random.RandomState(seed=self._seed)
+        random.shuffle(groupings)
+        dirty_idx = np.zeros(result.trainsize, dtype=bool)
+        units_dirty = np.zeros(n_groups, dtype=bool)
+        for i, p in enumerate(probabilities):
+            idx: ndarray = groupings == i
+            n_elements = np.sum(idx)
+            idx[idx] = random.choice(a=[False, True], size=(n_elements), p=[1 - p, p])
+            dirty_idx[idx] = True
+            if idx.sum() > 0:
+                units_dirty[i] = True
+            result._y_train_dirty[idx] = 1 - result._y_train[idx]
+        result._construct_provenance(groupings=groupings)
+        result._groupings = groupings
+        result._units_dirty = units_dirty
         return result
 
 
@@ -192,7 +300,7 @@ def compute_bias(X: ndarray, y: ndarray, sf: int) -> float:
     return bias
 
 
-class UCI(Dataset, BiasedMixin, modality=DatasetModality.TABULAR):
+class UCI(DirtyLabelDataset, BiasedMixin, modality=DatasetModality.TABULAR):
     def __init__(
         self,
         trainsize: int = DEFAULT_TRAINSIZE,
@@ -201,7 +309,7 @@ class UCI(Dataset, BiasedMixin, modality=DatasetModality.TABULAR):
         sensitive_feature: int = UCI_DEFAULT_SENSITIVE_FEATURE,
         **kwargs
     ) -> None:
-        super().__init__(trainsize, valsize, seed, **kwargs)
+        super().__init__(trainsize=trainsize, valsize=valsize, seed=seed, **kwargs)
         self._sensitive_feature = sensitive_feature
 
     @property
@@ -233,6 +341,7 @@ class UCI(Dataset, BiasedMixin, modality=DatasetModality.TABULAR):
         assert self._X_train is not None and self._X_val is not None
         self._trainsize = self._X_train.shape[0]
         self._valsize = self._X_val.shape[0]
+        self._construct_provenance()
 
     def load_biased(
         self,
@@ -292,9 +401,10 @@ class UCI(Dataset, BiasedMixin, modality=DatasetModality.TABULAR):
         assert self._X_train is not None and self._X_val is not None
         self._trainsize = self._X_train.shape[0]
         self._valsize = self._X_val.shape[0]
+        self._construct_provenance()
 
 
-class FashionMNIST(Dataset, modality=DatasetModality.IMAGE):
+class FashionMNIST(DirtyLabelDataset, modality=DatasetModality.IMAGE):
     def __init__(
         self,
         trainsize: int = DEFAULT_TRAINSIZE,
@@ -342,9 +452,10 @@ class FashionMNIST(Dataset, modality=DatasetModality.IMAGE):
         assert self._X_train is not None and self._X_val is not None
         self._trainsize = self._X_train.shape[0]
         self._valsize = self._X_val.shape[0]
+        self._construct_provenance()
 
 
-class TwentyNewsGroups(Dataset, modality=DatasetModality.TEXT):
+class TwentyNewsGroups(DirtyLabelDataset, modality=DatasetModality.TEXT):
     def load(self) -> None:
         categories = ["comp.graphics", "sci.med"]
         train = fetch_20newsgroups(subset="train", categories=categories, shuffle=True, random_state=self._seed)
@@ -360,3 +471,4 @@ class TwentyNewsGroups(Dataset, modality=DatasetModality.TEXT):
         assert self._X_train is not None and self._X_val is not None
         self._trainsize = self._X_train.shape[0]
         self._valsize = self._X_val.shape[0]
+        self._construct_provenance()

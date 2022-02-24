@@ -146,6 +146,7 @@ def compute_all_importances(unit_distances: ndarray, unit_utilities: ndarray) ->
             all_importances[i_1] += all_importances[i_2] + (unit_utilities[i_1, j] - unit_utilities[i_2, j]) / float(
                 i + 1
             )
+        all_importances /= n_units
     return all_importances[:-1] / n_test
 
 

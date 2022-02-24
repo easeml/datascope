@@ -43,4 +43,5 @@ def compute_all_importances_cy(np.ndarray[DTYPE_t, ndim=2] unit_distances, np.nd
             all_importances[i_1] += all_importances[i_2] + (
                 unit_utilities[i_1, j] - unit_utilities[i_2, j]
             ) / (i + 1)
+        all_importances /= n_units
     return all_importances[:-1] / n_test

@@ -130,6 +130,7 @@ KEYWORD_REPLACEMENTS = {
 
 DEFAULT_SEED = 1
 DEFAULT_CHECKPOINTS = 100
+DEFAULT_PROVIDERS = 0
 DEFAULT_TIMEOUT = 3600
 
 
@@ -146,6 +147,7 @@ class DatascopeScenario(Scenario):
         valsize: int = DEFAULT_VALSIZE,
         timeout: int = DEFAULT_TIMEOUT,
         checkpoints: int = DEFAULT_CHECKPOINTS,
+        providers: int = DEFAULT_PROVIDERS,
         evolution: Optional[pd.DataFrame] = None,
         importance_compute_time: Optional[float] = None,
         **kwargs: Any
@@ -161,6 +163,7 @@ class DatascopeScenario(Scenario):
         self._valsize = valsize
         self._timeout = timeout
         self._checkpoints = checkpoints
+        self._providers = providers
         self._evolution = pd.DataFrame() if evolution is None else evolution
         self._importance_compute_time: Optional[float] = importance_compute_time
 
@@ -211,6 +214,14 @@ class DatascopeScenario(Scenario):
         The value 0 means that a checkpoint will be recorded for each training data example.
         """
         return self._checkpoints
+
+    @attribute
+    def providers(self) -> int:
+        """
+        The number of data providers. Each provider is treated as one unit.
+        The value 0 means that each data example is provided independently.
+        """
+        return self._providers
 
     @result
     def evolution(self) -> DataFrame:
