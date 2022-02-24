@@ -24,6 +24,16 @@ shell: $(VENV_DIR)/touchfile
 # exec "bash --init-file $(VENV_DIR)/bin/activate"
 	. $(VENV_DIR)/bin/activate && exec bash
 
+.PHONY: build
+## Build the module (including all C extensions).
+build:
+	python setup.py build_ext --inplace
+
+.PHONY: cython-build
+## Build the module (including all C extensions) using cython.
+cython-build:
+	python setup.py build_ext --inplace --use-cython
+
 .PHONY: setup
 ## Install the base bundle of datascope to the current python environment.
 setup: requirements.txt

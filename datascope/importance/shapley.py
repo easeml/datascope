@@ -19,7 +19,7 @@ from .common import DEFAULT_SEED, DistanceCallable, Utility, binarize, get_indic
 from .importance import Importance
 
 
-# from .shapley_cy import compute_all_importances_cy
+from .shapley_cy import compute_all_importances_cy
 
 prange = range
 
@@ -136,17 +136,17 @@ def get_unit_distances_and_utilities(
 def compute_all_importances(unit_distances: ndarray, unit_utilities: ndarray) -> ndarray:
     # Compute unit importances.
     n_units, n_test = unit_distances.shape
-    all_importances = np.zeros((n_units + 1, n_test))
+    all_importances = np.zeros((n_units + 1))
     unit_utilities = np.vstack((unit_utilities, np.ones((1, n_test)) * 0.5))
     for j in prange(n_test):
         idxs = np.append(np.argsort(unit_distances[:, j]), [n_units])
         for i in prange(n_units - 1, -1, -1):
             i_1 = idxs[i]
             i_2 = idxs[i + 1]
-            all_importances[i_1, j] = all_importances[i_2, j] + (
-                unit_utilities[i_1, j] - unit_utilities[i_2, j]
-            ) / float(i + 1)
-    return all_importances
+            all_importances[i_1] += all_importances[i_2] + (unit_utilities[i_1, j] - unit_utilities[i_2, j]) / float(
+                i + 1
+            )
+    return all_importances[:-1] / n_test
 
 
 # @jit(nopython=True)
@@ -161,12 +161,12 @@ def compute_shapley_1nn_mapfork(
     simple_provenance: bool = False,
 ) -> Iterable[float]:
 
-    if not np.all(provenance.sum(axis=2) == 1):
-        raise ValueError("The provenance of all data examples must reference at most one unit.")
+    # if not np.all(provenance.sum(axis=2) == 1):
+    #     raise ValueError("The provenance of all data examples must reference at most one unit.")
     provenance = np.squeeze(provenance, axis=1)
 
     # n_test = distances.shape[1]
-    n_units = len(units)
+    # n_units = len(units)
 
     # # Compute the minimal distance for each unit and each test example.
     # unit_provenance = provenance[..., units, world].astype(np.bool_)
@@ -186,6 +186,7 @@ def compute_shapley_1nn_mapfork(
     unit_distances, unit_utilities = get_unit_distances_and_utilities(
         distances, utilities, provenance, units, world, simple_provenance=simple_provenance
     )
+    # unit_distances, unit_utilities = distances, utilities
 
     # # Compute unit importances.
     # all_importances = np.zeros((n_units + 1, n_test))
@@ -197,14 +198,14 @@ def compute_shapley_1nn_mapfork(
     #             unit_utilities[idxs[i], j] - unit_utilities[idxs[i + 1], j]
     #         ) / float(i + 1)
 
-    all_importances = compute_all_importances(unit_distances, unit_utilities)
+    all_importances = compute_all_importances_cy(unit_distances, unit_utilities)
 
     # Aggregate results.
     # importances = np.mean(all_importances[:-1], axis=1)
-    importances = np.zeros(n_units)
-    for i in range(n_units):
-        importances[i] = np.mean(all_importances[i])
-    return importances
+    # importances = np.zeros(n_units)
+    # for i in range(n_units):
+    #     importances[i] = np.mean(all_importances[i])
+    return all_importances
 
 
 class ShapleyImportance(Importance):
