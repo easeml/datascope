@@ -44,7 +44,7 @@ def add_dynamic_arguments(
         else:
             helpstring += " Default: %s" % str(default)
         parser.add_argument(
-            "--%s" % name,
+            "--%s" % name.replace("_", "-"),
             help=helpstring,
             type=make_type_parser(attribute_types[name]),
             choices=domain,

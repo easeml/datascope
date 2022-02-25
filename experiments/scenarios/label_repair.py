@@ -10,6 +10,7 @@ from typing import Any, Iterable, List, Optional, Union
 
 from experiments.dataset.base import DirtyLabelDataset
 
+from .base import attribute
 from .datascope_scenario import (
     DatascopeScenario,
     RepairMethod,
@@ -34,7 +35,7 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
         pipeline: str,
         method: RepairMethod,
         iteration: int,
-        dirty_ratio: float = DEFAULT_DIRTY_RATIO,
+        dirtyratio: float = DEFAULT_DIRTY_RATIO,
         seed: int = DEFAULT_SEED,
         trainsize: int = DEFAULT_TRAINSIZE,
         valsize: int = DEFAULT_VALSIZE,
@@ -60,7 +61,7 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
             importance_compute_time=importance_compute_time,
             **kwargs
         )
-        self._dirty_ratio = dirty_ratio
+        self._dirtyratio = dirtyratio
 
     @classmethod
     def is_valid_config(cls, **attributes: Any) -> bool:
@@ -70,6 +71,11 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
         if "method" in attributes:
             result = result and not RepairMethod.is_tmc_nonpipe(attributes["method"])
         return result and super().is_valid_config(**attributes)
+
+    @attribute
+    def dirtyratio(self) -> float:
+        """The proportion of examples that will have corrupted labels in label repair experiments."""
+        return self._dirtyratio
 
     def _run(self, progress_bar: bool = True, **kwargs: Any) -> None:
 
@@ -85,12 +91,12 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
         # Create the dirty dataset and apply the data corruption.
         # dataset_dirty = deepcopy(dataset)
         # random = np.random.RandomState(seed=self._seed + self._iteration)
-        # dirty_probs = [1 - self._dirty_ratio, self._dirty_ratio]
+        # dirty_probs = [1 - self._dirtyratio, self._dirtyratio]
         # dirty_idx = random.choice(a=[False, True], size=(dataset_dirty.trainsize), p=dirty_probs)
         # dataset_dirty.y_train[dirty_idx] = 1 - dataset_dirty.y_train[dirty_idx]
-        probabilities: Union[float, List[float]] = self._dirty_ratio
+        probabilities: Union[float, List[float]] = self._dirtyratio
         if self.providers > 1:
-            dirty_providers = round(self.providers * self._dirty_ratio)
+            dirty_providers = round(self.providers * self._dirtyratio)
             clean_providers = self.providers - dirty_providers
             probabilities = [float(i + 1) / dirty_providers for i in range(dirty_providers)]
             probabilities += [0.0 for _ in range(clean_providers)]

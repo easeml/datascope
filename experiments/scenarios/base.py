@@ -365,7 +365,8 @@ class Scenario(ABC):
         Scenario.attribute_defaults.update(defaults)
 
         # Set all attributes to be iterable when passed to get_instances.
-        Scenario.attribute_isiterable = dict((k, True) for k in props.keys())
+        isiterable = dict((k, True) for k in props.keys())
+        Scenario.attribute_isiterable.update(isiterable)
 
     def run(self, progress_bar: bool = True, console_log: bool = True) -> None:
         # Set up logging.
