@@ -207,8 +207,8 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
             # Run the model.
             accuracy = utility(dataset_dirty_f.X_train, dataset_dirty.y_train, dataset_f.X_val, dataset_f.y_val)
 
-            self.logger.debug("Dirty units: %.2f", np.sum(dataset_dirty.units_dirty))
-            self.logger.debug("Same labels: %.2f", np.sum(dataset_dirty.y_train == dataset.y_train))
+            # self.logger.debug("Dirty units: %.2f", np.sum(dataset_dirty.units_dirty))
+            # self.logger.debug("Same labels: %.2f", np.sum(dataset_dirty.y_train == dataset.y_train))
 
             # Update result table.
             steps_rel = (i + 1) / float(checkpoints)
