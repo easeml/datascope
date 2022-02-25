@@ -25,11 +25,12 @@ from .datascope_scenario import (
     MC_ITERATIONS,
     DEFAULT_SEED,
     DEFAULT_CHECKPOINTS,
+    DEFAULT_MODEL,
     UtilityType,
 )
 from .base import attribute
 from ..dataset import Dataset, DEFAULT_TRAINSIZE, DEFAULT_VALSIZE
-from ..pipelines import Pipeline, get_model, ModelType
+from ..pipelines import Pipeline, ModelType, get_model
 
 
 DEFAULT_TRAIN_BIAS = 0.8
@@ -44,6 +45,7 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
         method: RepairMethod,
         utility: UtilityType,
         iteration: int,
+        model: ModelType = DEFAULT_MODEL,
         trainbias: float = DEFAULT_TRAIN_BIAS,
         valbias: float = DEFAULT_VAL_BIAS,
         seed: int = DEFAULT_SEED,
@@ -60,6 +62,7 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
             method=method,
             utility=utility,
             iteration=iteration,
+            model=model,
             seed=seed,
             trainsize=trainsize,
             valsize=valsize,
@@ -137,7 +140,7 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
         provenance = binarize(provenance)
 
         # Initialize the model and utility.
-        model = get_model(ModelType.LogisticRegression)
+        model = get_model(self.model)
         # model_pipeline = deepcopy(pipeline)
         # pipeline.steps.append(("model", model))
         # if RepairMethod.is_pipe(self.method):

@@ -19,10 +19,11 @@ from .datascope_scenario import (
     DEFAULT_SEED,
     DEFAULT_CHECKPOINTS,
     DEFAULT_PROVIDERS,
+    DEFAULT_MODEL,
     UtilityType,
 )
 from ..dataset import Dataset, DEFAULT_TRAINSIZE, DEFAULT_VALSIZE
-from ..pipelines import Pipeline, get_model, ModelType
+from ..pipelines import Pipeline, ModelType, get_model
 
 
 DEFAULT_DIRTY_RATIO = 0.5
@@ -35,6 +36,7 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
         pipeline: str,
         method: RepairMethod,
         iteration: int,
+        model: ModelType = DEFAULT_MODEL,
         dirtyratio: float = DEFAULT_DIRTY_RATIO,
         seed: int = DEFAULT_SEED,
         trainsize: int = DEFAULT_TRAINSIZE,
@@ -52,6 +54,7 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
             method=method,
             utility=UtilityType.ACCURACY,
             iteration=iteration,
+            model=model,
             seed=seed,
             trainsize=trainsize,
             valsize=valsize,
@@ -135,7 +138,7 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
         # provenance = binarize(provenance)
 
         # Initialize the model and utility.
-        model = get_model(ModelType.LogisticRegression)
+        model = get_model(self.model)
         # if RepairMethod.is_pipe(self.method):
         #     model_pipeline = deepcopy(pipeline)
         #     model_pipeline.steps.append(("model", model))

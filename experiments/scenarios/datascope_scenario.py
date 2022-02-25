@@ -7,7 +7,7 @@ from typing import Any, Optional, Dict
 
 from .base import Scenario, attribute, result
 from ..dataset import Dataset, DEFAULT_TRAINSIZE, DEFAULT_VALSIZE
-from ..pipelines import Pipeline
+from ..pipelines import Pipeline, ModelType
 
 
 class RepairMethod(str, Enum):
@@ -132,6 +132,7 @@ DEFAULT_SEED = 1
 DEFAULT_CHECKPOINTS = 100
 DEFAULT_PROVIDERS = 0
 DEFAULT_TIMEOUT = 3600
+DEFAULT_MODEL = ModelType.LogisticRegression
 
 
 class DatascopeScenario(Scenario):
@@ -142,6 +143,7 @@ class DatascopeScenario(Scenario):
         method: RepairMethod,
         utility: UtilityType,
         iteration: int,
+        model: ModelType = DEFAULT_MODEL,
         seed: int = DEFAULT_SEED,
         trainsize: int = DEFAULT_TRAINSIZE,
         valsize: int = DEFAULT_VALSIZE,
@@ -158,6 +160,7 @@ class DatascopeScenario(Scenario):
         self._method = method
         self._utility = utility
         self._iteration = iteration
+        self._model = model
         self._seed = seed
         self._trainsize = trainsize
         self._valsize = valsize
@@ -181,6 +184,11 @@ class DatascopeScenario(Scenario):
     def method(self) -> RepairMethod:
         """Method used to perform data repairs."""
         return self._method
+
+    @attribute(domain=[None])
+    def model(self) -> ModelType:
+        """Model used to make predictions."""
+        return self._model
 
     @attribute
     def utility(self) -> UtilityType:
