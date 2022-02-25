@@ -139,11 +139,12 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
 
         # Compute importance scores and time it.
         importance_time_start = process_time_ns()
+        n_units = dataset_dirty.units.shape[0]
         importance: Optional[ShapleyImportance] = None
         importances: Optional[Iterable[float]] = None
         random = np.random.RandomState(seed=self._seed + self._iteration)
         if self.method == RepairMethod.RANDOM:
-            importances = list(random.rand(dataset.trainsize))
+            importances = list(random.rand(n_units))
         else:
             method = IMPORTANCE_METHODS[self.method]
             mc_iterations = MC_ITERATIONS[self.method]
@@ -162,7 +163,6 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
         importance_time_end = process_time_ns()
         self._importance_compute_time = (importance_time_end - importance_time_start) / 1e9
         self.logger.debug("Importance computed in: %s", str(timedelta(seconds=self._importance_compute_time)))
-        n_units = dataset_dirty.units.shape[0]
         visited_units = np.zeros(n_units, dtype=bool)
         argsorted_importances = np.array(importances).argsort()
         # argsorted_importances = np.ma.array(importances, mask=visited_units).argsort()
