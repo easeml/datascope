@@ -199,7 +199,7 @@ def compute_shapley_1nn_mapfork(
     #             unit_utilities[idxs[i], j] - unit_utilities[idxs[i + 1], j]
     #         ) / float(i + 1)
 
-    all_importances = compute_all_importances(unit_distances, unit_utilities)
+    all_importances = compute_all_importances_cy(unit_distances, unit_utilities)
 
     # Aggregate results.
     # importances = np.mean(all_importances[:-1], axis=1)
