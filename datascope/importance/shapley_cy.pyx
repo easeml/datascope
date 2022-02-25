@@ -31,17 +31,17 @@ def compute_all_importances_cy(np.ndarray[DTYPE_t, ndim=2] unit_distances, np.nd
     cdef np.ndarray[DTYPE_t, ndim=1] all_importances
     cdef int i, j
     cdef int i_1, i_2
+    cdef float current
 
     all_importances = np.zeros([n_units + 1], dtype=DTYPE)
     unit_utilities = np.vstack((unit_utilities, np.ones((1, n_test), dtype=DTYPE) * 0.5))
     idxs = np.vstack((np.argsort(unit_distances, axis=0), np.full((1, n_test), n_units, dtype=int)))
 
     for j in range(n_test):
+        current = 0.0
         for i in range(n_units - 1, -1, -1):
             i_1 = idxs[i, j]
             i_2 = idxs[i + 1, j]
-            all_importances[i_1] += all_importances[i_2] + (
-                unit_utilities[i_1, j] - unit_utilities[i_2, j]
-            ) / (i + 1)
-        # all_importances /= n_units
+            current = (current + (unit_utilities[i_1, j] - unit_utilities[i_2, j])) / (i + 1)
+            all_importances[i_1] += current
     return all_importances[:-1] / n_test
