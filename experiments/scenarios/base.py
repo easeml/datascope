@@ -200,6 +200,8 @@ def save_dict(source: Dict[str, Any], dirpath: str, basename: str) -> None:
             yaml.safe_dump(basedict, f)
 
     for name, data in source.items():
+        if data is None:
+            continue
         if name not in basedict:
             if isinstance(data, ndarray):
                 filename = os.path.join(dirpath, ".".join([basename, name, "npy"]))
