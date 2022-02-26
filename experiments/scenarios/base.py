@@ -444,7 +444,7 @@ class Scenario(ABC):
     def attributes(self) -> Dict[str, Any]:
         if self._attributes is None:
             props = attribute.get_properties(self.__class__)
-            self._attributes = dict((name, set(get_property_value(self, name))) for name in props.keys())
+            self._attributes = dict((name, get_property_value(self, name)) for name in props.keys())
         return self._attributes
 
     @property

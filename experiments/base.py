@@ -45,6 +45,10 @@ def run(
         scenarios = existing_scenarios
     study = Study(scenarios=scenarios, outpath=output_path)
 
+    # Eagerly save the study with all unfinished scenarios.
+    if not no_save:
+        study.save()
+
     # Run the study.
     study.run(parallel=not no_parallelism, ray_address=ray_address, ray_numprocs=ray_numprocs, eagersave=not no_save)
 
