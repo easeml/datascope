@@ -43,7 +43,15 @@ def run(
             if all(not s.is_match(cs) for s in study.scenarios):
                 existing_scenarios.append(cs)
         scenarios = existing_scenarios
-    study = Study(scenarios=scenarios, outpath=output_path)
+        study = Study(
+            scenarios=scenarios,
+            id=study.id,
+            outpath=path,
+            scenario_path_format=study.scenario_path_format,
+            logstream=study._logstream,
+        )
+    else:
+        study = Study(scenarios=scenarios, outpath=output_path)
 
     # Eagerly save the study with all unfinished scenarios.
     if not no_save:
