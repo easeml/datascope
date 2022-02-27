@@ -6,6 +6,7 @@ from sklearn.naive_bayes import MultinomialNB
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.neural_network import MLPClassifier
 from sklearn.svm import SVC, LinearSVC
+from xgboost import XGBClassifier
 
 
 class ModelType(str, Enum):
@@ -18,6 +19,7 @@ class ModelType(str, Enum):
     GaussianProcess = "gp"
     NaiveBayes = "nb"
     NeuralNetwork = "nn"
+    XGBoost = "xgb"
 
 
 def get_model(model_type: ModelType, **kwargs):
@@ -63,6 +65,8 @@ def get_model(model_type: ModelType, **kwargs):
             max_iter=max_iter,
             early_stopping=early_stopping,
         )
+    elif model_type == ModelType.XGBoost:
+        model = XGBClassifier(nthread=1, use_label_encoder=False, eval_metric="logloss")
     else:
         raise ValueError("Unknown model type '%s'." % str(model_type))
     return model

@@ -903,6 +903,13 @@ class Study:
         return res
 
 
+def represent(x: Any):
+    if isinstance(x, Enum):
+        return repr(x.value)
+    else:
+        return repr(x)
+
+
 class Report(ABC):
 
     reports: Dict[str, Type["Report"]] = {}
@@ -996,7 +1003,8 @@ class Report(ABC):
             if use_groupby:
                 groupby = [self._groupby[key] for key in sorted(self.groupby.keys())]
                 basename = "_".join(
-                    [basename] + ["%s=%s" % (str(key), repr(self._groupby[key])) for key in sorted(self.groupby.keys())]
+                    [basename]
+                    + ["%s=%s" % (str(key), represent(self._groupby[key])) for key in sorted(self.groupby.keys())]
                 )
             if use_id:
                 basename = basename + "_id=" + self._id
