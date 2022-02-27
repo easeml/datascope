@@ -1,4 +1,5 @@
 from copy import deepcopy
+from enum import Enum
 import numpy as np
 import pandas as pd
 
@@ -33,8 +34,15 @@ from ..dataset import Dataset, DEFAULT_TRAINSIZE, DEFAULT_VALSIZE
 from ..pipelines import Pipeline, ModelType, get_model
 
 
+class DiscardGoal(str, Enum):
+    FAIRNESS = "fairness"
+    SUMMARIZATION = "summarization"
+
+
 DEFAULT_TRAIN_BIAS = 0.8
 DEFAULT_VAL_BIAS = 0.0
+DEFAULT_MAX_REMOVE = 0.5
+DEFAULT_DISCARD_GOAL = DiscardGoal.FAIRNESS
 
 
 class DataDiscardScenario(DatascopeScenario, id="data-discard"):
@@ -48,6 +56,8 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
         model: ModelType = DEFAULT_MODEL,
         trainbias: float = DEFAULT_TRAIN_BIAS,
         valbias: float = DEFAULT_VAL_BIAS,
+        maxremove: float = DEFAULT_MAX_REMOVE,
+        discardgoal: DiscardGoal = DEFAULT_DISCARD_GOAL,
         seed: int = DEFAULT_SEED,
         trainsize: int = DEFAULT_TRAINSIZE,
         valsize: int = DEFAULT_VALSIZE,
@@ -73,6 +83,8 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
         )
         self._trainbias = trainbias
         self._valbias = valbias
+        self._maxremove = maxremove
+        self._discardgoal = discardgoal
 
     @attribute
     def trainbias(self) -> float:
@@ -84,14 +96,30 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
         """The bias of the validation dataset used in fairness experiments."""
         return self._valbias
 
+    @attribute
+    def maxremove(self) -> float:
+        """The maximum portion of data to remove."""
+        return self._maxremove
+
+    @attribute(domain=[None])
+    def discardgoal(self) -> DiscardGoal:
+        """The goal of discarding data which impacts the behavior of the scenario."""
+        return self._discardgoal
+
     @classmethod
     def is_valid_config(cls, **attributes: Any) -> bool:
         result = True
-        if "dataset" in attributes:
-            dataset = Dataset.datasets[attributes["dataset"]]()
-            result = result and isinstance(dataset, BiasedMixin)
         if "method" in attributes:
             result = result and not RepairMethod.is_tmc_nonpipe(attributes["method"])
+        if "discardgoal" in attributes:
+            if attributes["discardgoal"] == DiscardGoal.FAIRNESS:
+                if "dataset" in attributes:
+                    dataset = Dataset.datasets[attributes["dataset"]]()
+                    result = result and isinstance(dataset, BiasedMixin)
+            elif attributes["discardgoal"] == DiscardGoal.SUMMARIZATION:
+                if "utility" in attributes:
+                    result = result and attributes["utility"] == UtilityType.ACCURACY
+
         return result and super().is_valid_config(**attributes)
 
     def _run(self, progress_bar: bool = True, **kwargs: Any) -> None:
@@ -99,22 +127,21 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
         # Load dataset.
         seed = self._seed + self._iteration
         dataset = Dataset.datasets[self.dataset](trainsize=self.trainsize, valsize=self.valsize, seed=seed)
-        assert isinstance(dataset, BiasedMixin)
-        dataset.load_biased(train_bias=self._trainbias)
+        if self.discardgoal == DiscardGoal.FAIRNESS:
+            assert isinstance(dataset, BiasedMixin)
+        if self._trainbias != 0.0 or self._valbias != 0.0:
+            assert isinstance(dataset, BiasedMixin)
+            dataset.load_biased(train_bias=self._trainbias, val_bias=self._valbias)
+        else:
+            dataset.load()
         self.logger.debug(
             "Dataset '%s' loaded (trainsize=%d, valsize=%d).", self.dataset, dataset.trainsize, dataset.valsize
         )
 
         # Compute sensitive feature groupings.
-        groupings = compute_groupings(dataset.X_val, dataset.sensitive_feature)
-
-        # Create the dirty dataset and apply the data corruption.
-        # dataset_dirty = deepcopy(dataset)
-        # random = np.random.RandomState(seed=self._seed + self._iteration)
-        # dirty_probs = [1 - self._dirty_ratio, self._dirty_ratio]
-        # dirty_idx = random.choice(a=[False, True], size=(dataset_dirty.trainsize), p=dirty_probs)
-        # assert dataset_dirty.y_train is not None
-        # dataset_dirty.y_train[dirty_idx] = 1 - dataset_dirty.y_train[dirty_idx]
+        groupings: Optional[np.ndarray] = None
+        if isinstance(dataset, BiasedMixin):
+            groupings = compute_groupings(dataset.X_val, dataset.sensitive_feature)
 
         # Load the pipeline and process the data.
         pipeline = Pipeline.pipelines[self.pipeline].construct(dataset)
@@ -146,19 +173,24 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
         # if RepairMethod.is_pipe(self.method):
         #     model = model_pipeline
         accuracy_utility = SklearnModelAccuracy(model)
-        eqodds_utility = SklearnModelEqualizedOddsDifference(
-            model, sensitive_features=dataset.sensitive_feature, groupings=groupings
-        )
+        eqodds_utility: Optional[SklearnModelEqualizedOddsDifference] = None
+        if self.discardgoal == DiscardGoal.FAIRNESS:
+            assert isinstance(dataset, BiasedMixin)
+            eqodds_utility = SklearnModelEqualizedOddsDifference(
+                model, sensitive_features=dataset.sensitive_feature, groupings=groupings
+            )
 
         # target_model = model if RepairMethod.is_tmc_nonpipe(self.method) else pipeline
         target_utility: Utility
         if self.utility == UtilityType.ACCURACY:
             target_utility = JointUtility(SklearnModelAccuracy(model), weights=[-1.0])
         elif self.utility == UtilityType.EQODDS:
+            assert self.discardgoal == DiscardGoal.FAIRNESS and isinstance(dataset, BiasedMixin)
             target_utility = SklearnModelEqualizedOddsDifference(
                 model, sensitive_features=dataset.sensitive_feature, groupings=groupings
             )
         elif self.utility == UtilityType.EQODDS_AND_ACCURACY:
+            assert self.discardgoal == DiscardGoal.FAIRNESS and isinstance(dataset, BiasedMixin)
             target_utility = JointUtility(
                 SklearnModelAccuracy(model),
                 SklearnModelEqualizedOddsDifference(
@@ -199,17 +231,20 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
 
         # Run the model to get initial score.
         dataset_f = dataset.apply(pipeline)
-        eqodds = eqodds_utility(dataset_f.X_train, dataset_f.y_train, dataset_f.X_val, dataset_f.y_val)
+        eqodds: Optional[float] = None
+        if eqodds_utility is not None:
+            eqodds = eqodds_utility(dataset_f.X_train, dataset_f.y_train, dataset_f.X_val, dataset_f.y_val)
         accuracy = accuracy_utility(dataset_f.X_train, dataset_f.y_train, dataset_f.X_val, dataset_f.y_val)
 
         # Update result table.
-        evolution = [[0.0, eqodds, eqodds, accuracy, accuracy, 0, 0.0, dataset.train_bias, dataset.y_train.mean()]]
+        dataset_bias = dataset.train_bias if isinstance(dataset, BiasedMixin) else None
+        evolution = [[0.0, eqodds, eqodds, accuracy, accuracy, 0, 0.0, dataset_bias, dataset.y_train.mean()]]
         eqodds_start = eqodds
         accuracy_start = accuracy
 
         # Set up progress bar.
         checkpoints = self.checkpoints if self.checkpoints > 0 and self.checkpoints < n_units else n_units
-        n_units_per_checkpoint = round(self._trainbias * n_units / checkpoints)
+        n_units_per_checkpoint = round(self._maxremove * n_units / checkpoints)
         if progress_bar:
             self.progress.start(total=checkpoints, desc="(id=%s) Repairs" % self.id)
         # pbar = None if not progress_bar else tqdm(total=dataset.trainsize, desc="%s Repairs" % str(self))
@@ -251,9 +286,13 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
 
             # Run the model.
             dataset_current_f = dataset_current.apply(pipeline)
-            eqodds = eqodds_utility(
-                dataset_current_f.X_train, dataset_current_f.y_train, dataset_current_f.X_val, dataset_current_f.y_val
-            )
+            if eqodds_utility is not None:
+                eqodds = eqodds_utility(
+                    dataset_current_f.X_train,
+                    dataset_current_f.y_train,
+                    dataset_current_f.X_val,
+                    dataset_current_f.y_val,
+                )
             accuracy = accuracy_utility(
                 dataset_current_f.X_train, dataset_current_f.y_train, dataset_current_f.X_val, dataset_current_f.y_val
             )
@@ -262,7 +301,7 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
             steps_rel = (i + 1) / float(checkpoints)
             discarded = discarded_units.sum(dtype=int)
             discarded_rel = discarded / float(n_units)
-            dataset_bias = dataset_current.train_bias
+            dataset_bias = dataset_current.train_bias if isinstance(dataset_current, BiasedMixin) else None
             mean_label = np.mean(dataset_current.y_train)
             evolution.append(
                 [steps_rel, eqodds, eqodds, accuracy, accuracy, discarded, discarded_rel, dataset_bias, mean_label]
@@ -300,14 +339,27 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
         )
         self._evolution.index.name = "steps"
 
-        # Fix relative score.
-        eqodds_end = eqodds
-        eqqods_min = min(eqodds_start, eqodds_end)
-        eqodds_delta = abs(eqodds_end - eqodds_start)
+        # Recompute relative equalized odds (if we were keeping track of it).
+        if eqodds_utility is not None:
+            assert eqodds is not None and eqodds_start is not None
+            eqodds_end = eqodds
+            eqqods_min = min(eqodds_start, eqodds_end)
+            eqodds_delta = abs(eqodds_end - eqodds_start)
+            self._evolution["eqodds_rel"] = self._evolution["eqodds_rel"].apply(
+                lambda x: (x - eqqods_min) / eqodds_delta
+            )
+        else:
+            # Otherwise drop those columns.
+            self._evolution.drop(["eqodds", "eqodds_rel"], axis=1, inplace=True)
+
+        # If our goal was not fairness then the dataset bias is also not useful.
+        if self.discardgoal != DiscardGoal.FAIRNESS:
+            self._evolution.drop("dataset_bias", axis=1, inplace=True)
+
+        # Recompute relative accuracy.
         accuracy_end = accuracy
         accuracy_min = min(accuracy_start, accuracy_end)
         accuracy_delta = abs(accuracy_end - accuracy_start)
-        self._evolution["eqodds_rel"] = self._evolution["eqodds_rel"].apply(lambda x: (x - eqqods_min) / eqodds_delta)
         self._evolution["accuracy_rel"] = self._evolution["accuracy_rel"].apply(
             lambda x: (x - accuracy_min) / accuracy_delta
         )
