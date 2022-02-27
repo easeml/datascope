@@ -129,8 +129,6 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
         dataset = Dataset.datasets[self.dataset](trainsize=self.trainsize, valsize=self.valsize, seed=seed)
         if self.discardgoal == DiscardGoal.FAIRNESS:
             assert isinstance(dataset, BiasedMixin)
-        if self._trainbias != 0.0 or self._valbias != 0.0:
-            assert isinstance(dataset, BiasedMixin)
             dataset.load_biased(train_bias=self._trainbias, val_bias=self._valbias)
         else:
             dataset.load()
@@ -261,7 +259,7 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
             discarded_units[target_units] = True
             present_units = np.invert(discarded_units).astype(int)
             present_idx = get_indices(provenance, present_units)
-            dataset_current.X_train = dataset.X_train[present_idx, :]
+            dataset_current.X_train = dataset.X_train[present_idx]
             dataset_current.y_train = dataset.y_train[present_idx]
 
             # Display message about current target units that are going to be discarded.
