@@ -6,9 +6,6 @@ CMD="python -m experiments run \
     --trainsize 0 \
     --valsize 1000"
 
-if [ "$1" ]
-then
-    CMD+=" -o $1"
-fi
+CMD+=" ${@}"
 
 eval $CMD
