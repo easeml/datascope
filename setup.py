@@ -1,4 +1,5 @@
 import glob
+import numpy as np
 import os
 import sys
 
@@ -26,14 +27,13 @@ else:
 
 cmdclass = {}
 ext_modules: List[Extension] = []
-include_dirs = []
+include_dirs = [np.get_include()]
 extension = ".pyx" if USE_CYTHON else ".c"
 cython_files = glob.glob("datascope/**/*.pyx")
 if USE_CYTHON:
     cmdclass.update({"build_ext": build_ext})
-    import numpy
 
-    include_dirs.append(numpy.get_include())
+
 for filepath in cython_files:
     basepath = os.path.splitext(filepath)[0]
     modulename = ".".join(basepath.split(os.sep))
