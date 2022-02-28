@@ -2,10 +2,11 @@
 
 CMD="python -m experiments run \
     --scenario label-repair \
-    --method random shapley-knn-single shapley-knn-interactive shapley-tmc-pipe-010 shapley-tmc-pipe-100 \
+    --method random shapley-knn-single \
     --trainsize 0 \
     --valsize 1000"
 
 CMD+=" ${@}"
 
+echo $CMD
 eval $CMD
