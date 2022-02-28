@@ -73,6 +73,9 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
             result = attributes["utility"] == UtilityType.ACCURACY
         if "method" in attributes:
             result = result and not RepairMethod.is_tmc_nonpipe(attributes["method"])
+        if "dataset" in attributes:
+            dataset_class = Dataset.datasets[attributes["dataset"]]
+            result = result and issubclass(dataset_class, DirtyLabelDataset)
         return result and super().is_valid_config(**attributes)
 
     @attribute

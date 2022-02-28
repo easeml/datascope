@@ -9,7 +9,7 @@ import numpy as np
 from abc import ABC, abstractmethod
 from enum import Enum
 from numpy import ndarray
-from sklearn.datasets import fetch_openml, fetch_20newsgroups
+from sklearn.datasets import fetch_openml, fetch_20newsgroups, make_classification
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import LabelEncoder
@@ -32,6 +32,7 @@ class DatasetModality(str, Enum):
 
 DEFAULT_TRAINSIZE = 1000
 DEFAULT_VALSIZE = 100
+DEFAULT_NUMFEATURES = 10
 # DEFAULT_TRAINSIZE = 100
 # DEFAULT_VALSIZE = 20
 DEFAULT_SEED = 1
@@ -170,6 +171,45 @@ class Dataset(ABC):
     #         result._y_train[idx] = 1 - result.y_train[idx]
     #     result._provenance = result._construct_provenance(groupings=groupings)
     #     return result
+
+
+class RandomDataset(Dataset, modality=DatasetModality.TABULAR, id="random"):
+    def __init__(
+        self,
+        trainsize: int = DEFAULT_TRAINSIZE,
+        valsize: int = DEFAULT_VALSIZE,
+        seed: int = DEFAULT_SEED,
+        numfeatures: int = DEFAULT_NUMFEATURES,
+        **kwargs
+    ) -> None:
+        super().__init__(trainsize, valsize, seed, **kwargs)
+        self._numfeatures = numfeatures
+
+    @property
+    def numfeatures(self) -> int:
+        return self._numfeatures
+
+    def load(self) -> None:
+
+        X, y = make_classification(
+            n_samples=self.trainsize + self.valsize,
+            n_features=self.numfeatures,
+            n_redundant=0,
+            n_informative=self.numfeatures,
+            n_repeated=0,
+            n_classes=2,
+            n_clusters_per_class=1,
+            random_state=self._seed,
+        )
+
+        self._X_train, self._X_val, self._y_train, self._y_val = train_test_split(
+            X, y, train_size=self.trainsize, test_size=self.valsize, random_state=self._seed
+        )
+        self._loaded = True
+        assert self._X_train is not None and self._X_val is not None
+        self._trainsize = self._X_train.shape[0]
+        self._valsize = self._X_val.shape[0]
+        self._construct_provenance()
 
 
 class DirtyLabelDataset(Dataset):

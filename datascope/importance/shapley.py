@@ -164,7 +164,8 @@ def compute_shapley_1nn_mapfork(
 
     # if not np.all(provenance.sum(axis=2) == 1):
     #     raise ValueError("The provenance of all data examples must reference at most one unit.")
-    provenance = np.squeeze(provenance, axis=1)
+    if not np.isnan(provenance):  # TODO: Remove this hack.
+        provenance = np.squeeze(provenance, axis=1)
 
     # n_test = distances.shape[1]
     # n_units = len(units)
@@ -184,9 +185,11 @@ def compute_shapley_1nn_mapfork(
     #         unit_distances[i, j] = distances[unit_provenance[:, i]][idx, j]
     #         unit_utilities[i, j] = utilities[unit_provenance[:, i]][idx, j]
 
-    unit_distances, unit_utilities = get_unit_distances_and_utilities(
-        distances, utilities, provenance, units, world, simple_provenance=simple_provenance
-    )
+    unit_distances, unit_utilities = distances, utilities
+    if not np.isnan(provenance):  # TODO: Remove this hack.
+        unit_distances, unit_utilities = get_unit_distances_and_utilities(
+            distances, utilities, provenance, units, world, simple_provenance=simple_provenance
+        )
     # unit_distances, unit_utilities = distances, utilities
 
     # # Compute unit importances.
@@ -244,10 +247,14 @@ class ShapleyImportance(Importance):
     def _fit(self, X: ndarray, y: ndarray, provenance: Optional[ndarray] = None) -> "ShapleyImportance":
         self.X = X
         self.y = y
+
         if provenance is None:
             provenance = np.arange(X.shape[0])
             self._simple_provenance = True
-        self.provenance = reshape(provenance)
+        if not np.isnan(provenance):  # TODO: Remove this hack.
+            self.provenance = reshape(provenance)
+        else:
+            self.provenance = provenance
         return self
 
     def _score(self, X: ndarray, y: Optional[ndarray] = None, **kwargs) -> Iterable[float]:
@@ -452,7 +459,8 @@ class ShapleyImportance(Importance):
     ) -> Iterable[float]:
 
         # Convert provenance and units to bit-arrays.
-        provenance = binarize(provenance)
+        if not np.isnan(provenance):  # TODO: Remove this hack.
+            provenance = binarize(provenance)
 
         # Apply the feature extraction pipeline if it was provided.
         if self.pipeline is not None:
