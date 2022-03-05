@@ -5,7 +5,7 @@ import experiments.scenarios
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Set
 
-from .base import run, finalize
+from .base import run, report
 from .scenarios import DEFAULT_RESULTS_PATH, DEFAULT_STUDY_PATH
 
 
@@ -14,11 +14,13 @@ def make_type_parser(target: Optional[type]) -> Callable[[str], Any]:
         if target is None:
             return source
         result: Any = source
-        if issubclass(target, int):
+        if issubclass(target, bool):
+            result = result in ["True", "true", "T", "t", "Yes", "yes", "y"]
+        elif issubclass(target, int):
             result = int(result)
-        if issubclass(target, float):
+        elif issubclass(target, float):
             result = float(result)
-        if issubclass(target, Enum):
+        elif issubclass(target, Enum):
             result = target(result)
         return result
 
@@ -149,6 +151,6 @@ if __name__ == "__main__":
     if args.command == "run":
         run(**kwargs)
     elif args.command == "report":
-        finalize(**kwargs)
+        report(**kwargs)
     else:
         parser.print_help()

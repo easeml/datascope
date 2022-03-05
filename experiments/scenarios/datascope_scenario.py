@@ -126,6 +126,11 @@ KEYWORD_REPLACEMENTS = {
     "shapley-tmc-pipe-100": "Shapley TMC Pipe x100",
     "shapley-tmc-pipe-500": "Shapley TMC Pipe x500",
     "eqodds": "Equalized Odds Difference",
+    "importance_compute_time": "Importance Compute Time [s]",
+    "steps": "Repair Steps Taken",
+    "steps_rel": "Relative Repair Steps Taken",
+    "acc": "Accuracy",
+    "acc-eqodds": "Accuracy + Equalized Odds Difference",
 }
 
 DEFAULT_SEED = 1
@@ -260,7 +265,7 @@ class DatascopeScenario(Scenario):
 
     @property
     def keyword_replacements(self) -> Dict[str, str]:
-        return KEYWORD_REPLACEMENTS
+        return {**KEYWORD_REPLACEMENTS, **Pipeline.summaries}
 
     @classmethod
     def is_valid_config(cls, **attributes: Any) -> bool:

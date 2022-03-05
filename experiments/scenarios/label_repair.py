@@ -6,7 +6,7 @@ from datascope.importance.common import SklearnModelAccuracy
 from datascope.importance.shapley import ShapleyImportance
 from datetime import timedelta
 from time import process_time_ns
-from typing import Any, Iterable, List, Optional, Union
+from typing import Any, Iterable, List, Optional, Union, Dict
 
 from experiments.dataset.base import DirtyLabelDataset
 
@@ -27,6 +27,14 @@ from ..pipelines import Pipeline, ModelType, get_model
 
 
 DEFAULT_DIRTY_RATIO = 0.5
+KEYWORD_REPLACEMENTS = {
+    "accuracy": "Accuracy",
+    "accuracy_rel": "Relative Accuracy",
+    "repaired": "Number of Labels Examined",
+    "repaired_rel": "Portion of Labels Examined",
+    "discovered": "Number of Dirty Labels Found",
+    "discovered_rel": "Portion of Dirty Labels Found",
+}
 
 
 class LabelRepairScenario(DatascopeScenario, id="label-repair"):
@@ -82,6 +90,11 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
     def dirtyratio(self) -> float:
         """The proportion of examples that will have corrupted labels in label repair experiments."""
         return self._dirtyratio
+
+    @property
+    def keyword_replacements(self) -> Dict[str, str]:
+        result = super().keyword_replacements
+        return {**result, **KEYWORD_REPLACEMENTS}
 
     def _run(self, progress_bar: bool = True, **kwargs: Any) -> None:
 

@@ -65,7 +65,7 @@ def run(
         study.save()
 
 
-def finalize(
+def report(
     study_path: Optional[str] = DEFAULT_STUDY_PATH,
     groupby: Optional[Sequence[str]] = None,
     output_path: Optional[str] = None,
@@ -81,6 +81,6 @@ def finalize(
     # Get applicable instances of reports.
     reports = list(Report.get_instances(study=study, groupby=groupby, **attributes))
 
-    for report in tqdm(reports, desc="Reports"):
-        report.generate()
-        report.save(path=output_path)
+    for r in tqdm(reports, desc="Reports"):
+        r.generate()
+        r.save(path=output_path)

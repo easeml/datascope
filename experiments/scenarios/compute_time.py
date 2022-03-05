@@ -5,7 +5,7 @@ from datascope.importance.shapley import ShapleyImportance
 from datetime import timedelta
 from pandas import DataFrame
 from time import process_time_ns
-from typing import Any, Optional
+from typing import Any, Optional, Dict
 
 from .base import Scenario, attribute, result
 from .datascope_scenario import (
@@ -15,12 +15,17 @@ from .datascope_scenario import (
     DEFAULT_SEED,
     DEFAULT_MODEL,
     DEFAULT_TIMEOUT,
+    KEYWORD_REPLACEMENTS,
     UtilityType,
 )
 from ..dataset import Dataset, DEFAULT_TRAINSIZE, DEFAULT_VALSIZE, DEFAULT_NUMFEATURES
 from ..pipelines import Pipeline, ModelType, get_model
 
 DEFAULT_DATASET = "random"
+KEYWORD_REPLACEMENTS = {
+    **KEYWORD_REPLACEMENTS,
+    **{"trainsize": "Training Set Size", "valsize": "Validation Set Size", "numfeatures": "Number of Features"},
+}
 
 
 class ComputeTimeScenario(Scenario, id="compute-time"):
@@ -117,7 +122,24 @@ class ComputeTimeScenario(Scenario, id="compute-time"):
 
     @property
     def dataframe(self) -> DataFrame:
-        return DataFrame({"importance_compute_time": [self.importance_compute_time]})
+        return DataFrame(
+            dict(
+                dataset=[self.dataset],
+                pipeline=[self.pipeline],
+                model=[self.model],
+                method=[self.method],
+                iteration=[self.iteration],
+                trainsize=[self.trainsize],
+                valsize=[self.valsize],
+                numfeatures=[self.numfeatures],
+                timeout=[self.timeout],
+                importance_compute_time=[self.importance_compute_time],
+            )
+        )
+
+    @property
+    def keyword_replacements(self) -> Dict[str, str]:
+        return {**KEYWORD_REPLACEMENTS, **Pipeline.summaries}
 
     def _run(self, progress_bar: bool = True, **kwargs: Any) -> None:
 

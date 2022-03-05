@@ -143,6 +143,8 @@ def get_property_domain(target: object, name: str) -> List[Any]:
     enum = extract_enumtype(sign.return_annotation)
     if isinstance(prop, PropertyTag) and prop.domain is not None:
         return list(prop.domain)
+    elif sign.return_annotation is bool:
+        return [False, True]
     elif enum is None:
         return [None]
     else:
@@ -1027,7 +1029,7 @@ class Report(ABC):
                         yield instance
         else:
             # If grouping attributes were not specified, then we return only a single instance.
-            if groupby is None:
+            if groupby is None or len(groupby) == 0:
                 yield cls(study=study, **kwargs)
 
             else:
@@ -1035,6 +1037,7 @@ class Report(ABC):
                 all_values: List[Tuple] = []
                 if len(study.scenarios) > 0:
                     all_values = list(study.dataframe.groupby(groupby).groups.keys())
+
                 for values in all_values:
                     groupby_values = dict((k, v) for (k, v) in zip(groupby, values))
                     yield cls(study=study, groupby=groupby_values, **kwargs)

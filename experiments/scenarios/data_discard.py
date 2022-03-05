@@ -15,7 +15,7 @@ from datascope.importance.common import (
 from datascope.importance.shapley import ShapleyImportance
 from datetime import timedelta
 from time import process_time_ns
-from typing import Any, Iterable, Optional
+from typing import Any, Iterable, Optional, Dict
 
 from experiments.dataset.base import BiasedMixin
 
@@ -43,6 +43,16 @@ DEFAULT_TRAIN_BIAS = 0.8
 DEFAULT_VAL_BIAS = 0.0
 DEFAULT_MAX_REMOVE = 0.5
 DEFAULT_DISCARD_GOAL = DiscardGoal.FAIRNESS
+KEYWORD_REPLACEMENTS = {
+    "eqodds": "Equalized Odds Difference",
+    "eqodds_rel": "Relative Equalized Odds Difference",
+    "accuracy": "Accuracy",
+    "accuracy_rel": "Relative Accuracy",
+    "discarded": "Number of Data Examples Removed",
+    "discarded_rel": "Portion of Data Examples Removed",
+    "dataset_bias": "Dataset Bias",
+    "mean_label": "Portion of Positive Labels",
+}
 
 
 class DataDiscardScenario(DatascopeScenario, id="data-discard"):
@@ -105,6 +115,11 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
     def discardgoal(self) -> DiscardGoal:
         """The goal of discarding data which impacts the behavior of the scenario."""
         return self._discardgoal
+
+    @property
+    def keyword_replacements(self) -> Dict[str, str]:
+        result = super().keyword_replacements
+        return {**result, **KEYWORD_REPLACEMENTS}
 
     @classmethod
     def is_valid_config(cls, **attributes: Any) -> bool:

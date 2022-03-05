@@ -1,11 +1,13 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import re
 
 from enum import Enum
 from functools import partial
 from matplotlib.figure import Figure
-from typing import Callable, Optional, Dict, Any, Sequence, List
+from matplotlib.ticker import EngFormatter, PercentFormatter
+from typing import Callable, Optional, Dict, Any, List, Union, TypeVar, Tuple
 
 from pandas import DataFrame
 
@@ -29,6 +31,17 @@ class ErrorDisplay(str, Enum):
     BAR = "bar"
     SHADE = "shade"
     NONE = "none"
+
+
+class PlotType(str, Enum):
+    BAR = "bar"
+    LINE = "line"
+
+
+class TickFormat(str, Enum):
+    DEFAULT = "default"
+    ENG = "engineer"
+    PERCENT = "percent"
 
 
 class AggregationMode(str, Enum):
@@ -70,6 +83,7 @@ VALUE_MEASURE_C: Dict[AggregationMode, str] = {
 }
 
 DEFAULT_LABEL_FORMAT = "{compare}"
+DEFAULT_FONTSIZE = 16
 
 
 def represent(x: Any):
@@ -83,7 +97,7 @@ def filter(
     dataframe: DataFrame,
     attributes: Optional[Dict[str, Any]] = None,
 ) -> DataFrame:
-    if attributes is None:
+    if attributes is None or len(attributes) == 0:
         return dataframe
     slicequery = " & ".join("%s == %s" % (str(k), represent(v)) for (k, v) in attributes.items())
     return dataframe.query(slicequery)
@@ -91,22 +105,17 @@ def filter(
 
 def aggregate(
     dataframe: DataFrame,
-    targetval: str,
     index: str,
-    compare: Optional[Sequence[str]] = None,
-    aggmode: Optional[AggregationMode] = None,
+    targetval: List[str],
+    compare: Optional[List[str]] = None,
+    aggmode: AggregationMode = AggregationMode.MEDIAN_PERC_95,
 ) -> DataFrame:
-    if aggmode is None:
-        aggmode = AggregationMode.MEDIAN_PERC_95
-
     if compare is None:
         compare = []
     value_measures = VALUE_MEASURES[aggmode]
 
     groupbycols = [index] + list(compare)
-    values = [
-        dataframe.groupby(groupbycols)[[targetval]].agg(f).add_suffix(":" + k) for (k, f) in value_measures.items()
-    ]
+    values = [dataframe.groupby(groupbycols)[targetval].agg(f).add_suffix(":" + k) for (k, f) in value_measures.items()]
     dataframe = pd.concat(values, axis=1)
     dataframe.sort_index(inplace=True)
     if len(compare) > 0:
@@ -117,8 +126,8 @@ def aggregate(
 
 def summarize(
     dataframe: DataFrame,
-    summarize: str,
-    compare: Optional[Sequence[str]] = None,
+    summarize: List[str],
+    compare: Optional[List[str]] = None,
     summode: Optional[AggregationMode] = None,
 ) -> dict:
     if summode is None:
@@ -126,34 +135,35 @@ def summarize(
     if compare is None:
         compare = []
     value_measures = VALUE_MEASURES[summode]
-    values = [dataframe.groupby(compare)[[summarize]].agg(f).add_suffix(":" + k) for (k, f) in value_measures.items()]
+    groups = dataframe.groupby(compare) if len(compare) > 0 else dataframe
+    values = [groups[summarize].agg(f).add_suffix(":" + k) for (k, f) in value_measures.items()]
     axis = 0 if len(compare) == 0 else 1
     dataframe = pd.concat(values, axis=axis)
     dataframe.sort_index(inplace=True)
-    return dataframe.to_dict(orient="index")
+    return dataframe.to_dict(orient="index") if isinstance(dataframe, DataFrame) else dataframe.to_dict()
 
 
 def replace_keywords(source: str, keyword_replacements: Dict[str, str]) -> str:
     for k, v in sorted(keyword_replacements.items(), key=lambda x: len(x[1]), reverse=True):
-        source = source.replace(k, v)
+        source = re.sub("(?<![a-zA-Z])%s(?![a-z-Z])" % k, v, source)
+        # source = source.replace(k, v)
     return source
 
 
-def plot(
+def lineplot(
     dataframe: DataFrame,
     index: str,
     targetval: str,
-    compare: Optional[Sequence[str]] = None,
-    aggmode: Optional[AggregationMode] = None,
+    compare: Optional[List[str]] = None,
+    aggmode: AggregationMode = AggregationMode.MEDIAN_PERC_95,
+    errdisplay: ErrorDisplay = ErrorDisplay.SHADE,
     labelformat: Optional[str] = None,
-    attributes: Optional[Dict[str, Any]] = None,
     summary: Optional[dict] = None,
     keyword_replacements: Optional[Dict[str, str]] = None,
-) -> Figure:
-    if aggmode is None:
-        aggmode = AggregationMode.MEDIAN_PERC_95
-    if attributes is None:
-        attributes = {}
+    axes: Optional[plt.Axes] = None,
+    fontsize: int = DEFAULT_FONTSIZE,
+    annotations: bool = False,
+) -> Optional[Figure]:
     if compare is None:
         compare = []
     if labelformat is None:
@@ -165,27 +175,22 @@ def plot(
         keyword_replacements = {}
 
     comparison = []
+    dataframe = dataframe.copy()
     if len(compare) > 0:
         comparison = sorted(list(set(tuple(c.split(">")[:-1]) for c in dataframe.columns)))
-        dataframe.columns = dataframe.columns.map(lambda x: (x.split(">")[0], x.split(":")[-1]))
+        dataframe.columns = dataframe.columns.map(lambda x: (x.split(">")[0],) + tuple(x.split(">")[1].split(":")))
         dataframe.sort_index(axis=1, inplace=True)
     else:
         comparison = [(targetval,)]
-        dataframe.columns = dataframe.columns.map(lambda x: (targetval, x))
+        dataframe.columns = dataframe.columns.map(lambda x: (targetval,) + tuple(x.split(":")))
 
-    figure = plt.figure(figsize=(10, 8))
-    ax: plt.Axes = figure.subplots()
+    figure: Optional[Figure] = None
+    if axes is None:
+        figure = plt.figure(figsize=(10, 8))
+        axes = figure.subplots()
 
+    labels: List[str] = []
     for i, comp in enumerate(comparison):
-        cols: List[str] = dataframe[comp].columns.to_list()
-        uppercol = next(c for c in cols if c.endswith("-h"))
-        lowercol = next(c for c in cols if c.endswith("-l"))
-        upper = dataframe[comp][uppercol]
-        lower = dataframe[comp][lowercol]
-        ax.fill_between(dataframe.index.values, upper, lower, color=COLORS[i], alpha=0.2)
-
-    for i, comp in enumerate(comparison):
-        centercol = VALUE_MEASURE_C[aggmode]
         formatdict = dict(zip(compare, comp))
         if summary is not None:
             comp_summary = summary
@@ -194,65 +199,267 @@ def plot(
             formatdict.update(comp_summary)
         label = labelformat % formatdict
         label = replace_keywords(label, keyword_replacements)
-        ax.plot(dataframe[comp][centercol], color=COLORS[i], label=label)
+        labels.append(label)
 
-    ax.set_title(" ".join("%s=%s" % (str(k), represent(v)) for (k, v) in attributes.items()))
-    ax.set_xlim([dataframe.index.values[0], (dataframe.index.values[-1] - dataframe.index.values[0]) * 1.2])
-    ax.set_ylim([-0.2, 1])
-    ax.set_ylabel(targetval.title())
-    ax.set_xlabel(index.title())
-    ax.legend(loc="lower right")
+    centercol = VALUE_MEASURE_C[aggmode]
+    for i, comp in enumerate(comparison):
+        cols: List[str] = dataframe[comp][targetval].columns.to_list()
+        uppercol = next(c for c in cols if c.endswith("-h"))
+        lowercol = next(c for c in cols if c.endswith("-l"))
+        upper = dataframe[comp][targetval][uppercol]
+        lower = dataframe[comp][targetval][lowercol]
+        if errdisplay == ErrorDisplay.SHADE:
+            axes.fill_between(dataframe.index.values, upper, lower, color=COLORS[i], alpha=0.2)
+        elif errdisplay == ErrorDisplay.BAR:
+            center = dataframe[comp][targetval][centercol]
+            xval = dataframe.index.values
+            yval = center.to_numpy()
+            yerr = np.abs(np.stack([lower.to_numpy(), upper.to_numpy()]) - yval)
+            axes.errorbar(xval, yval, yerr=yerr, fmt="o", linewidth=2, capsize=6, color=COLORS[i], label=labels[i])
+            if annotations:
+                for x, y in zip(xval, yval):
+                    axes.annotate(
+                        "%.2f" % y,
+                        xy=(x, y),
+                        xytext=(fontsize * 0.5, 0),
+                        textcoords="offset points",
+                        fontsize=fontsize,
+                        horizontalalignment="left",
+                        verticalalignment="center",
+                    )
+
+    for i, comp in enumerate(comparison):
+        axes.plot(dataframe[comp][targetval][centercol], color=COLORS[i], label=labels[i])
+
+    # axes.set_xlim([dataframe.index.values[0], (dataframe.index.values[-1] - dataframe.index.values[0]) * 1.2])
+    # axes.set_ylim([-0.2, 1])
+    axes.set_ylabel(replace_keywords(targetval, keyword_replacements), fontsize=fontsize)
+    axes.set_xlabel(replace_keywords(index, keyword_replacements), fontsize=fontsize)
+    # axes.legend(loc="lower right", fontsize=fontsize, borderaxespad=0, edgecolor="black", fancybox=False)
     return figure
+
+
+T = TypeVar("T")
+
+
+def dictpivot(d: Dict, compare: List[str], prefix: Tuple[str, ...] = tuple()) -> Dict[Tuple[str, ...], Dict]:
+    if len(compare) > 0:
+        result: Dict[Tuple[str, ...], Dict] = {}
+        for k, v in d.items():
+            dd = dictpivot(v, compare=compare[1:], prefix=prefix + (k,))
+            result.update(dd)
+        return result
+    elif len(prefix) > 0:
+        return {prefix: d}
+    else:
+        return d
+
+    # for k, v in d.items():
+    #     if isinstance(v, dict):
+    #         for item in dictpivot(v, prefix=prefix + (k,)):
+    #             yield item
+    #     else:
+    #         yield prefix + (k,), v
+
+
+def barplot(
+    summary: dict,
+    targetval: str,
+    compare: Optional[List[str]] = None,
+    labelformat: Optional[str] = None,
+    aggmode: AggregationMode = AggregationMode.MEDIAN_PERC_90,
+    keyword_replacements: Optional[Dict[str, str]] = None,
+    axes: Optional[plt.Axes] = None,
+    fontsize: int = DEFAULT_FONTSIZE,
+    annotations: bool = False,
+) -> Optional[Figure]:
+    if compare is None:
+        compare = []
+    # if len(compare) == 0:
+    #     compare = ["value"]
+    #     summary = {"value": summary}
+
+    if labelformat is None:
+        if len(compare) > 0:
+            labelformat = "; ".join("%%(%s)s" % c for c in compare)
+        else:
+            labelformat = targetval
+    if keyword_replacements is None:
+        keyword_replacements = {}
+    figure: Optional[Figure] = None
+    if axes is None:
+        figure = plt.figure(figsize=(10, 8))
+        axes = figure.subplots()
+
+    # x, y, yerr = [], [], []
+    summary = dictpivot(summary, compare=compare)
+    for i, (comp, values) in enumerate(summary.items()):
+        centercol = VALUE_MEASURE_C[aggmode]
+        formatdict = dict(zip(compare, comp))
+        label = labelformat % formatdict
+        label = replace_keywords(label, keyword_replacements)
+        xval = "; ".join(str(x) for x in comp)
+        col = targetval + ":" + centercol
+        yval = values[col]
+
+        uppercol = next(c for c in values.keys() if c.endswith("-h"))
+        lowercol = next(c for c in values.keys() if c.endswith("-l"))
+        yerr = np.abs(np.array([[values[col] - values[lowercol]], [values[col] - values[uppercol]]]))
+        axes.errorbar([xval], [yval], yerr=yerr, fmt="o", linewidth=2, capsize=6, color=COLORS[i], label=label)
+
+        if annotations:
+            axes.annotate(
+                "%.2f" % yval,
+                xy=(xval, yval),
+                xytext=(fontsize * 0.5, 0),
+                textcoords="offset points",
+                fontsize=fontsize,
+                horizontalalignment="left",
+                verticalalignment="center",
+            )
+
+    axes.set_ylabel(replace_keywords(targetval, keyword_replacements), fontsize=fontsize)
+    axes.get_xaxis().set_ticks([])
+    # axes.legend(
+    #     loc="upper right", fontsize=fontsize, borderaxespad=0, edgecolor="black", fancybox=False, ncol=len(summary)
+    # )
+
+    return figure
+
+
+NONE_SYMBOL = "-"
+DEFAULT_PLOTSIZE = [10, 8]
+
+
+# def ensurelist(
+#     x: Optional[Union[List[T], T]],
+#     default: Optional[T] = None,
+#     length: Optional[int] = None,
+# ) -> List[T]:
+#     result = [default] if x is None else x if isinstance(x, list) else [x]
+#     if length is not None and len(result) != length:
+#         if len(result) > 1:
+#             raise ValueError("Expected length to be %d but encountered %d." % (length, len(result)))
+#         else:
+#             result = [result[0] for _ in range(length)]
+#     return result
+#     # return [x if x != NONE_SYMBOL else None for x in result]
+
+
+def ensurelist(
+    x: Optional[Union[List[T], T]],
+    default: Optional[T] = None,
+    length: Optional[int] = None,
+) -> List[T]:
+    result: List[T] = ([default] if default is not None else []) if x is None else x if isinstance(x, list) else [x]
+    if length is not None and len(result) != length:
+        if len(result) > 1 and length > 0:
+            raise ValueError("Expected length to be %d but encountered %d." % (length, len(result)))
+        else:
+            result = [result[0] for _ in range(length)]
+    return result
+    # return [x if x != NONE_SYMBOL else None for x in result]
+
+
+def parseplotspec(spec: Union[Tuple[PlotType, str], str]) -> Tuple[PlotType, str]:
+    if isinstance(spec, str):
+        splits = spec.split(":")
+        if len(splits) != 2:
+            raise ValueError("The plot specifications must be formatted as plottype:target.")
+        plottype, target = splits[0], splits[1]
+        return (PlotType(plottype), target)
+    return spec
 
 
 class AggregatePlot(Report, id="aggplot"):
     def __init__(
         self,
         study: Study,
-        targetval: str,
-        index: str,
-        compare: Optional[Sequence[str]] = None,
-        summarize: Optional[str] = None,
+        plot: Optional[Union[List[str], str]] = None,
+        index: Optional[str] = None,
+        targetval: Optional[Union[List[str], str]] = None,
+        compare: Optional[Union[List[str], str]] = None,
+        summarize: Optional[Union[List[str], str]] = None,
         errdisplay: Optional[ErrorDisplay] = None,
         aggmode: Optional[AggregationMode] = None,
         summode: Optional[AggregationMode] = None,
+        xlogscale: Optional[Union[List[bool], bool]] = None,
+        ylogscale: Optional[Union[List[bool], bool]] = None,
+        xtickfmt: Optional[Union[List[TickFormat], TickFormat]] = None,
+        ytickfmt: Optional[Union[List[TickFormat], TickFormat]] = None,
+        annotations: Optional[Union[List[bool], bool]] = None,
         groupby: Optional[Dict[str, Any]] = None,
         labelformat: Optional[str] = None,
+        plotsize: Optional[List[int]] = None,
+        fontsize: Optional[int] = None,
+        usetex: Optional[bool] = True,
+        legend: Optional[bool] = True,
+        titleformat: Optional[str] = None,
         id: Optional[str] = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(study, id=id, groupby=groupby, **kwargs)
-        self._targetval = targetval
-        self._compare: Sequence[str] = compare if compare is not None else []
+        self._plot = ensurelist(plot, default=None)
+        n_plots = len(self._plot)
         self._index = index
-        self._summarize = summarize
+        self._targetval: List[str] = ensurelist(targetval, default=None)
+        self._compare: List[str] = ensurelist(compare, default=None)
+        self._summarize: List[str] = ensurelist(summarize, default=None)
         self._errdisplay = errdisplay if errdisplay is not None else ErrorDisplay.SHADE
         self._aggmode = aggmode if aggmode is not None else AggregationMode.MEDIAN_PERC_95
-        self._summode = summode if summode is not None else AggregationMode.MEAN_STD
-        if labelformat is None:
-            labelformat = "; ".join("%%(%s)s" % x for x in self._compare) if len(self._compare) > 0 else targetval
-        self._labelformat = labelformat
+        self._summode = summode if summode is not None else AggregationMode.MEDIAN_PERC_95
+        self._xlogscale: List[bool] = ensurelist(xlogscale, default=False, length=n_plots)
+        self._ylogscale: List[bool] = ensurelist(ylogscale, default=False, length=n_plots)
+        self._xtickfmt: List[TickFormat] = ensurelist(xtickfmt, default=TickFormat.DEFAULT, length=n_plots)
+        self._ytickfmt: List[TickFormat] = ensurelist(ytickfmt, default=TickFormat.DEFAULT, length=n_plots)
+        self._annotations: List[bool] = ensurelist(annotations, default=False, length=n_plots)
+
+        self._labelformat = (
+            labelformat
+            if labelformat is not None
+            else (
+                "; ".join("%%(%s)s" % x if x is not None else "" for x in self._compare)
+                if len(self._compare) > 0
+                else "%%(target)s"
+            )
+        )
+
+        self._plotsize = plotsize if plotsize is not None else DEFAULT_PLOTSIZE
+        if len(self._plotsize) != 2:
+            raise ValueError("The plotsize must have two parameters: width and height.")
+        self._fontsize = fontsize if fontsize is not None else DEFAULT_FONTSIZE
+        self._usetex = usetex if usetex is not None else True
+        self._legend = legend if legend is not None else True
+        if titleformat is None:
+            titleformat = " ".join("%s=%%(%s)s" % (str(k).title(), str(k)) for k in self._groupby.keys())
+        self._titleformat = titleformat
+
         self._view: Optional[DataFrame] = None
         self._figure: Optional[Figure] = None
         self._summary: Optional[dict] = None
 
     @attribute
-    def targetval(self) -> str:
+    def plot(self) -> List[str]:
+        """The type of plot to draw. Multiple plots can be drawn on the same figure."""
+        return self._plot
+
+    @attribute
+    def targetval(self) -> List[str]:
         """The result attribute to evaluate."""
         return self._targetval
 
     @attribute
-    def compare(self) -> Sequence[str]:
+    def compare(self) -> List[str]:
         """The attribute to compare by."""
         return self._compare
 
     @attribute
-    def index(self) -> str:
+    def index(self) -> Optional[str]:
         """The attribute to use as index."""
         return self._index
 
     @attribute
-    def summarize(self) -> Optional[str]:
+    def summarize(self) -> List[str]:
         """The attribute aggregate over the entire dataframe."""
         return self._summarize
 
@@ -272,6 +479,31 @@ class AggregatePlot(Report, id="aggplot"):
         return self._errdisplay
 
     @attribute
+    def xlogscale(self) -> List[bool]:
+        """Whether to represent the x-axis in the logarithmic scale."""
+        return self._xlogscale
+
+    @attribute
+    def ylogscale(self) -> List[bool]:
+        """Whether to represent the y-axis in the logarithmic scale."""
+        return self._ylogscale
+
+    @attribute
+    def xtickfmt(self) -> List[TickFormat]:
+        """The tick formatting to use for the x-axis."""
+        return self._xtickfmt
+
+    @attribute
+    def ytickfmt(self) -> List[TickFormat]:
+        """The tick formatting to use for the y-axis."""
+        return self._ytickfmt
+
+    @attribute
+    def annotations(self) -> List[bool]:
+        """Whether to add annotations to all points displayed."""
+        return self._annotations
+
+    @attribute
     def labelformat(self) -> str:
         """
         The string used to format labels in figures. A wildcard such as %%(attrname)s of %%(attrname).2f can be used.
@@ -279,36 +511,141 @@ class AggregatePlot(Report, id="aggplot"):
         """
         return self._labelformat
 
+    @attribute
+    def plotsize(self) -> List[int]:
+        """The width and height of each plot."""
+        return self._plotsize
+
+    @attribute
+    def fontsize(self) -> int:
+        """The size of text used in figures."""
+        return self._fontsize
+
+    @attribute
+    def usetex(self) -> bool:
+        """Whether to use LaTeX fonts."""
+        return self._usetex
+
+    @attribute
+    def legend(self) -> bool:
+        """Whether to show the legend."""
+        return self._legend
+
+    @attribute
+    def titleformat(self) -> str:
+        """The formatted text to use in the title."""
+        return self._titleformat
+
     def generate(self) -> None:
         dataframe = filter(self.study.dataframe, attributes=self.groupby)
-
-        self._view = aggregate(
-            dataframe=dataframe,
-            index=self._index,
-            compare=self._compare,
-            targetval=self._targetval,
-            aggmode=self._aggmode,
-        )
-        if self._summarize:
-            self._summary = summarize(
-                dataframe=dataframe, summarize=self._summarize, compare=self._compare, summode=self._summode
-            )
-
         keyword_replacements: Dict[str, str] = {}
         for scenario in self.study.scenarios:
             keyword_replacements.update(scenario.keyword_replacements)
 
-        self._figure = plot(
-            self._view,
-            index=self._index,
-            targetval=self._targetval,
-            attributes=self._groupby,
-            summary=self._summary,
-            compare=self._compare,
-            labelformat=self._labelformat,
-            aggmode=self._aggmode,
-            keyword_replacements=keyword_replacements,
-        )
+        if self.index is not None and len(self.targetval) > 0:
+            if self._view is None:
+                self._view = aggregate(
+                    dataframe=dataframe,
+                    compare=self.compare,
+                    index=self.index,
+                    targetval=self.targetval,
+                    aggmode=self.aggmode,
+                )
+
+        if len(self.summarize) > 0:
+            if self._summary is None:
+                self._summary = summarize(
+                    dataframe=dataframe,
+                    summarize=self.summarize,
+                    compare=self.compare,
+                    summode=self.summode,
+                )
+
+        if len(self.plot) > 0:
+            figsize = (len(self.plot) * self.plotsize[0], self.plotsize[1])
+            self._figure = plt.figure(figsize=figsize)
+            formatdict = dict(**self.groupby)
+            title = self.titleformat % formatdict
+            title = replace_keywords(title, keyword_replacements)
+            plt.rc("text", usetex=self.usetex)
+            self._figure.suptitle(title, fontsize=self.fontsize * 1.2)
+            axes: plt.Axes = self._figure.subplots(nrows=1, ncols=len(self.plot))
+            if len(self.plot) == 1:
+                axes = np.array([axes])
+            axes = axes.flatten()
+
+            for i, plotspec in enumerate(self.plot):
+                plottype, target = parseplotspec(plotspec)
+
+                # Axes style.
+                axes[i].spines["top"].set_visible(False)
+                axes[i].spines["right"].set_visible(False)
+                axes[i].tick_params(axis="both", which="major", labelsize=self.fontsize)
+
+                if plottype == PlotType.LINE:
+
+                    if self._index is None:
+                        raise ValueError("An index must be specified when plotting line plots.")
+
+                    lineplot(
+                        self._view,
+                        index=self._index,
+                        targetval=target,
+                        summary=self._summary,
+                        compare=self._compare,
+                        errdisplay=self._errdisplay,
+                        labelformat=self._labelformat,
+                        aggmode=self._aggmode,
+                        keyword_replacements=keyword_replacements,
+                        axes=axes[i],
+                        fontsize=self.fontsize,
+                        annotations=self._annotations[i],
+                    )
+                else:
+
+                    if self._summary is None:
+                        raise ValueError("A bar plot can only be generated from a summary.")
+
+                    barplot(
+                        summary=self._summary,
+                        targetval=target,
+                        compare=self.compare,
+                        labelformat=self._labelformat,
+                        aggmode=self._summode,
+                        keyword_replacements=keyword_replacements,
+                        axes=axes[i],
+                        fontsize=self.fontsize,
+                        annotations=self._annotations[i],
+                    )
+
+                if self.xlogscale[i]:
+                    axes[i].set_xscale("log")
+                if self.ylogscale[i]:
+                    axes[i].set_yscale("log")
+
+                if self.xtickfmt[i] == TickFormat.PERCENT:
+                    axes[i].xaxis.set_major_formatter(PercentFormatter())
+                elif self.xtickfmt[i] == TickFormat.ENG:
+                    axes[i].xaxis.set_major_formatter(EngFormatter(places=0, sep=""))
+                if self.ytickfmt[i] == TickFormat.PERCENT:
+                    axes[i].yaxis.set_major_formatter(PercentFormatter())
+                elif self.ytickfmt[i] == TickFormat.ENG:
+                    axes[i].yaxis.set_major_formatter(EngFormatter(places=0, sep=""))
+
+            if self._legend:
+                self._figure.subplots_adjust(bottom=0.25)
+                lines, labels = self._figure.axes[0].get_legend_handles_labels()
+                self._figure.legend(
+                    lines,
+                    labels,
+                    loc="lower center",
+                    fontsize=self.fontsize,
+                    # borderaxespad=0,
+                    edgecolor="black",
+                    fancybox=False,
+                    ncol=len(lines),
+                )
+            self._figure.tight_layout()
 
     @result
     def view(self) -> Optional[DataFrame]:

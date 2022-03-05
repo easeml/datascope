@@ -19,16 +19,22 @@ from ..dataset import DatasetModality, Dataset
 class Pipeline(sklearn.pipeline.Pipeline):
 
     pipelines: Dict[str, Type["Pipeline"]] = {}
+    summaries: Dict[str, str] = {}
     _pipeline: Optional[str] = None
     _modalities: Iterable[DatasetModality]
     _summary: Optional[str] = None
 
     def __init_subclass__(
-        cls: Type["Pipeline"], modalities: Iterable[DatasetModality], id: Optional[str] = None
+        cls: Type["Pipeline"],
+        modalities: Iterable[DatasetModality],
+        id: Optional[str] = None,
+        summary: Optional[str] = None,
     ) -> None:
         cls._pipeline = id if id is not None else cls.__name__
         cls._modalities = modalities
         Pipeline.pipelines[cls._pipeline] = cls
+        if summary is not None:
+            Pipeline.summaries[cls._pipeline] = summary
 
     @property
     def modalities(self) -> Iterable[DatasetModality]:
@@ -44,7 +50,7 @@ class Pipeline(sklearn.pipeline.Pipeline):
         raise NotImplementedError()
 
 
-class IdentityPipeline(Pipeline, id="identity", modalities=[DatasetModality.TABULAR]):
+class IdentityPipeline(Pipeline, id="identity", summary="Identity", modalities=[DatasetModality.TABULAR]):
     """A pipeline that passes its input data as is."""
 
     @classmethod
@@ -56,7 +62,9 @@ class IdentityPipeline(Pipeline, id="identity", modalities=[DatasetModality.TABU
         return IdentityPipeline(ops)
 
 
-class StandardScalerPipeline(Pipeline, id="std-scaler", modalities=[DatasetModality.TABULAR]):
+class StandardScalerPipeline(
+    Pipeline, id="std-scaler", summary="Standard Scaler", modalities=[DatasetModality.TABULAR]
+):
     """A pipeline that applies a standard scaler to the input data."""
 
     @classmethod
@@ -65,7 +73,7 @@ class StandardScalerPipeline(Pipeline, id="std-scaler", modalities=[DatasetModal
         return StandardScalerPipeline(ops)
 
 
-class LogScalerPipeline(Pipeline, id="log-scaler", modalities=[DatasetModality.TABULAR]):
+class LogScalerPipeline(Pipeline, id="log-scaler", summary="Logarithmic Scaler", modalities=[DatasetModality.TABULAR]):
     """A pipeline that applies a logarithmic scaler to the input data."""
 
     @classmethod
@@ -77,7 +85,7 @@ class LogScalerPipeline(Pipeline, id="log-scaler", modalities=[DatasetModality.T
         return LogScalerPipeline(ops)
 
 
-class PcaPipeline(Pipeline, id="pca", modalities=[DatasetModality.TABULAR]):
+class PcaPipeline(Pipeline, id="pca", summary="PCA", modalities=[DatasetModality.TABULAR]):
     """A pipeline that applies a principal component analysis operator."""
 
     @classmethod
@@ -86,7 +94,7 @@ class PcaPipeline(Pipeline, id="pca", modalities=[DatasetModality.TABULAR]):
         return PcaPipeline(ops)
 
 
-class PcaSvdPipeline(Pipeline, id="pca-svd", modalities=[DatasetModality.TABULAR]):
+class PcaSvdPipeline(Pipeline, id="pca-svd", summary="PCA + SVD", modalities=[DatasetModality.TABULAR]):
     """
     A pipeline that applies a combination of the principal component analysis and
     singular value decomposition operators.
@@ -99,7 +107,9 @@ class PcaSvdPipeline(Pipeline, id="pca-svd", modalities=[DatasetModality.TABULAR
         return PcaSvdPipeline(ops)
 
 
-class KMeansPipeline(Pipeline, id="mi-kmeans", modalities=[DatasetModality.TABULAR]):
+class KMeansPipeline(
+    Pipeline, id="mi-kmeans", summary="Missing Indicator + K-Means", modalities=[DatasetModality.TABULAR]
+):
     """
     A pipeline that applies a combination of the missing value indicator and
     the K-Means featurizer operators.
@@ -112,7 +122,7 @@ class KMeansPipeline(Pipeline, id="mi-kmeans", modalities=[DatasetModality.TABUL
         return KMeansPipeline(ops)
 
 
-class GaussBlurPipeline(Pipeline, id="gauss-blur", modalities=[DatasetModality.IMAGE]):
+class GaussBlurPipeline(Pipeline, id="gauss-blur", summary="Gaussian Blur", modalities=[DatasetModality.IMAGE]):
     """
     A pipeline that applies a gaussian blure filter.
     """
@@ -135,7 +145,9 @@ DEFAULT_HOG_CELLS_PER_BLOCK = 3
 DEFAULT_HOG_BLOCK_NORM = "L2-Hys"
 
 
-class HogTransformPipeline(Pipeline, id="hog-transform", modalities=[DatasetModality.IMAGE]):
+class HogTransformPipeline(
+    Pipeline, id="hog-transform", summary="Histogram of Oriented Gradients", modalities=[DatasetModality.IMAGE]
+):
     """
     A pipeline that applies a histogram of oriented gradients operator.
     """
@@ -165,7 +177,7 @@ class HogTransformPipeline(Pipeline, id="hog-transform", modalities=[DatasetModa
         return HogTransformPipeline(ops)
 
 
-class TfidfPipeline(Pipeline, id="tf-idf", modalities=[DatasetModality.TEXT]):
+class TfidfPipeline(Pipeline, id="tf-idf", summary="TF-IDF", modalities=[DatasetModality.TEXT]):
     """
     A pipeline that applies a count vectorizer and a TF-IDF transform.
     """
@@ -176,7 +188,9 @@ class TfidfPipeline(Pipeline, id="tf-idf", modalities=[DatasetModality.TEXT]):
         return TfidfPipeline(ops)
 
 
-class ToLowerUrlRemovePipeline(Pipeline, id="tolower-urlremove-tfidf", modalities=[DatasetModality.TEXT]):
+class ToLowerUrlRemovePipeline(
+    Pipeline, id="tolower-urlremove-tfidf", summary="To-Lower + URL-Remove + TF-IDF", modalities=[DatasetModality.TEXT]
+):
     """
     A pipeline that applies a few text transformations such as converting everything to lowercase and removing URL's.
     """
