@@ -6,6 +6,7 @@ CMD="python -m experiments run \
     --method random shapley-knn-single \
     --trainsize 0 \
     --valsize 500 \
+    --testsize 500 \
     --maxremove 0.9"
 
 CMD+=" ${@}"

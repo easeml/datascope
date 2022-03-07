@@ -5,7 +5,8 @@ CMD="python -m experiments run \
     --dataset UCI \
     --method random shapley-knn-single \
     --trainsize 0 \
-    --valsize 500"
+    --valsize 500 \
+    --testsize 500"
 
 CMD+=" ${@}"
 
