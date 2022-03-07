@@ -30,7 +30,7 @@ from .datascope_scenario import (
     UtilityType,
 )
 from .base import attribute
-from ..dataset import Dataset, DEFAULT_TRAINSIZE, DEFAULT_VALSIZE
+from ..dataset import Dataset, DEFAULT_TRAINSIZE, DEFAULT_VALSIZE, DEFAULT_TESTSIZE
 from ..pipelines import Pipeline, ModelType, get_model
 
 
@@ -71,6 +71,7 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
         seed: int = DEFAULT_SEED,
         trainsize: int = DEFAULT_TRAINSIZE,
         valsize: int = DEFAULT_VALSIZE,
+        testsize: int = DEFAULT_TESTSIZE,
         checkpoints: int = DEFAULT_CHECKPOINTS,
         evolution: Optional[pd.DataFrame] = None,
         importance_compute_time: Optional[float] = None,
@@ -86,6 +87,7 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
             seed=seed,
             trainsize=trainsize,
             valsize=valsize,
+            testsize=testsize,
             checkpoints=checkpoints,
             evolution=evolution,
             importance_compute_time=importance_compute_time,
@@ -126,14 +128,13 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
         result = True
         if "method" in attributes:
             result = result and not RepairMethod.is_tmc_nonpipe(attributes["method"])
-        if "discardgoal" in attributes:
-            if attributes["discardgoal"] == DiscardGoal.FAIRNESS:
-                if "dataset" in attributes:
-                    dataset = Dataset.datasets[attributes["dataset"]]()
-                    result = result and isinstance(dataset, BiasedMixin)
-            elif attributes["discardgoal"] == DiscardGoal.SUMMARIZATION:
-                if "utility" in attributes:
-                    result = result and attributes["utility"] == UtilityType.ACCURACY
+        if "discardgoal" not in attributes or attributes["discardgoal"] == DiscardGoal.FAIRNESS:
+            if "dataset" in attributes:
+                dataset = Dataset.datasets[attributes["dataset"]]()
+                result = result and isinstance(dataset, BiasedMixin)
+        elif "discardgoal" in attributes and attributes["discardgoal"] == DiscardGoal.SUMMARIZATION:
+            if "utility" in attributes:
+                result = result and attributes["utility"] == UtilityType.ACCURACY
 
         return result and super().is_valid_config(**attributes)
 
@@ -141,20 +142,28 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
 
         # Load dataset.
         seed = self._seed + self._iteration
-        dataset = Dataset.datasets[self.dataset](trainsize=self.trainsize, valsize=self.valsize, seed=seed)
+        dataset = Dataset.datasets[self.dataset](
+            trainsize=self.trainsize, valsize=self.valsize, testsize=self.testsize, seed=seed
+        )
         if self.discardgoal == DiscardGoal.FAIRNESS:
             assert isinstance(dataset, BiasedMixin)
             dataset.load_biased(train_bias=self._trainbias, val_bias=self._valbias)
         else:
             dataset.load()
         self.logger.debug(
-            "Dataset '%s' loaded (trainsize=%d, valsize=%d).", self.dataset, dataset.trainsize, dataset.valsize
+            "Dataset '%s' loaded (trainsize=%d, valsize=%d, testsize=%d).",
+            self.dataset,
+            dataset.trainsize,
+            dataset.valsize,
+            dataset.testsize,
         )
 
         # Compute sensitive feature groupings.
-        groupings: Optional[np.ndarray] = None
+        groupings_val: Optional[np.ndarray] = None
+        groupings_test: Optional[np.ndarray] = None
         if isinstance(dataset, BiasedMixin):
-            groupings = compute_groupings(dataset.X_val, dataset.sensitive_feature)
+            groupings_val = compute_groupings(dataset.X_val, dataset.sensitive_feature)
+            groupings_test = compute_groupings(dataset.X_test, dataset.sensitive_feature)
 
         # Load the pipeline and process the data.
         pipeline = Pipeline.pipelines[self.pipeline].construct(dataset)
@@ -190,7 +199,7 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
         if self.discardgoal == DiscardGoal.FAIRNESS:
             assert isinstance(dataset, BiasedMixin)
             eqodds_utility = SklearnModelEqualizedOddsDifference(
-                model, sensitive_features=dataset.sensitive_feature, groupings=groupings
+                model, sensitive_features=dataset.sensitive_feature, groupings=groupings_test
             )
 
         # target_model = model if RepairMethod.is_tmc_nonpipe(self.method) else pipeline
@@ -200,14 +209,14 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
         elif self.utility == UtilityType.EQODDS:
             assert self.discardgoal == DiscardGoal.FAIRNESS and isinstance(dataset, BiasedMixin)
             target_utility = SklearnModelEqualizedOddsDifference(
-                model, sensitive_features=dataset.sensitive_feature, groupings=groupings
+                model, sensitive_features=dataset.sensitive_feature, groupings=groupings_val
             )
         elif self.utility == UtilityType.EQODDS_AND_ACCURACY:
             assert self.discardgoal == DiscardGoal.FAIRNESS and isinstance(dataset, BiasedMixin)
             target_utility = JointUtility(
                 SklearnModelAccuracy(model),
                 SklearnModelEqualizedOddsDifference(
-                    model, sensitive_features=dataset.sensitive_feature, groupings=groupings
+                    model, sensitive_features=dataset.sensitive_feature, groupings=groupings_val
                 ),
                 weights=[-0.5, 0.5],
             )
@@ -246,8 +255,8 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
         dataset_f = dataset.apply(pipeline)
         eqodds: Optional[float] = None
         if eqodds_utility is not None:
-            eqodds = eqodds_utility(dataset_f.X_train, dataset_f.y_train, dataset_f.X_val, dataset_f.y_val)
-        accuracy = accuracy_utility(dataset_f.X_train, dataset_f.y_train, dataset_f.X_val, dataset_f.y_val)
+            eqodds = eqodds_utility(dataset_f.X_train, dataset_f.y_train, dataset_f.X_test, dataset_f.y_test)
+        accuracy = accuracy_utility(dataset_f.X_train, dataset_f.y_train, dataset_f.X_test, dataset_f.y_test)
 
         # Update result table.
         dataset_bias = dataset.train_bias if isinstance(dataset, BiasedMixin) else None
@@ -303,11 +312,11 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
                 eqodds = eqodds_utility(
                     dataset_current_f.X_train,
                     dataset_current_f.y_train,
-                    dataset_current_f.X_val,
-                    dataset_current_f.y_val,
+                    dataset_current_f.X_test,
+                    dataset_current_f.y_test,
                 )
             accuracy = accuracy_utility(
-                dataset_current_f.X_train, dataset_current_f.y_train, dataset_current_f.X_val, dataset_current_f.y_val
+                dataset_current_f.X_train, dataset_current_f.y_train, dataset_current_f.X_test, dataset_current_f.y_test
             )
 
             # Update result table.

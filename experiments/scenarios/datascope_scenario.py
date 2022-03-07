@@ -6,7 +6,7 @@ from pandas import DataFrame
 from typing import Any, Optional, Dict
 
 from .base import Scenario, attribute, result
-from ..dataset import Dataset, DEFAULT_TRAINSIZE, DEFAULT_VALSIZE
+from ..dataset import Dataset, DEFAULT_TRAINSIZE, DEFAULT_VALSIZE, DEFAULT_TESTSIZE
 from ..pipelines import Pipeline, ModelType
 
 
@@ -152,6 +152,7 @@ class DatascopeScenario(Scenario):
         seed: int = DEFAULT_SEED,
         trainsize: int = DEFAULT_TRAINSIZE,
         valsize: int = DEFAULT_VALSIZE,
+        testsize: int = DEFAULT_TESTSIZE,
         timeout: int = DEFAULT_TIMEOUT,
         checkpoints: int = DEFAULT_CHECKPOINTS,
         providers: int = DEFAULT_PROVIDERS,
@@ -169,6 +170,7 @@ class DatascopeScenario(Scenario):
         self._seed = seed
         self._trainsize = trainsize
         self._valsize = valsize
+        self._testsize = testsize
         self._timeout = timeout
         self._checkpoints = checkpoints
         self._providers = providers
@@ -207,13 +209,18 @@ class DatascopeScenario(Scenario):
 
     @attribute
     def trainsize(self) -> int:
-        """The size of the training dataset to use. The value 0 means maximal value."""
+        """The size of the training dataset to use for model training. The value 0 means maximal value."""
         return self._trainsize
 
     @attribute
     def valsize(self) -> int:
-        """The size of the validation dataset to use. The value 0 means maximal value."""
+        """The size of the validation dataset to use for importance computation. The value 0 means maximal value."""
         return self._valsize
+
+    @attribute
+    def testsize(self) -> int:
+        """The size of the test dataset to use for final evaluation. The value 0 means maximal value."""
+        return self._testsize
 
     @attribute
     def timeout(self) -> int:

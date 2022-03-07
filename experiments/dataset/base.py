@@ -32,6 +32,7 @@ class DatasetModality(str, Enum):
 
 DEFAULT_TRAINSIZE = 1000
 DEFAULT_VALSIZE = 100
+DEFAULT_TESTSIZE = 100
 DEFAULT_NUMFEATURES = 10
 # DEFAULT_TRAINSIZE = 100
 # DEFAULT_VALSIZE = 20
@@ -46,10 +47,16 @@ class Dataset(ABC):
     _modality: DatasetModality
 
     def __init__(
-        self, trainsize: int = DEFAULT_TRAINSIZE, valsize: int = DEFAULT_VALSIZE, seed: int = DEFAULT_SEED, **kwargs
+        self,
+        trainsize: int = DEFAULT_TRAINSIZE,
+        valsize: int = DEFAULT_VALSIZE,
+        testsize: int = DEFAULT_TESTSIZE,
+        seed: int = DEFAULT_SEED,
+        **kwargs
     ) -> None:
         self._trainsize = trainsize
         self._valsize = valsize
+        self._testsize = testsize
         self._seed = seed
         self._loaded: bool = False
         self._X_train: Optional[ndarray] = None
@@ -88,6 +95,10 @@ class Dataset(ABC):
     @property
     def valsize(self) -> int:
         return self._valsize
+
+    @property
+    def testsize(self) -> int:
+        return self._testsize
 
     @property
     def X_train(self) -> ndarray:
@@ -130,6 +141,26 @@ class Dataset(ABC):
         self._y_val = value
 
     @property
+    def X_test(self) -> ndarray:
+        if self._X_test is None:
+            raise ValueError("The dataset is not loaded yet.")
+        return self._X_test
+
+    @X_test.setter
+    def X_test(self, value: ndarray):
+        self._X_test = value
+
+    @property
+    def y_test(self) -> ndarray:
+        if self._y_test is None:
+            raise ValueError("The dataset is not loaded yet.")
+        return self._y_test
+
+    @y_test.setter
+    def y_test(self, value: ndarray):
+        self._y_test = value
+
+    @property
     def provenance(self) -> ndarray:
         if self._provenance is None:
             raise ValueError("The dataset is not loaded yet.")
@@ -153,6 +184,7 @@ class Dataset(ABC):
         pipeline = deepcopy(pipeline)
         result._X_train = pipeline.fit_transform(result._X_train, result._y_train)
         result._X_val = pipeline.transform(result._X_val)
+        result._X_test = pipeline.transform(result._X_test)
         return result
 
     # def corrupt_labels(self, probabilities: Union[float, Sequence[float]]) -> "Dataset":
@@ -178,11 +210,12 @@ class RandomDataset(Dataset, modality=DatasetModality.TABULAR, id="random"):
         self,
         trainsize: int = DEFAULT_TRAINSIZE,
         valsize: int = DEFAULT_VALSIZE,
+        testsize: int = DEFAULT_TESTSIZE,
         seed: int = DEFAULT_SEED,
         numfeatures: int = DEFAULT_NUMFEATURES,
         **kwargs
     ) -> None:
-        super().__init__(trainsize, valsize, seed, **kwargs)
+        super().__init__(trainsize=trainsize, valsize=valsize, testsize=testsize, seed=seed, **kwargs)
         self._numfeatures = numfeatures
 
     @property
@@ -192,7 +225,7 @@ class RandomDataset(Dataset, modality=DatasetModality.TABULAR, id="random"):
     def load(self) -> None:
 
         X, y = make_classification(
-            n_samples=self.trainsize + self.valsize,
+            n_samples=self.trainsize + self.valsize + self.testsize,
             n_features=self.numfeatures,
             n_redundant=0,
             n_informative=self.numfeatures,
@@ -203,20 +236,29 @@ class RandomDataset(Dataset, modality=DatasetModality.TABULAR, id="random"):
         )
 
         self._X_train, self._X_val, self._y_train, self._y_val = train_test_split(
-            X, y, train_size=self.trainsize, test_size=self.valsize, random_state=self._seed
+            X, y, train_size=self.trainsize, test_size=self.valsize + self.testsize, random_state=self._seed
+        )
+        self._X_val, self._X_test, self._y_val, self._y_test = train_test_split(
+            self._X_val, self._y_val, train_size=self.valsize, test_size=self.testsize, random_state=self._seed
         )
         self._loaded = True
         assert self._X_train is not None and self._X_val is not None
         self._trainsize = self._X_train.shape[0]
         self._valsize = self._X_val.shape[0]
+        self._testsize = self._X_test.shape[0]
         self._construct_provenance()
 
 
 class DirtyLabelDataset(Dataset):
     def __init__(
-        self, trainsize: int = DEFAULT_TRAINSIZE, valsize: int = DEFAULT_VALSIZE, seed: int = DEFAULT_SEED, **kwargs
+        self,
+        trainsize: int = DEFAULT_TRAINSIZE,
+        valsize: int = DEFAULT_VALSIZE,
+        testsize: int = DEFAULT_TESTSIZE,
+        seed: int = DEFAULT_SEED,
+        **kwargs
     ) -> None:
-        super().__init__(trainsize, valsize, seed, **kwargs)
+        super().__init__(trainsize=trainsize, valsize=valsize, testsize=testsize, seed=seed, **kwargs)
         self._y_train_dirty: Optional[ndarray] = None
         self._units_dirty: Optional[ndarray] = None
         self._groupings: Optional[ndarray] = None
@@ -292,40 +334,103 @@ class BiasedMixin:
         raise NotImplementedError()
 
 
-def balance_train_and_valsize(trainsize: int, valsize: int, totsize: int) -> Tuple[int, int, int]:
-    if trainsize > 0:
-        if valsize > 0:
-            if trainsize + valsize <= totsize:
-                totsize = trainsize + valsize
-            else:
-                trainsize = round(totsize * trainsize / (trainsize + valsize))
-                valsize = totsize - trainsize
+def balance_train_val_and_testsize(
+    trainsize: int, valsize: int, testsize: int, totsize: int
+) -> Tuple[int, int, int, int]:
+
+    assert trainsize >= 0
+    assert valsize >= 0
+    assert testsize >= 0
+
+    # If any of the sizes exceeds total available size, raise an exception.
+    if trainsize > totsize:
+        raise ValueError("Requested trainsize %d more than available data %d." % (trainsize, totsize))
+    if valsize > totsize:
+        raise ValueError("Requested valsize %d more than available data %d." % (valsize, totsize))
+    if testsize > totsize:
+        raise ValueError("Requested testsize %d more than available data %d." % (testsize, totsize))
+
+    # If all sizes are set to zero then we distribute the total size according to fixed ratios.
+    if trainsize == 0 and valsize == 0 and testsize == 0:
+        trainsize = round(0.7 * totsize)
+        valsize = round(0.15 * totsize)
+        testsize = totsize - trainsize - valsize
+    elif trainsize > 0 and valsize > 0 and testsize > 0:
+        # If all sizes are set, then we just need to ensure that they do not take up more than the total available size.
+        if trainsize + valsize + testsize > totsize:
+            trainvaltestsize = trainsize + valsize + testsize
+            trainsize = round(totsize * trainsize / trainvaltestsize)
+            valsize = round(totsize * valsize / trainvaltestsize)
+            testsize = totsize - trainsize - valsize
         else:
-            if trainsize >= totsize:
-                raise ValueError("Requested trainsize %d more than available data %d." % (trainsize, totsize))
-            else:
-                valsize = totsize - trainsize
+            totsize = trainsize + valsize + testsize
     else:
-        if valsize > 0:
-            if valsize >= totsize:
-                raise ValueError("Requested valsize %d more than available data %d." % (valsize, totsize))
-            else:
-                trainsize = totsize - valsize
-        else:
-            trainsize = round(0.75 * totsize)
-            valsize = totsize - trainsize
-    return trainsize, valsize, totsize
+        # If some sizes are set and others are zero then we compute the
+        # remainder and distribute it among the unset ones.
+        fixedsize = trainsize + valsize + testsize
+        remainder = totsize - fixedsize
+        if remainder < 0:
+            raise ValueError("Requested %d data examples, more than %d available data examples." % (fixedsize, totsize))
+
+        # Establish ratios of unassigned sizes and normalize them.
+        trainratio = 0.0 if trainsize > 0 else 0.7
+        valratio = 0.0 if valsize > 0 else 0.15
+        testratio = 0.0 if testsize > 0 else 0.15
+        totratio = trainratio + valratio + testratio
+        trainratio /= totratio
+        valratio /= totratio
+        testratio /= totratio
+
+        # Use normalized ratios to distribute the remainder size.
+        trainsize = trainsize if trainsize > 0 else round(remainder * trainratio)
+        valsize = valsize if valsize > 0 else round(remainder * valratio)
+        testsize = trainsize if trainsize > 0 else totsize - trainsize - valsize
+
+    return trainsize, valsize, testsize, totsize
+
+    # if trainsize > 0:
+    #     if valsize > 0:
+    #         if testsize > 0:
+    #             if trainsize + valsize + testsize <= totsize:
+    #                 totsize = trainsize + valsize + testsize
+    #             else:
+    #                 trainvaltestsize = trainsize + valsize + testsize
+    #                 trainsize = round(totsize * trainsize / trainvaltestsize)
+    #                 valsize = round(totsize * valsize / trainvaltestsize)
+    #                 testsize = totsize - trainsize - valsize
+    #         else:
+    #             if trainsize + valsize <= totsize:
+    #                 totsize = trainsize + valsize
+    #             else:
+    #                 trainsize = round(totsize * trainsize / (trainsize + valsize))
+    #                 valsize = totsize - trainsize
+    #     else:
+    #         if trainsize >= totsize:
+    #             raise ValueError("Requested trainsize %d more than available data %d." % (trainsize, totsize))
+    #         else:
+    #             valsize = totsize - trainsize
+    # else:
+    #     if valsize > 0:
+    #         if valsize >= totsize:
+    #             raise ValueError("Requested valsize %d more than available data %d." % (valsize, totsize))
+    #         else:
+    #             trainsize = totsize - valsize
+    #     else:
+    #         trainsize = round(0.75 * totsize)
+    #         valsize = totsize - trainsize
+    # return trainsize, valsize, totsize
 
 
-def reduce_train_and_valsize(
-    trainsize: int, valsize: int, totsize: int, requested_size: int, available_size: int
-) -> Tuple[int, int, int]:
+def reduce_train_val_and_testsize(
+    trainsize: int, valsize: int, totsize: int, testsize: int, requested_size: int, available_size: int
+) -> Tuple[int, int, int, int]:
     if requested_size > available_size:
         reduction = float(available_size) / requested_size
         trainsize = floor(trainsize * reduction)
         valsize = floor(valsize * reduction)
-        totsize = trainsize + valsize
-    return trainsize, valsize, totsize
+        testsize = floor(testsize * reduction)
+        totsize = trainsize + valsize + testsize
+    return trainsize, valsize, testsize, totsize
 
 
 UCI_DEFAULT_SENSITIVE_FEATURE = 9
@@ -345,11 +450,12 @@ class UCI(DirtyLabelDataset, BiasedMixin, modality=DatasetModality.TABULAR):
         self,
         trainsize: int = DEFAULT_TRAINSIZE,
         valsize: int = DEFAULT_VALSIZE,
+        testsize: int = DEFAULT_TESTSIZE,
         seed: int = DEFAULT_SEED,
         sensitive_feature: int = UCI_DEFAULT_SENSITIVE_FEATURE,
         **kwargs
     ) -> None:
-        super().__init__(trainsize=trainsize, valsize=valsize, seed=seed, **kwargs)
+        super().__init__(trainsize=trainsize, valsize=valsize, testsize=testsize, seed=seed, **kwargs)
         self._sensitive_feature = sensitive_feature
 
     @property
@@ -368,15 +474,39 @@ class UCI(DirtyLabelDataset, BiasedMixin, modality=DatasetModality.TABULAR):
             raise ValueError("Dataset not loaded yet.")
         return compute_bias(self._X_val, self._y_val, self._sensitive_feature)
 
+    @property
+    def test_bias(self) -> float:
+        if self._X_test is None or self._y_test is None:
+            raise ValueError("Dataset not loaded yet.")
+        return compute_bias(self._X_test, self._y_test, self._sensitive_feature)
+
     def load(self) -> None:
         data = fetch_openml(data_id=1590, as_frame=False)
         X = np.nan_to_num(data.data)  # TODO: Maybe leave nan values.
         y = np.array(data.target == ">50K", dtype=int)
+
+        # # Make dataset labels balanced.
+        # idx_l0 = np.nonzero(y == 0)[0]
+        # idx_l1 = np.nonzero(y == 1)[0]
+        # if len(idx_l0) > len(idx_l1):
+        #     idx_l0 = idx_l0[: len(idx_l1)]
+        # else:
+        #     idx_l1 = idx_l1[: len(idx_l0)]
+        # idx = np.concatenate([idx_l0, idx_l1])
+        # X = X[idx]
+        # y = y[idx]
+
         trainsize = self.trainsize if self.trainsize > 0 else None
         valsize = self.valsize if self.valsize > 0 else None
+        testsize = self.testsize if self.testsize > 0 else None
+        valtestsize = valsize + testsize if valsize is not None and testsize is not None else None
         self._X_train, self._X_val, self._y_train, self._y_val = train_test_split(
-            X, y, train_size=trainsize, test_size=valsize, random_state=self._seed
+            X, y, train_size=trainsize, test_size=valtestsize, random_state=self._seed
         )
+        self._X_val, self._X_test, self._y_val, self._y_test = train_test_split(
+            self._X_val, self._y_val, train_size=valsize, test_size=testsize, random_state=self._seed
+        )
+
         self._loaded = True
         assert self._X_train is not None and self._X_val is not None
         self._trainsize = self._X_train.shape[0]
@@ -387,6 +517,7 @@ class UCI(DirtyLabelDataset, BiasedMixin, modality=DatasetModality.TABULAR):
         self,
         train_bias: float,
         val_bias: float = 0.0,
+        test_bias: float = 0.0,
     ) -> None:
         assert train_bias > -1.0 and train_bias < 1.0
         assert val_bias > -1.0 and val_bias < 1.0
@@ -400,47 +531,63 @@ class UCI(DirtyLabelDataset, BiasedMixin, modality=DatasetModality.TABULAR):
             raise ValueError("The specified sensitive feature must be a binary feature.")
         train_bias = train_bias * 0.5 + 0.5
         val_bias = val_bias * 0.5 + 0.5
+        test_bias = test_bias * 0.5 + 0.5
         idx_f0_l0 = np.nonzero((X[:, sf] == 0) & (y == 0))[0]
         idx_f0_l1 = np.nonzero((X[:, sf] == 0) & (y == 1))[0]
         idx_f1_l0 = np.nonzero((X[:, sf] == 1) & (y == 0))[0]
         idx_f1_l1 = np.nonzero((X[:, sf] == 1) & (y == 1))[0]
         indices = [idx_f0_l0, idx_f0_l1, idx_f1_l0, idx_f1_l1]
 
-        trainsize, valsize, totsize = balance_train_and_valsize(self.trainsize, self.valsize, n)
+        trainsize, valsize, testsize, totsize = balance_train_val_and_testsize(
+            self.trainsize, self.valsize, self.testsize, n
+        )
         available_sizes = [idx.shape[0] for idx in indices]
         requested_sizes = [
-            (0.5 * train_bias, 0.5 * val_bias),
-            (0.5 * (1 - train_bias), 0.5 * (1 - val_bias)),
-            (0.5 * (1 - train_bias), 0.5 * (1 - val_bias)),
-            (0.5 * train_bias, 0.5 * val_bias),
+            (0.5 * train_bias, 0.5 * val_bias, 0.5 * test_bias),
+            (0.5 * (1 - train_bias), 0.5 * (1 - val_bias), 0.5 * (1 - test_bias)),
+            (0.5 * (1 - train_bias), 0.5 * (1 - val_bias), 0.5 * (1 - test_bias)),
+            (0.5 * train_bias, 0.5 * val_bias, 0.5 * test_bias),
         ]
-        for available_size, (requested_trainsize, requested_valsize) in zip(available_sizes, requested_sizes):
-            requested_size = floor(requested_trainsize * trainsize) + floor(requested_valsize * valsize)
-            trainsize, valsize, totsize = reduce_train_and_valsize(
-                trainsize, valsize, totsize, requested_size, available_size
+        for available_size, (requested_trainsize, requested_valsize, requested_testsize) in zip(
+            available_sizes, requested_sizes
+        ):
+            requested_size = (
+                floor(requested_trainsize * trainsize)
+                + floor(requested_valsize * valsize)
+                + floor(requested_testsize * testsize)
+            )
+            trainsize, valsize, testsize, totsize = reduce_train_val_and_testsize(
+                trainsize, valsize, testsize, totsize, requested_size, available_size
             )
 
         random = np.random.RandomState(seed=self._seed)
-        idx_train, idx_val = np.array([], dtype=int), np.array([], dtype=int)
+        idx_train, idx_val, idx_test = np.array([], dtype=int), np.array([], dtype=int), np.array([], dtype=int)
         for i, idx in enumerate(indices):
             random.shuffle(idx)
             if i < 3:
                 trainslice = floor(requested_sizes[i][0] * trainsize)
                 valslice = floor(requested_sizes[i][1] * valsize)
+                testslice = floor(requested_sizes[i][2] * testsize)
             else:
                 trainslice = trainsize - idx_train.shape[0]
                 valslice = valsize - idx_val.shape[0]
-            totslice = trainslice + valslice
+                testslice = testsize - idx_test.shape[0]
+            trainvalslice = trainslice + valslice
+            totslice = trainslice + valslice + testslice
             idx_train = np.concatenate((idx_train, idx[:trainslice]))
-            idx_val = np.concatenate((idx_val, idx[trainslice:totslice]))
+            idx_val = np.concatenate((idx_val, idx[trainslice:trainvalslice]))
+            idx_test = np.concatenate((idx_test, idx[trainvalslice:totslice]))
         random.shuffle(idx_train)
         random.shuffle(idx_val)
+        random.shuffle(idx_test)
 
         self._X_train, self._y_train = X[idx_train], y[idx_train]
         self._X_val, self._y_val = X[idx_val], y[idx_val]
-        assert self._X_train is not None and self._X_val is not None
+        self._X_test, self._y_test = X[idx_test], y[idx_test]
+        assert self._X_train is not None and self._X_val is not None and self._X_test is not None
         self._trainsize = self._X_train.shape[0]
         self._valsize = self._X_val.shape[0]
+        self._testsize = self._X_test.shape[0]
         self._construct_provenance()
 
 
@@ -449,12 +596,13 @@ class FashionMNIST(DirtyLabelDataset, modality=DatasetModality.IMAGE):
         self,
         trainsize: int = DEFAULT_TRAINSIZE,
         valsize: int = DEFAULT_VALSIZE,
+        testsize: int = DEFAULT_TESTSIZE,
         seed: int = DEFAULT_SEED,
         classes: Sequence[int] = DEFAULT_CLASSES,
         **kwargs
     ) -> None:
         self._classes = classes
-        super().__init__(trainsize, valsize, seed, **kwargs)
+        super().__init__(trainsize=trainsize, valsize=valsize, testsize=testsize, seed=seed, **kwargs)
 
     def classes(self) -> Sequence[int]:
         return self._classes
@@ -464,34 +612,41 @@ class FashionMNIST(DirtyLabelDataset, modality=DatasetModality.IMAGE):
         assert isinstance(data, datasets.dataset_dict.DatasetDict)
 
         # Select training and test validation examples based on the provided classes.
-        train, val = data["train"], data["test"]
-        assert isinstance(train, datasets.arrow_dataset.Dataset) and isinstance(val, datasets.arrow_dataset.Dataset)
-        train_idx = np.where(np.isin(np.array(train["label"]), self._classes))[0]
-        val_idx = np.where(np.isin(np.array(val["label"]), self._classes))[0]
+        train, test = data["train"], data["test"]
+        assert isinstance(train, datasets.arrow_dataset.Dataset) and isinstance(test, datasets.arrow_dataset.Dataset)
+        train_val_idx = np.where(np.isin(np.array(train["label"]), self._classes))[0]
+        test_idx = np.where(np.isin(np.array(test["label"]), self._classes))[0]
 
-        # Produce random samples of the training and validation sets based on the provided set sizes.
-        random = np.random.RandomState(seed=self._seed)
-        if self.trainsize > 0:
-            train_idx = random.choice(train_idx, size=self.trainsize, replace=False)
-        if self.valsize > 0:
-            val_idx = random.choice(val_idx, size=self.valsize, replace=False)
+        # Produce random samples of the training, validation and test sets based on the provided set sizes.
+        trainsize = self.trainsize if self.trainsize > 0 else None
+        valsize = self.valsize if self.valsize > 0 else None
+        train_idx, val_idx = train_test_split(
+            train_val_idx, train_size=trainsize, test_size=valsize, random_state=self._seed
+        )
+        if self.testsize > 0:
+            random = np.random.RandomState(seed=self._seed)
+            test_idx = random.choice(test_idx, size=self.testsize, replace=False)
         train_subset = train.select(train_idx)
-        val_subset = val.select(val_idx)
+        val_subset = train.select(val_idx)
+        test_subset = test.select(test_idx)
 
         # Extract features.
         self._X_train = np.stack(train_subset["image"])
         self._X_val = np.stack(val_subset["image"])
+        self._X_test = np.stack(test_subset["image"])
         # TODO: Handle reshaping.
 
         # Encode labels.
         encoder = LabelEncoder()
         self._y_train = encoder.fit_transform(np.array(train_subset["label"], dtype=int))
         self._y_val = encoder.transform(np.array(val_subset["label"], dtype=int))
+        self._y_test = encoder.transform(np.array(test_subset["label"], dtype=int))
 
         self._loaded = True
-        assert self._X_train is not None and self._X_val is not None
+        assert self._X_train is not None and self._X_val is not None and self._X_test is not None
         self._trainsize = self._X_train.shape[0]
         self._valsize = self._X_val.shape[0]
+        self._testsize = self._X_test.shape[0]
         self._construct_provenance()
 
 
@@ -499,16 +654,24 @@ class TwentyNewsGroups(DirtyLabelDataset, modality=DatasetModality.TEXT):
     def load(self) -> None:
         categories = ["comp.graphics", "sci.med"]
         train = fetch_20newsgroups(subset="train", categories=categories, shuffle=True, random_state=self._seed)
-        val = fetch_20newsgroups(subset="test", categories=categories, shuffle=True, random_state=self._seed)
+        test = fetch_20newsgroups(subset="test", categories=categories, shuffle=True, random_state=self._seed)
 
+        # Load the train and validaiton data by splitting the original training dataset.
+        trainsize = self.trainsize if self.trainsize > 0 else None
+        valsize = self.valsize if self.valsize > 0 else None
         self._X_train, self._y_train = np.array(train.data), np.array(train.target)
-        if self.trainsize > 0:
-            self._X_train, self._y_train = self._X_train[: self.trainsize], self._y_train[: self.trainsize]
-        self._X_val, self._y_val = np.array(val.data), np.array(val.target)
-        if self.valsize > 0:
-            self._X_val, self._y_val = self._X_val[: self.valsize], self._y_val[: self.valsize]
+        self._X_train, self._X_val, self._y_train, self._y_val = train_test_split(
+            self._X_train, self._y_train, train_size=trainsize, test_size=valsize, random_state=self._seed
+        )
+
+        # Load the test data.
+        self._X_test, self._y_test = np.array(test.data), np.array(test.target)
+        if self.testsize > 0:
+            self._X_test, self._y_test = self._X_test[: self.testsize], self._y_test[: self.testsize]
         self._loaded = True
+
         assert self._X_train is not None and self._X_val is not None
         self._trainsize = self._X_train.shape[0]
         self._valsize = self._X_val.shape[0]
+        self._testsize = self._X_test.shape[0]
         self._construct_provenance()

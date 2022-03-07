@@ -22,7 +22,7 @@ from .datascope_scenario import (
     DEFAULT_MODEL,
     UtilityType,
 )
-from ..dataset import Dataset, DEFAULT_TRAINSIZE, DEFAULT_VALSIZE
+from ..dataset import Dataset, DEFAULT_TRAINSIZE, DEFAULT_VALSIZE, DEFAULT_TESTSIZE
 from ..pipelines import Pipeline, ModelType, get_model
 
 
@@ -49,6 +49,7 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
         seed: int = DEFAULT_SEED,
         trainsize: int = DEFAULT_TRAINSIZE,
         valsize: int = DEFAULT_VALSIZE,
+        testsize: int = DEFAULT_TESTSIZE,
         checkpoints: int = DEFAULT_CHECKPOINTS,
         providers: int = DEFAULT_PROVIDERS,
         evolution: Optional[pd.DataFrame] = None,
@@ -66,6 +67,7 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
             seed=seed,
             trainsize=trainsize,
             valsize=valsize,
+            testsize=testsize,
             checkpoints=checkpoints,
             providers=providers,
             evolution=evolution,
@@ -100,11 +102,17 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
 
         # Load dataset.
         seed = self._seed + self._iteration
-        dataset = Dataset.datasets[self.dataset](trainsize=self.trainsize, valsize=self.valsize, seed=seed)
+        dataset = Dataset.datasets[self.dataset](
+            trainsize=self.trainsize, valsize=self.valsize, testsize=self.testsize, seed=seed
+        )
         assert isinstance(dataset, DirtyLabelDataset)
         dataset.load()
         self.logger.debug(
-            "Dataset '%s' loaded (trainsize=%d, valsize=%d).", self.dataset, dataset.trainsize, dataset.valsize
+            "Dataset '%s' loaded (trainsize=%d, valsize=%d, testsize=%d).",
+            self.dataset,
+            dataset.trainsize,
+            dataset.valsize,
+            dataset.testsize,
         )
 
         # Create the dirty dataset and apply the data corruption.
@@ -196,7 +204,7 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
         # assert y_val is not None
         dataset_f = dataset.apply(pipeline)
         dataset_dirty_f = dataset_dirty.apply(pipeline)
-        accuracy = utility(dataset_dirty_f.X_train, dataset_dirty_f.y_train, dataset_f.X_val, dataset_f.y_val)
+        accuracy = utility(dataset_dirty_f.X_train, dataset_dirty_f.y_train, dataset_f.X_test, dataset_f.y_test)
 
         # Update result table.
         evolution = [[0.0, accuracy, accuracy, 0, 0.0, 0, 0.0]]
@@ -230,7 +238,7 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
             dataset_dirty.units_dirty[target_units] = False
 
             # Run the model.
-            accuracy = utility(dataset_dirty_f.X_train, dataset_dirty.y_train, dataset_f.X_val, dataset_f.y_val)
+            accuracy = utility(dataset_dirty_f.X_train, dataset_dirty.y_train, dataset_f.X_test, dataset_f.y_test)
 
             # self.logger.debug("Dirty units: %.2f", np.sum(dataset_dirty.units_dirty))
             # self.logger.debug("Same labels: %.2f", np.sum(dataset_dirty.y_train == dataset.y_train))
