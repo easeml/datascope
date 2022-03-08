@@ -657,9 +657,12 @@ class TwentyNewsGroups(DirtyLabelDataset, modality=DatasetModality.TEXT):
         test = fetch_20newsgroups(subset="test", categories=categories, shuffle=True, random_state=self._seed)
 
         # Load the train and validaiton data by splitting the original training dataset.
+        self._X_train, self._y_train = np.array(train.data), np.array(train.target)
         trainsize = self.trainsize if self.trainsize > 0 else None
         valsize = self.valsize if self.valsize > 0 else None
-        self._X_train, self._y_train = np.array(train.data), np.array(train.target)
+        totsize = self._X_train.shape[0]
+        if trainsize is not None and valsize is not None and trainsize + valsize > totsize:
+            valsize = totsize - trainsize
         self._X_train, self._X_val, self._y_train, self._y_val = train_test_split(
             self._X_train, self._y_train, train_size=trainsize, test_size=valsize, random_state=self._seed
         )
