@@ -79,7 +79,7 @@ class LogScalerPipeline(Pipeline, id="log-scaler", summary="Logarithmic Scaler",
     @classmethod
     def construct(cls: Type["LogScalerPipeline"], dataset: Dataset) -> "LogScalerPipeline":
         def log1p(x):
-            return np.log1p(x)
+            return np.log1p(np.abs(x))
 
         ops = [("log", FunctionTransformer(log1p)), ("scaler", StandardScaler())]
         return LogScalerPipeline(ops)

@@ -133,6 +133,8 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
                 dataset = Dataset.datasets[attributes["dataset"]]()
                 result = result and isinstance(dataset, BiasedMixin)
         elif "discardgoal" in attributes and attributes["discardgoal"] == DiscardGoal.SUMMARIZATION:
+            if "dataset" in attributes:
+                result = result and (attributes["dataset"] != "random")
             if "utility" in attributes:
                 result = result and attributes["utility"] == UtilityType.ACCURACY
 
@@ -205,7 +207,8 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
         # target_model = model if RepairMethod.is_tmc_nonpipe(self.method) else pipeline
         target_utility: Utility
         if self.utility == UtilityType.ACCURACY:
-            target_utility = JointUtility(SklearnModelAccuracy(model), weights=[-1.0])
+            # target_utility = JointUtility(SklearnModelAccuracy(model), weights=[+1.0])
+            target_utility = SklearnModelAccuracy(model)
         elif self.utility == UtilityType.EQODDS:
             assert self.discardgoal == DiscardGoal.FAIRNESS and isinstance(dataset, BiasedMixin)
             target_utility = SklearnModelEqualizedOddsDifference(
@@ -266,7 +269,9 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
 
         # Set up progress bar.
         checkpoints = self.checkpoints if self.checkpoints > 0 and self.checkpoints < n_units else n_units
-        n_units_per_checkpoint = round(self._maxremove * n_units / checkpoints)
+        n_units_per_checkpoint_f = self._maxremove * n_units / checkpoints
+        n_units_covered_f = 0.0
+        n_units_covered = 0
         if progress_bar:
             self.progress.start(total=checkpoints, desc="(id=%s) Repairs" % self.id)
         # pbar = None if not progress_bar else tqdm(total=dataset.trainsize, desc="%s Repairs" % str(self))
@@ -275,6 +280,11 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
         # discarded_units = np.zeros(dataset.trainsize, dtype=bool)
         dataset_current = deepcopy(dataset)
         for i in range(checkpoints):
+
+            # Update the count of units that were covered and that should be covered in this checkpoint.
+            n_units_covered_f += n_units_per_checkpoint_f
+            n_units_per_checkpoint = round(n_units_covered_f) - n_units_covered
+            n_units_covered += n_units_per_checkpoint
 
             # Determine indices of data examples that should be discarded given the unit with the highest importance.
             present_units = np.invert(discarded_units)
