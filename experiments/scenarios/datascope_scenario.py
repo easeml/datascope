@@ -130,7 +130,7 @@ KEYWORD_REPLACEMENTS = {
     "steps": "Repair Steps Taken",
     "steps_rel": "Relative Repair Steps Taken",
     "acc": "Accuracy",
-    "acc-eqodds": "Accuracy + Equalized Odds Difference",
+    "eqodds-acc": "Accuracy + Equalized Odds Difference",
 }
 
 DEFAULT_SEED = 1

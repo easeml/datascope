@@ -14,7 +14,7 @@ from pandas import DataFrame
 from ..scenarios import Report, Study, result, attribute
 
 
-COLORS = ["#2BBFD9", "#FAC802", "#8AB365", "#DF362A", "#C670D2", "#C58F21", "#00AC9B", "#DC0030"]
+COLORS = ["#2BBFD9", "#DF362A", "#FAC802", "#8AB365", "#C670D2", "#C58F21", "#00AC9B", "#DC0030"]
 LABELS = {
     "random": "Random",
     "shapley-tmc": "Shapley TMC",
@@ -96,10 +96,13 @@ def represent(x: Any):
 def filter(
     dataframe: DataFrame,
     attributes: Optional[Dict[str, Any]] = None,
+    resultfilter: Optional[str] = None,
 ) -> DataFrame:
     if attributes is None or len(attributes) == 0:
         return dataframe
     slicequery = " & ".join("%s == %s" % (str(k), represent(v)) for (k, v) in attributes.items())
+    if resultfilter is not None and len(resultfilter) > 0:
+        slicequery += " & " + resultfilter
     return dataframe.query(slicequery)
 
 
@@ -163,6 +166,7 @@ def lineplot(
     axes: Optional[plt.Axes] = None,
     fontsize: int = DEFAULT_FONTSIZE,
     annotations: bool = False,
+    dontcompare: Optional[str] = None,
 ) -> Optional[Figure]:
     if compare is None:
         compare = []
@@ -173,6 +177,8 @@ def lineplot(
             labelformat = targetval
     if keyword_replacements is None:
         keyword_replacements = {}
+    if dontcompare is None:
+        dontcompare = ""
 
     comparison = []
     dataframe = dataframe.copy()
@@ -191,6 +197,8 @@ def lineplot(
 
     labels: List[str] = []
     for i, comp in enumerate(comparison):
+        if ",".join(str(c) for c in comp) in dontcompare:
+            continue
         formatdict = dict(zip(compare, comp))
         if summary is not None:
             comp_summary = summary
@@ -203,6 +211,8 @@ def lineplot(
 
     centercol = VALUE_MEASURE_C[aggmode]
     for i, comp in enumerate(comparison):
+        if ",".join(str(c) for c in comp) in dontcompare:
+            continue
         cols: List[str] = dataframe[comp][targetval].columns.to_list()
         uppercol = next(c for c in cols if c.endswith("-h"))
         lowercol = next(c for c in cols if c.endswith("-l"))
@@ -229,6 +239,8 @@ def lineplot(
                     )
 
     for i, comp in enumerate(comparison):
+        if ",".join(str(c) for c in comp) in dontcompare:
+            continue
         axes.plot(dataframe[comp][targetval][centercol], color=COLORS[i], label=labels[i])
 
     # axes.set_xlim([dataframe.index.values[0], (dataframe.index.values[-1] - dataframe.index.values[0]) * 1.2])
@@ -272,6 +284,7 @@ def barplot(
     axes: Optional[plt.Axes] = None,
     fontsize: int = DEFAULT_FONTSIZE,
     annotations: bool = False,
+    dontcompare: Optional[str] = None,
 ) -> Optional[Figure]:
     if compare is None:
         compare = []
@@ -286,6 +299,8 @@ def barplot(
             labelformat = targetval
     if keyword_replacements is None:
         keyword_replacements = {}
+    if dontcompare is None:
+        dontcompare = ""
     figure: Optional[Figure] = None
     if axes is None:
         figure = plt.figure(figsize=(10, 8))
@@ -294,6 +309,8 @@ def barplot(
     # x, y, yerr = [], [], []
     summary = dictpivot(summary, compare=compare)
     for i, (comp, values) in enumerate(summary.items()):
+        if ",".join(str(c) for c in comp) in dontcompare:
+            continue
         centercol = VALUE_MEASURE_C[aggmode]
         formatdict = dict(zip(compare, comp))
         label = labelformat % formatdict
@@ -380,6 +397,7 @@ class AggregatePlot(Report, id="aggplot"):
         targetval: Optional[Union[List[str], str]] = None,
         compare: Optional[Union[List[str], str]] = None,
         summarize: Optional[Union[List[str], str]] = None,
+        resultfilter: Optional[str] = None,
         errdisplay: Optional[ErrorDisplay] = None,
         aggmode: Optional[AggregationMode] = None,
         summode: Optional[AggregationMode] = None,
@@ -388,6 +406,7 @@ class AggregatePlot(Report, id="aggplot"):
         xtickfmt: Optional[Union[List[TickFormat], TickFormat]] = None,
         ytickfmt: Optional[Union[List[TickFormat], TickFormat]] = None,
         annotations: Optional[Union[List[bool], bool]] = None,
+        dontcompare: Optional[Union[List[str], str]] = None,
         groupby: Optional[Dict[str, Any]] = None,
         labelformat: Optional[str] = None,
         plotsize: Optional[List[int]] = None,
@@ -405,6 +424,7 @@ class AggregatePlot(Report, id="aggplot"):
         self._targetval: List[str] = ensurelist(targetval, default=None)
         self._compare: List[str] = ensurelist(compare, default=None)
         self._summarize: List[str] = ensurelist(summarize, default=None)
+        self._resultfilter: Optional[str] = resultfilter
         self._errdisplay = errdisplay if errdisplay is not None else ErrorDisplay.SHADE
         self._aggmode = aggmode if aggmode is not None else AggregationMode.MEDIAN_PERC_95
         self._summode = summode if summode is not None else AggregationMode.MEDIAN_PERC_95
@@ -413,6 +433,7 @@ class AggregatePlot(Report, id="aggplot"):
         self._xtickfmt: List[TickFormat] = ensurelist(xtickfmt, default=TickFormat.DEFAULT, length=n_plots)
         self._ytickfmt: List[TickFormat] = ensurelist(ytickfmt, default=TickFormat.DEFAULT, length=n_plots)
         self._annotations: List[bool] = ensurelist(annotations, default=False, length=n_plots)
+        self._dontcompare: List[str] = ensurelist(dontcompare, default=NONE_SYMBOL, length=n_plots)
 
         self._labelformat = (
             labelformat
@@ -464,6 +485,11 @@ class AggregatePlot(Report, id="aggplot"):
         return self._summarize
 
     @attribute
+    def resultfilter(self) -> Optional[str]:
+        """A Pandas query that will be used to filter the results of the study."""
+        return self._resultfilter
+
+    @attribute
     def aggmode(self) -> AggregationMode:
         """The mode of aggregation to apply."""
         return self._aggmode
@@ -504,6 +530,11 @@ class AggregatePlot(Report, id="aggplot"):
         return self._annotations
 
     @attribute
+    def dontcompare(self) -> List[str]:
+        """Space-separated list of comma separated lists of values that should not be compared."""
+        return self._dontcompare
+
+    @attribute
     def labelformat(self) -> str:
         """
         The string used to format labels in figures. A wildcard such as %%(attrname)s of %%(attrname).2f can be used.
@@ -537,7 +568,7 @@ class AggregatePlot(Report, id="aggplot"):
         return self._titleformat
 
     def generate(self) -> None:
-        dataframe = filter(self.study.dataframe, attributes=self.groupby)
+        dataframe = filter(self.study.dataframe, attributes=self.groupby, resultfilter=self.resultfilter)
         keyword_replacements: Dict[str, str] = {}
         for scenario in self.study.scenarios:
             keyword_replacements.update(scenario.keyword_replacements)
@@ -600,6 +631,7 @@ class AggregatePlot(Report, id="aggplot"):
                         axes=axes[i],
                         fontsize=self.fontsize,
                         annotations=self._annotations[i],
+                        dontcompare=self._dontcompare[i],
                     )
                 else:
 
@@ -616,6 +648,7 @@ class AggregatePlot(Report, id="aggplot"):
                         axes=axes[i],
                         fontsize=self.fontsize,
                         annotations=self._annotations[i],
+                        dontcompare=self._dontcompare[i],
                     )
 
                 if self.xlogscale[i]:
