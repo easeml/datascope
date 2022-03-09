@@ -207,8 +207,8 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
         # target_model = model if RepairMethod.is_tmc_nonpipe(self.method) else pipeline
         target_utility: Utility
         if self.utility == UtilityType.ACCURACY:
-            # target_utility = JointUtility(SklearnModelAccuracy(model), weights=[+1.0])
-            target_utility = SklearnModelAccuracy(model)
+            target_utility = JointUtility(SklearnModelAccuracy(model), weights=[-1.0])
+            # target_utility = SklearnModelAccuracy(model)
         elif self.utility == UtilityType.EQODDS:
             assert self.discardgoal == DiscardGoal.FAIRNESS and isinstance(dataset, BiasedMixin)
             target_utility = SklearnModelEqualizedOddsDifference(
