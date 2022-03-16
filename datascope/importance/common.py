@@ -423,7 +423,7 @@ class SklearnModelEqualizedOddsDifference(SklearnModelUtility):
         X_test: ndarray,
         y_test: ndarray,
     ) -> ndarray:
-        return np.zeros_like(y_test)
+        return np.zeros_like(y_test, dtype=float)
 
 
 def get_dimensions(array, level=0):
