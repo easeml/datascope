@@ -63,6 +63,37 @@ def test_simple_3(method: ImportanceMethod):
     assert any(np.array_equal(result, candidate) for candidate in expected)
 
 
+ERROR_MARGIN = 5e-2
+
+
+@pytest.mark.parametrize("trainsize", [3, 12])
+@pytest.mark.parametrize("testsize", [3, 10])
+@pytest.mark.parametrize("method", [ImportanceMethod.NEIGHBOR, ImportanceMethod.MONTECARLO])
+def test_comparative_1(trainsize: int, testsize: int, method: ImportanceMethod):
+
+    X, y = make_classification(
+        n_samples=trainsize + testsize,
+        n_features=1,
+        n_redundant=0,
+        n_informative=1,
+        n_repeated=0,
+        n_classes=2,
+        n_clusters_per_class=1,
+        random_state=7,
+    )
+    X_train, X_test, y_train, y_test = train_test_split(X, y, train_size=trainsize, test_size=testsize, random_state=7)
+
+    utility = SklearnModelAccuracy(KNeighborsClassifier(n_neighbors=1))
+
+    importance = ShapleyImportance(method=method, utility=utility, mc_truncation_steps=0)
+    importance_bf = ShapleyImportance(method=ImportanceMethod.BRUTEFORCE, utility=utility)
+
+    importances = importance.fit(X_train, y_train).score(X_test, y_test)
+    importances_bf = importance_bf.fit(X_train, y_train).score(X_test, y_test)
+    for i, i_bf in zip(importances, importances_bf):
+        assert np.abs(i - i_bf) < ERROR_MARGIN
+
+
 # @pytest.mark.parametrize("n_samples_train", [100, 500, 1000, 5000, 10000])
 @pytest.mark.parametrize("n_samples_train", [500, 1000, 5000, 10000])
 # @pytest.mark.parametrize("n_samples_test", [10, 50, 100])

@@ -24,7 +24,7 @@ from .shapley_cy import compute_all_importances_cy
 prange = range
 
 
-class ImportanceMethod(Enum):
+class ImportanceMethod(str, Enum):
     BRUTEFORCE = "bruteforce"
     MONTECARLO = "montecarlo"
     NEIGHBOR = "neighbor"
@@ -140,21 +140,26 @@ def get_unit_distances_and_utilities(
 
 
 # @jit(nopython=True, nogil=True, cache=True)
-def compute_all_importances(unit_distances: ndarray, unit_utilities: ndarray) -> ndarray:
+def compute_all_importances(
+    unit_distances: ndarray,
+    unit_utilities: ndarray,
+    null_scores: ndarray,
+) -> ndarray:
     # Compute unit importances.
     n_units, n_test = unit_distances.shape
     all_importances = np.zeros((n_units + 1))
-    unit_utilities = np.vstack((unit_utilities, np.ones((1, n_test)) * 0.5))
+    unit_utilities = np.vstack((unit_utilities, null_scores))
     for j in prange(n_test):
         idxs = np.append(np.argsort(unit_distances[:, j]), [n_units])
         current = 0.0
         for i in prange(n_units - 1, -1, -1):
             i_1 = idxs[i]
             i_2 = idxs[i + 1]
-            current = (current + (unit_utilities[i_1, j] - unit_utilities[i_2, j])) / float(i + 1)
+            current += (unit_utilities[i_1, j] - unit_utilities[i_2, j]) / float(i + 1)
             all_importances[i_1] += current
         # all_importances /= n_units
-    return all_importances[:-1] / n_test
+    result = all_importances[:-1] / n_test
+    return result
 
 
 # @jit(nopython=True)
@@ -166,6 +171,7 @@ def compute_shapley_1nn_mapfork(
     provenance: ndarray,
     units: ndarray,
     world: ndarray,
+    null_scores: Optional[ndarray] = None,
     simple_provenance: bool = False,
 ) -> Iterable[float]:
 
@@ -208,8 +214,9 @@ def compute_shapley_1nn_mapfork(
     #         all_importances[idxs[i], j] = all_importances[idxs[i + 1], j] + (
     #             unit_utilities[idxs[i], j] - unit_utilities[idxs[i + 1], j]
     #         ) / float(i + 1)
-
-    all_importances = compute_all_importances_cy(unit_distances, unit_utilities)
+    n_test = distances.shape[1]
+    null_scores = null_scores if null_scores is not None else np.zeros((1, n_test))
+    all_importances = compute_all_importances_cy(unit_distances, unit_utilities, null_scores)
 
     # Aggregate results.
     # importances = np.mean(all_importances[:-1], axis=1)
@@ -327,7 +334,6 @@ class ShapleyImportance(Importance):
 
         # Compute null score.
         null_score = self.utility.null_score(X, y, X_test, y_test)
-        null_score = 0.5
 
         # Iterate over all subsets of units.
         n_units_total = provenance.shape[2]
@@ -382,18 +388,19 @@ class ShapleyImportance(Importance):
         provenance = binarize(provenance)
 
         # Apply the feature extraction pipeline if it was provided.
-        X_t = X
+        X_tr = X
+        X_ts = X_test
         if self.pipeline is not None:
-            X_t = self.pipeline.fit_transform(X, y=y)
-            X_test = self.pipeline.transform(X_test)
+            X_tr = self.pipeline.fit_transform(X, y=y)
+            X_ts = self.pipeline.transform(X_test)
 
         # Compute mean score.
-        null_score = self.utility.null_score(X_t, y, X_test, y_test)
-        mean_score = self.utility.mean_score(X_t, y, X_test, y_test)
+        null_score = self.utility.null_score(X_tr, y, X_ts, y_test)
+        mean_score = self.utility.mean_score(X_tr, y, X_ts, y_test)
 
         # If pre-extract was specified, run feature extraction once for the whole dataset.
         if self.mc_preextract:
-            X = X_t  # TODO: Handle provenance if the pipeline is not a map pipeline.
+            X = X_tr  # TODO: Handle provenance if the pipeline is not a map pipeline.
 
         # Run a given number of iterations.
         n_units_total = provenance.shape[2]
@@ -426,17 +433,19 @@ class ShapleyImportance(Importance):
                     try:
                         X_train = X[indices]
                         y_train = y[indices]
+                        X_ts = X_test
                         if self.pipeline is not None and not self.mc_preextract:
                             X_train = self.pipeline.fit_transform(X_train, y=y)
-                        new_score = self.utility(X_train, y_train, X_test, y_test, null_score=null_score)
+                            X_ts = self.pipeline.transform(X_test)
+                        new_score = self.utility(X_train, y_train, X_ts, y_test, null_score=null_score)
                     except (ValueError, RuntimeWarning):
                         pass
 
-                importance[idx] = (new_score - old_score) / n_units
+                importance[idx] = new_score - old_score
 
-                if np.abs(new_score - mean_score) <= tolerance * mean_score:
+                if np.abs(new_score - mean_score) <= np.abs(tolerance * mean_score):
                     truncation_counter += 1
-                    if truncation_counter > truncation_steps:
+                    if truncation_steps > 0 and truncation_counter > truncation_steps:
                         break
                 else:
                     truncation_counter = 0
@@ -486,9 +495,18 @@ class ShapleyImportance(Importance):
         # Compute the utilitiy values between training and test labels.
         utilities = self.utility.elementwise_score(X_train=X, y_train=y, X_test=X_test, y_test=y_test)
 
+        # Compute null scores.
+        null_scores = self.utility.elementwise_null_score(X, y, X_test, y_test)
+
         if k == 1:
             return compute_shapley_1nn_mapfork(
-                distances, utilities, provenance, units, world, simple_provenance=self._simple_provenance
+                distances,
+                utilities,
+                provenance,
+                units,
+                world,
+                simple_provenance=self._simple_provenance,
+                null_scores=null_scores,
             )
         else:
             raise ValueError("The value '%d' for the k-parameter is not possible.")

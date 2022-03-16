@@ -61,8 +61,6 @@ class Utility(ABC):
         y_train: ndarray,
         X_test: ndarray,
         y_test: ndarray,
-        maxiter: int = DEFAULT_SCORING_MAXITER,
-        seed: int = DEFAULT_SEED,
     ) -> float:
         pass
 
@@ -79,6 +77,15 @@ class Utility(ABC):
         pass
 
     def elementwise_score(
+        self,
+        X_train: ndarray,
+        y_train: ndarray,
+        X_test: ndarray,
+        y_test: ndarray,
+    ) -> ndarray:
+        raise NotImplementedError("This utility does not implement elementwise scoring.")
+
+    def elementwise_null_score(
         self,
         X_train: ndarray,
         y_train: ndarray,
@@ -110,10 +117,10 @@ class JointUtility(Utility):
         null_score: Optional[float] = None,
         seed: int = DEFAULT_SEED,
     ) -> float:
-        return sum(
-            w * u(X_train, y_train, X_test, y_test, null_score=null_score, seed=seed)
-            for w, u in zip(self._weights, self._utilities)
-        )
+        scores = [u(X_train, y_train, X_test, y_test, null_score=np.nan, seed=seed) for u in self._utilities]
+        if any(np.isnan(x) for x in scores):
+            return null_score if null_score is not None else self.null_score(X_train, y_train, X_test, y_test)
+        return sum(w * s for w, s in zip(self._weights, scores))
 
     def null_score(
         self,
@@ -121,13 +128,8 @@ class JointUtility(Utility):
         y_train: ndarray,
         X_test: ndarray,
         y_test: ndarray,
-        maxiter: int = DEFAULT_SCORING_MAXITER,
-        seed: int = DEFAULT_SEED,
     ) -> float:
-        return sum(
-            w * u.null_score(X_train, y_train, X_test, y_test, maxiter=maxiter, seed=seed)
-            for w, u in zip(self._weights, self._utilities)
-        )
+        return sum(w * u.null_score(X_train, y_train, X_test, y_test) for w, u in zip(self._weights, self._utilities))
 
     def mean_score(
         self,
@@ -139,7 +141,7 @@ class JointUtility(Utility):
         seed: int = DEFAULT_SEED,
     ) -> float:
         return sum(
-            w * u.null_score(X_train, y_train, X_test, y_test, maxiter=maxiter, seed=seed)
+            w * u.mean_score(X_train, y_train, X_test, y_test, maxiter=maxiter, seed=seed)
             for w, u in zip(self._weights, self._utilities)
         )
 
@@ -152,6 +154,21 @@ class JointUtility(Utility):
     ) -> ndarray:
         scores = np.stack(
             [w * u.elementwise_score(X_train, y_train, X_test, y_test) for w, u in zip(self._weights, self._utilities)]
+        )
+        return np.sum(scores, axis=0)
+
+    def elementwise_null_score(
+        self,
+        X_train: ndarray,
+        y_train: ndarray,
+        X_test: ndarray,
+        y_test: ndarray,
+    ) -> ndarray:
+        scores = np.stack(
+            [
+                w * u.elementwise_null_score(X_train, y_train, X_test, y_test)
+                for w, u in zip(self._weights, self._utilities)
+            ]
         )
         return np.sum(scores, axis=0)
 
@@ -213,18 +230,12 @@ class SklearnModelUtility(Utility):
         y_train: ndarray,
         X_test: ndarray,
         y_test: ndarray,
-        maxiter: int = DEFAULT_SCORING_MAXITER,
-        seed: int = DEFAULT_SEED,
     ) -> float:
-        np.random.seed(seed)
-        model = self._model_fit(self.model, X_train, y_train)
-        y_pred = self._model_predict(model, X_test)
         scores = []
-        np.random.seed(seed)
-        for _ in range(maxiter):
-            idx = np.random.randint(len(y_test))
-            y_spoof = np.repeat(y_pred[[idx]], len(y_test), axis=0)
+        for x in np.unique(y_train):
+            y_spoof = np.full_like(y_test, x, dtype=y_test.dtype)
             scores.append(self._metric_score(self.metric, y_test, y_spoof, X_test=X_test))
+
         return min(scores)
 
     def mean_score(
@@ -259,6 +270,25 @@ class SklearnModelAccuracy(SklearnModelUtility):
         y_test: ndarray,
     ) -> ndarray:
         return np.equal.outer(y_train, y_test).astype(float)
+
+    def elementwise_null_score(
+        self,
+        X_train: ndarray,
+        y_train: ndarray,
+        X_test: ndarray,
+        y_test: ndarray,
+    ) -> ndarray:
+        min_score = np.inf
+        result = np.zeros_like(y_test)
+        for x in np.unique(y_train):
+            y_spoof = np.full_like(y_test, x, dtype=y_test.dtype)
+            elementwise_sore = np.array(y_test == y_spoof, dtype=float)
+            score = np.mean(elementwise_sore)
+            if min_score > score:
+                min_score = score
+                result = elementwise_sore
+
+        return result
 
 
 def compute_groupings(X: ndarray, sensitive_features: Union[int, Sequence[int]]) -> ndarray:
@@ -385,6 +415,15 @@ class SklearnModelEqualizedOddsDifference(SklearnModelUtility):
             pass
 
         return utilities
+
+    def elementwise_null_score(
+        self,
+        X_train: ndarray,
+        y_train: ndarray,
+        X_test: ndarray,
+        y_test: ndarray,
+    ) -> ndarray:
+        return np.zeros_like(y_test)
 
 
 def get_dimensions(array, level=0):
