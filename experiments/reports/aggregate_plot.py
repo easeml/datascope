@@ -671,7 +671,8 @@ class AggregatePlot(Report, id="aggplot"):
                 self._figure.legend(
                     lines,
                     labels,
-                    loc="lower center",
+                    loc="upper center",
+                    bbox_to_anchor=(0.5, -0.05),
                     fontsize=self.fontsize,
                     # borderaxespad=0,
                     edgecolor="black",
