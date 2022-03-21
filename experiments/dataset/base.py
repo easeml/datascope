@@ -5,15 +5,17 @@ from math import ceil, floor
 
 import datasets
 import numpy as np
+import os
 
 from abc import ABC, abstractmethod
 from enum import Enum
+from folktables import ACSDataSource, ACSIncome
 from numpy import ndarray
 from sklearn.datasets import fetch_openml, fetch_20newsgroups, make_classification
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import LabelEncoder
-from typing import Dict, Optional, Sequence, Tuple, Type, Union
+from typing import Dict, List, Optional, Sequence, Tuple, Type, Union
 
 from datascope.importance.common import binarize, get_indices
 
@@ -38,6 +40,7 @@ DEFAULT_NUMFEATURES = 10
 # DEFAULT_VALSIZE = 20
 DEFAULT_SEED = 1
 DEFAULT_CLASSES = [0, 6]
+DEFAULT_DATA_DIR = os.path.join("var", "data")
 
 
 class Dataset(ABC):
@@ -333,6 +336,74 @@ class BiasedMixin:
     def val_bias(self) -> float:
         raise NotImplementedError()
 
+    @staticmethod
+    def _get_biased_indices(
+        X: ndarray,
+        y: ndarray,
+        sensitive_feature: int,
+        trainsize: int,
+        valsize: int,
+        testsize: int,
+        train_bias: float,
+        val_bias: float = 0.0,
+        test_bias: float = 0.0,
+        seed: int = DEFAULT_SEED,
+    ) -> Tuple[ndarray, ndarray, ndarray]:
+        n = X.shape[0]
+        if not list(sorted(np.unique(X[:, sensitive_feature]))) == [0, 1]:
+            raise ValueError("The specified sensitive feature must be a binary feature.")
+        train_bias = train_bias * 0.5 + 0.5
+        val_bias = val_bias * 0.5 + 0.5
+        test_bias = test_bias * 0.5 + 0.5
+        idx_f0_l0 = np.nonzero((X[:, sensitive_feature] == 0) & (y == 0))[0]
+        idx_f0_l1 = np.nonzero((X[:, sensitive_feature] == 0) & (y == 1))[0]
+        idx_f1_l0 = np.nonzero((X[:, sensitive_feature] == 1) & (y == 0))[0]
+        idx_f1_l1 = np.nonzero((X[:, sensitive_feature] == 1) & (y == 1))[0]
+        indices = [idx_f0_l0, idx_f0_l1, idx_f1_l0, idx_f1_l1]
+
+        trainsize, valsize, testsize, totsize = balance_train_val_and_testsize(trainsize, valsize, testsize, n)
+        available_sizes = [idx.shape[0] for idx in indices]
+        requested_sizes = [
+            (0.5 * train_bias, 0.5 * val_bias, 0.5 * test_bias),
+            (0.5 * (1 - train_bias), 0.5 * (1 - val_bias), 0.5 * (1 - test_bias)),
+            (0.5 * (1 - train_bias), 0.5 * (1 - val_bias), 0.5 * (1 - test_bias)),
+            (0.5 * train_bias, 0.5 * val_bias, 0.5 * test_bias),
+        ]
+        for available_size, (requested_trainsize, requested_valsize, requested_testsize) in zip(
+            available_sizes, requested_sizes
+        ):
+            requested_size = (
+                floor(requested_trainsize * trainsize)
+                + floor(requested_valsize * valsize)
+                + floor(requested_testsize * testsize)
+            )
+            trainsize, valsize, testsize, totsize = reduce_train_val_and_testsize(
+                trainsize, valsize, testsize, totsize, requested_size, available_size
+            )
+
+        random = np.random.RandomState(seed=seed)
+        idx_train, idx_val, idx_test = np.array([], dtype=int), np.array([], dtype=int), np.array([], dtype=int)
+        for i, idx in enumerate(indices):
+            random.shuffle(idx)
+            if i < 3:
+                trainslice = floor(requested_sizes[i][0] * trainsize)
+                valslice = floor(requested_sizes[i][1] * valsize)
+                testslice = floor(requested_sizes[i][2] * testsize)
+            else:
+                trainslice = trainsize - idx_train.shape[0]
+                valslice = valsize - idx_val.shape[0]
+                testslice = testsize - idx_test.shape[0]
+            trainvalslice = trainslice + valslice
+            totslice = trainslice + valslice + testslice
+            idx_train = np.concatenate((idx_train, idx[:trainslice]))
+            idx_val = np.concatenate((idx_val, idx[trainslice:trainvalslice]))
+            idx_test = np.concatenate((idx_test, idx[trainvalslice:totslice]))
+        random.shuffle(idx_train)
+        random.shuffle(idx_val)
+        random.shuffle(idx_test)
+
+        return idx_train, idx_val, idx_test
+
 
 def balance_train_val_and_testsize(
     trainsize: int, valsize: int, testsize: int, totsize: int
@@ -481,7 +552,7 @@ class UCI(DirtyLabelDataset, BiasedMixin, modality=DatasetModality.TABULAR):
         return compute_bias(self._X_test, self._y_test, self._sensitive_feature)
 
     def load(self) -> None:
-        data = fetch_openml(data_id=1590, as_frame=False)
+        data = fetch_openml(data_id=1590, as_frame=False, data_home=DEFAULT_DATA_DIR)
         X = np.nan_to_num(data.data)  # TODO: Maybe leave nan values.
         y = np.array(data.target == ">50K", dtype=int)
 
@@ -521,65 +592,194 @@ class UCI(DirtyLabelDataset, BiasedMixin, modality=DatasetModality.TABULAR):
     ) -> None:
         assert train_bias > -1.0 and train_bias < 1.0
         assert val_bias > -1.0 and val_bias < 1.0
-        data = fetch_openml(data_id=1590, as_frame=False)
+        data = fetch_openml(data_id=1590, as_frame=False, data_home=DEFAULT_DATA_DIR)
         X = np.nan_to_num(data.data)  # TODO: Maybe leave nan values.
         y = np.array(data.target == ">50K", dtype=int)
 
-        n = X.shape[0]
-        sf = self._sensitive_feature
-        if not list(sorted(np.unique(X[:, sf]))) == [0, 1]:
-            raise ValueError("The specified sensitive feature must be a binary feature.")
-        train_bias = train_bias * 0.5 + 0.5
-        val_bias = val_bias * 0.5 + 0.5
-        test_bias = test_bias * 0.5 + 0.5
-        idx_f0_l0 = np.nonzero((X[:, sf] == 0) & (y == 0))[0]
-        idx_f0_l1 = np.nonzero((X[:, sf] == 0) & (y == 1))[0]
-        idx_f1_l0 = np.nonzero((X[:, sf] == 1) & (y == 0))[0]
-        idx_f1_l1 = np.nonzero((X[:, sf] == 1) & (y == 1))[0]
-        indices = [idx_f0_l0, idx_f0_l1, idx_f1_l0, idx_f1_l1]
-
-        trainsize, valsize, testsize, totsize = balance_train_val_and_testsize(
-            self.trainsize, self.valsize, self.testsize, n
+        idx_train, idx_val, idx_test = BiasedMixin._get_biased_indices(
+            X=X,
+            y=y,
+            sensitive_feature=self.sensitive_feature,
+            trainsize=self.trainsize,
+            valsize=self.valsize,
+            testsize=self.testsize,
+            train_bias=train_bias,
+            val_bias=val_bias,
+            test_bias=test_bias,
+            seed=self._seed,
         )
-        available_sizes = [idx.shape[0] for idx in indices]
-        requested_sizes = [
-            (0.5 * train_bias, 0.5 * val_bias, 0.5 * test_bias),
-            (0.5 * (1 - train_bias), 0.5 * (1 - val_bias), 0.5 * (1 - test_bias)),
-            (0.5 * (1 - train_bias), 0.5 * (1 - val_bias), 0.5 * (1 - test_bias)),
-            (0.5 * train_bias, 0.5 * val_bias, 0.5 * test_bias),
-        ]
-        for available_size, (requested_trainsize, requested_valsize, requested_testsize) in zip(
-            available_sizes, requested_sizes
-        ):
-            requested_size = (
-                floor(requested_trainsize * trainsize)
-                + floor(requested_valsize * valsize)
-                + floor(requested_testsize * testsize)
-            )
-            trainsize, valsize, testsize, totsize = reduce_train_val_and_testsize(
-                trainsize, valsize, testsize, totsize, requested_size, available_size
-            )
 
-        random = np.random.RandomState(seed=self._seed)
-        idx_train, idx_val, idx_test = np.array([], dtype=int), np.array([], dtype=int), np.array([], dtype=int)
-        for i, idx in enumerate(indices):
-            random.shuffle(idx)
-            if i < 3:
-                trainslice = floor(requested_sizes[i][0] * trainsize)
-                valslice = floor(requested_sizes[i][1] * valsize)
-                testslice = floor(requested_sizes[i][2] * testsize)
-            else:
-                trainslice = trainsize - idx_train.shape[0]
-                valslice = valsize - idx_val.shape[0]
-                testslice = testsize - idx_test.shape[0]
-            trainvalslice = trainslice + valslice
-            totslice = trainslice + valslice + testslice
-            idx_train = np.concatenate((idx_train, idx[:trainslice]))
-            idx_val = np.concatenate((idx_val, idx[trainslice:trainvalslice]))
-            idx_test = np.concatenate((idx_test, idx[trainvalslice:totslice]))
-        random.shuffle(idx_train)
-        random.shuffle(idx_val)
-        random.shuffle(idx_test)
+        self._X_train, self._y_train = X[idx_train], y[idx_train]
+        self._X_val, self._y_val = X[idx_val], y[idx_val]
+        self._X_test, self._y_test = X[idx_test], y[idx_test]
+        assert self._X_train is not None and self._X_val is not None and self._X_test is not None
+        self._trainsize = self._X_train.shape[0]
+        self._valsize = self._X_val.shape[0]
+        self._testsize = self._X_test.shape[0]
+        self._construct_provenance()
+
+
+FOLKUCI_STATE_COUNTS_2018 = {
+    "AL": 22268,
+    "AK": 3546,
+    "AZ": 33277,
+    "AR": 13929,
+    "CA": 195665,
+    "CO": 31306,
+    "CT": 19785,
+    "DE": 4713,
+    "FL": 98925,
+    "GA": 50915,
+    "HI": 7731,
+    "ID": 8265,
+    "IL": 67016,
+    "IN": 35022,
+    "IA": 17745,
+    "KS": 15807,
+    "KY": 22006,
+    "LA": 20667,
+    "ME": 7002,
+    "MD": 33042,
+    "MA": 40114,
+    "MI": 50008,
+    "MN": 31021,
+    "MS": 13189,
+    "MO": 31664,
+    "MT": 5463,
+    "NE": 10785,
+    "NV": 14807,
+    "NH": 7966,
+    "NJ": 47781,
+    "NM": 8711,
+    "NY": 103021,
+    "NC": 52067,
+    "ND": 4455,
+    "OH": 62135,
+    "OK": 17917,
+    "OR": 21919,
+    "PA": 68308,
+    "RI": 5712,
+    "SC": 24879,
+    "SD": 4899,
+    "TN": 34003,
+    "TX": 135924,
+    "UT": 16337,
+    "VT": 3767,
+    "VA": 46144,
+    "WA": 39944,
+    "WV": 8103,
+    "WI": 32690,
+    "WY": 3064,
+    "PR": 9071,
+}
+
+
+def get_states_for_size(n: int) -> List[str]:
+    if n <= 0:
+        return list(FOLKUCI_STATE_COUNTS_2018.keys())
+    result: List[str] = []
+    totsize = 0
+    for state in sorted(FOLKUCI_STATE_COUNTS_2018, key=lambda x: FOLKUCI_STATE_COUNTS_2018[x], reverse=True):
+        result.append(state)
+        totsize += FOLKUCI_STATE_COUNTS_2018[state]
+        if totsize > n:
+            break
+    return result
+
+
+class FolkUCI(DirtyLabelDataset, BiasedMixin, modality=DatasetModality.TABULAR):
+    def __init__(
+        self,
+        trainsize: int = DEFAULT_TRAINSIZE,
+        valsize: int = DEFAULT_VALSIZE,
+        testsize: int = DEFAULT_TESTSIZE,
+        seed: int = DEFAULT_SEED,
+        sensitive_feature: int = UCI_DEFAULT_SENSITIVE_FEATURE,
+        **kwargs
+    ) -> None:
+        super().__init__(trainsize=trainsize, valsize=valsize, testsize=testsize, seed=seed, **kwargs)
+        self._sensitive_feature = sensitive_feature
+
+    @property
+    def sensitive_feature(self) -> int:
+        return self._sensitive_feature
+
+    @property
+    def train_bias(self) -> float:
+        if self._X_train is None or self._y_train is None:
+            raise ValueError("Dataset not loaded yet.")
+        return compute_bias(self._X_train, self._y_train, self._sensitive_feature)
+
+    @property
+    def val_bias(self) -> float:
+        if self._X_val is None or self._y_val is None:
+            raise ValueError("Dataset not loaded yet.")
+        return compute_bias(self._X_val, self._y_val, self._sensitive_feature)
+
+    @property
+    def test_bias(self) -> float:
+        if self._X_test is None or self._y_test is None:
+            raise ValueError("Dataset not loaded yet.")
+        return compute_bias(self._X_test, self._y_test, self._sensitive_feature)
+
+    def load(self) -> None:
+        data_source = ACSDataSource(survey_year="2018", horizon="1-Year", survey="person")
+        n = (
+            self.trainsize + self.valsize + self.testsize
+            if self.trainsize != 0 and self.valsize != 0 and self.testsize != 0
+            else 0
+        )
+        states = get_states_for_size(n)
+        acs_data = data_source.get_data(states=states, download=True)
+        X, y, _ = ACSIncome.df_to_numpy(acs_data)
+
+        trainsize = self.trainsize if self.trainsize > 0 else None
+        valsize = self.valsize if self.valsize > 0 else None
+        testsize = self.testsize if self.testsize > 0 else None
+        valtestsize = valsize + testsize if valsize is not None and testsize is not None else None
+        self._X_train, self._X_val, self._y_train, self._y_val = train_test_split(
+            X, y, train_size=trainsize, test_size=valtestsize, random_state=self._seed
+        )
+        self._X_val, self._X_test, self._y_val, self._y_test = train_test_split(
+            self._X_val, self._y_val, train_size=valsize, test_size=testsize, random_state=self._seed
+        )
+
+        self._loaded = True
+        assert self._X_train is not None and self._X_val is not None
+        self._trainsize = self._X_train.shape[0]
+        self._valsize = self._X_val.shape[0]
+        self._construct_provenance()
+
+    def load_biased(
+        self,
+        train_bias: float,
+        val_bias: float = 0.0,
+        test_bias: float = 0.0,
+    ) -> None:
+        assert train_bias > -1.0 and train_bias < 1.0
+        assert val_bias > -1.0 and val_bias < 1.0
+        data_source = ACSDataSource(survey_year="2018", horizon="1-Year", survey="person")
+        n = (
+            self.trainsize + self.valsize + self.testsize
+            if self.trainsize != 0 and self.valsize != 0 and self.testsize != 0
+            else 0
+        )
+        states = get_states_for_size(n)
+        acs_data = data_source.get_data(states=states, download=True)
+        X, y, _ = ACSIncome.df_to_numpy(acs_data)
+
+        idx_train, idx_val, idx_test = BiasedMixin._get_biased_indices(
+            X=X,
+            y=y,
+            sensitive_feature=self.sensitive_feature,
+            trainsize=self.trainsize,
+            valsize=self.valsize,
+            testsize=self.testsize,
+            train_bias=train_bias,
+            val_bias=val_bias,
+            test_bias=test_bias,
+            seed=self._seed,
+        )
 
         self._X_train, self._y_train = X[idx_train], y[idx_train]
         self._X_val, self._y_val = X[idx_val], y[idx_val]
@@ -608,7 +808,7 @@ class FashionMNIST(DirtyLabelDataset, modality=DatasetModality.IMAGE):
         return self._classes
 
     def load(self) -> None:
-        data = datasets.load_dataset("fashion_mnist")
+        data = datasets.load_dataset("fashion_mnist", cache_dir=DEFAULT_DATA_DIR)
         assert isinstance(data, datasets.dataset_dict.DatasetDict)
 
         # Select training and test validation examples based on the provided classes.
@@ -653,8 +853,12 @@ class FashionMNIST(DirtyLabelDataset, modality=DatasetModality.IMAGE):
 class TwentyNewsGroups(DirtyLabelDataset, modality=DatasetModality.TEXT):
     def load(self) -> None:
         categories = ["comp.graphics", "sci.med"]
-        train = fetch_20newsgroups(subset="train", categories=categories, shuffle=True, random_state=self._seed)
-        test = fetch_20newsgroups(subset="test", categories=categories, shuffle=True, random_state=self._seed)
+        train = fetch_20newsgroups(
+            subset="train", categories=categories, shuffle=True, random_state=self._seed, data_home=DEFAULT_DATA_DIR
+        )
+        test = fetch_20newsgroups(
+            subset="test", categories=categories, shuffle=True, random_state=self._seed, data_home=DEFAULT_DATA_DIR
+        )
 
         # Load the train and validaiton data by splitting the original training dataset.
         self._X_train, self._y_train = np.array(train.data), np.array(train.target)
@@ -678,3 +882,12 @@ class TwentyNewsGroups(DirtyLabelDataset, modality=DatasetModality.TEXT):
         self._valsize = self._X_val.shape[0]
         self._testsize = self._X_test.shape[0]
         self._construct_provenance()
+
+
+def preload_datasets(**kwargs) -> None:
+    fetch_openml(data_id=1590, as_frame=False, data_home=DEFAULT_DATA_DIR)
+    fetch_20newsgroups(subset="all", data_home=DEFAULT_DATA_DIR)
+    datasets.load_dataset("fashion_mnist", cache_dir=DEFAULT_DATA_DIR)
+    ACSDataSource(survey_year="2018", horizon="1-Year", survey="person", root_dir=DEFAULT_DATA_DIR).get_data(
+        download=True
+    )

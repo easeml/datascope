@@ -10,6 +10,7 @@ from .base import (
     DEFAULT_VALSIZE,
     DEFAULT_TESTSIZE,
     DEFAULT_NUMFEATURES,
+    preload_datasets,
 )
 
 __all__ = [
@@ -25,4 +26,5 @@ __all__ = [
     "DEFAULT_VALSIZE",
     "DEFAULT_TESTSIZE",
     "DEFAULT_NUMFEATURES",
+    "preload_datasets",
 ]

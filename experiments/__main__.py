@@ -6,6 +6,7 @@ from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Set
 
 from .base import run, report
+from .dataset import preload_datasets
 from .scenarios import DEFAULT_RESULTS_PATH, DEFAULT_STUDY_PATH
 
 
@@ -145,6 +146,8 @@ if __name__ == "__main__":
 
     # print(Report.attribute_domains)
 
+    parser_dataload = subparsers.add_parser("dataload")
+
     args = parser.parse_args()
     kwargs = vars(args)
 
@@ -152,5 +155,7 @@ if __name__ == "__main__":
         run(**kwargs)
     elif args.command == "report":
         report(**kwargs)
+    elif args.command == "dataload":
+        preload_datasets(**kwargs)
     else:
         parser.print_help()
