@@ -216,11 +216,11 @@ def save_dict(source: Dict[str, Any], dirpath: str, basename: str) -> None:
                 with open(filename, "w") as f:
                     yaml.safe_dump(data, f)
             elif isinstance(data, Figure):
-                legends = tuple(data.legends)
+                extra_artists = tuple(data.legends) + tuple(data.texts)
                 filename = os.path.join(dirpath, ".".join([basename, name, "pdf"]))
-                data.savefig(fname=filename, bbox_extra_artists=legends, bbox_inches="tight")
+                data.savefig(fname=filename, bbox_extra_artists=extra_artists, bbox_inches="tight")
                 filename = os.path.join(dirpath, ".".join([basename, name, "png"]))
-                data.savefig(fname=filename, bbox_extra_artists=legends, bbox_inches="tight")
+                data.savefig(fname=filename, bbox_extra_artists=extra_artists, bbox_inches="tight")
             else:
                 raise ValueError("Key '%s' has unsupported type '%s'." % (name, str(type(data))))
 
