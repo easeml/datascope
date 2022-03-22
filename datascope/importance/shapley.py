@@ -359,7 +359,7 @@ class ShapleyImportance(Importance):
                     if self.pipeline is not None:
                         X_train = self.pipeline.fit_transform(X_train, y=y)
                     score = self.utility(X_train, y_train, X_test, y_test, null_score)
-                except (ValueError, RuntimeWarning):
+                except (ValueError, RuntimeWarning, UserWarning):
                     pass
 
             # Compute the factor and update the Shapley values of respective units.
@@ -438,7 +438,7 @@ class ShapleyImportance(Importance):
                             X_train = self.pipeline.fit_transform(X_train, y=y)
                             X_ts = self.pipeline.transform(X_test)
                         new_score = self.utility(X_train, y_train, X_ts, y_test, null_score=null_score)
-                    except (ValueError, RuntimeWarning):
+                    except (ValueError, RuntimeWarning, UserWarning):
                         pass
 
                 importance[idx] = new_score - old_score
