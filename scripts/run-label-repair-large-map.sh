@@ -2,6 +2,7 @@
 
 CMD="python -m experiments run \
     --scenario label-repair \
+    --dataset FolkUCI \
     --method random shapley-knn-single \
     --trainsize 0 \
     --valsize 1000 \
