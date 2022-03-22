@@ -723,7 +723,7 @@ class FolkUCI(DirtyLabelDataset, BiasedMixin, modality=DatasetModality.TABULAR):
         return compute_bias(self._X_test, self._y_test, self._sensitive_feature)
 
     def load(self) -> None:
-        data_source = ACSDataSource(survey_year="2018", horizon="1-Year", survey="person")
+        data_source = ACSDataSource(survey_year="2018", horizon="1-Year", survey="person", root_dir=DEFAULT_DATA_DIR)
         n = (
             self.trainsize + self.valsize + self.testsize
             if self.trainsize != 0 and self.valsize != 0 and self.testsize != 0
@@ -758,7 +758,7 @@ class FolkUCI(DirtyLabelDataset, BiasedMixin, modality=DatasetModality.TABULAR):
     ) -> None:
         assert train_bias > -1.0 and train_bias < 1.0
         assert val_bias > -1.0 and val_bias < 1.0
-        data_source = ACSDataSource(survey_year="2018", horizon="1-Year", survey="person")
+        data_source = ACSDataSource(survey_year="2018", horizon="1-Year", survey="person", root_dir=DEFAULT_DATA_DIR)
         n = (
             self.trainsize + self.valsize + self.testsize
             if self.trainsize != 0 and self.valsize != 0 and self.testsize != 0
