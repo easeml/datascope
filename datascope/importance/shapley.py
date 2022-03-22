@@ -262,7 +262,7 @@ class ShapleyImportance(Importance):
         self.X = X
         self.y = y
 
-        if provenance is None:
+        if provenance is None or checknan(provenance):
             provenance = np.arange(X.shape[0])
             self._simple_provenance = True
         if not checknan(provenance):  # TODO: Remove this hack.

@@ -18,6 +18,7 @@ from sklearn.preprocessing import LabelEncoder
 from typing import Dict, List, Optional, Sequence, Tuple, Type, Union
 
 from datascope.importance.common import binarize, get_indices
+from datascope.importance.shapley import checknan
 
 
 class DatasetId(str, Enum):
@@ -177,10 +178,12 @@ class Dataset(ABC):
 
     def _construct_provenance(self, groupings: Optional[ndarray] = None) -> None:
         if groupings is None:
-            groupings = np.arange(self._trainsize, dtype=int)
-        provenance = np.expand_dims(groupings, axis=(1, 2, 3))
-        self._provenance = np.pad(provenance, pad_width=((0, 0), (0, 0), (0, 0), (0, 1)))
-        self._units = np.sort(np.unique(groupings))
+            self._provenance = np.array(np.nan)
+            self._units = np.arange(self._trainsize, dtype=int)
+        else:
+            provenance = np.expand_dims(groupings, axis=(1, 2, 3))
+            self._provenance = np.pad(provenance, pad_width=((0, 0), (0, 0), (0, 0), (0, 1)))
+            self._units = np.sort(np.unique(groupings))
 
     def apply(self, pipeline: Pipeline) -> "Dataset":
         result = deepcopy(self)
@@ -280,7 +283,12 @@ class DirtyLabelDataset(Dataset):
         y_train = super().y_train
         if self._y_train_dirty is not None:
             provenance = self.provenance
-            if provenance.ndim == 4 and np.all(provenance[:, 0, 0, 0] == np.arange(provenance.shape[0])):
+            if (
+                provenance is None
+                or checknan(provenance)
+                or provenance.ndim == 4
+                and np.all(provenance[:, 0, 0, 0] == np.arange(provenance.shape[0]))
+            ):
                 y_train = np.where(self.units_dirty, self._y_train_dirty, y_train)
             else:
                 if self._bin_provenance is None:
