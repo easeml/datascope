@@ -2,7 +2,7 @@
 
 CMD="python -m experiments run \
     --scenario data-discard \
-    --dataset UCI \
+    --dataset UCI FolkUCI \
     --method random shapley-knn-single \
     --trainsize 0 \
     --valsize 500 \
