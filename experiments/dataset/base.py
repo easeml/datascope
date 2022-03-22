@@ -279,10 +279,14 @@ class DirtyLabelDataset(Dataset):
     def y_train(self) -> ndarray:
         y_train = super().y_train
         if self._y_train_dirty is not None:
-            if self._bin_provenance is None:
-                self._bin_provenance = binarize(self.provenance)
-            idx_dirty = get_indices(self._bin_provenance, self.units_dirty)
-            y_train = np.where(idx_dirty, self._y_train_dirty, y_train)
+            provenance = self.provenance
+            if provenance.ndim == 4 and np.all(provenance[:, 0, 0, 0] == np.arange(provenance.shape[0])):
+                y_train = np.where(self.units_dirty, self._y_train_dirty, y_train)
+            else:
+                if self._bin_provenance is None:
+                    self._bin_provenance = binarize(self.provenance)
+                idx_dirty = get_indices(self._bin_provenance, self.units_dirty)
+                y_train = np.where(idx_dirty, self._y_train_dirty, y_train)
         return y_train
 
     @y_train.setter
@@ -296,23 +300,28 @@ class DirtyLabelDataset(Dataset):
         assert result._y_train is not None
         result._y_train_dirty = deepcopy(result._y_train)
         n_examples = result.X_train.shape[0]
-        if not isinstance(probabilities, collections.Sequence):
-            probabilities = [probabilities for _ in range(n_examples)]
-        n_groups = len(probabilities)
-        n_examples_per_group = ceil(n_examples / float(n_groups))
-        groupings = np.tile(np.arange(n_groups), n_examples_per_group)[:n_examples]
         random = np.random.RandomState(seed=self._seed)
-        random.shuffle(groupings)
-        dirty_idx = np.zeros(result.trainsize, dtype=bool)
-        units_dirty = np.zeros(n_groups, dtype=bool)
-        for i, p in enumerate(probabilities):
-            idx: ndarray = groupings == i
-            n_elements = np.sum(idx)
-            idx[idx] = random.choice(a=[False, True], size=(n_elements), p=[1 - p, p])
-            dirty_idx[idx] = True
-            if idx.sum() > 0:
-                units_dirty[i] = True
-            result._y_train_dirty[idx] = 1 - result._y_train[idx]
+        if not isinstance(probabilities, collections.Sequence):
+            assert isinstance(probabilities, float)
+            dirty_idx = random.choice(a=[False, True], size=(n_examples), p=[1 - probabilities, probabilities])
+            result._y_train_dirty[dirty_idx] = 1 - result._y_train[dirty_idx]
+            units_dirty = dirty_idx
+            groupings = None
+        else:
+            n_groups = len(probabilities)
+            n_examples_per_group = ceil(n_examples / float(n_groups))
+            groupings = np.tile(np.arange(n_groups), n_examples_per_group)[:n_examples]
+            random.shuffle(groupings)
+            dirty_idx = np.zeros(result.trainsize, dtype=bool)
+            units_dirty = np.zeros(n_groups, dtype=bool)
+            for i, p in enumerate(probabilities):
+                idx: ndarray = groupings == i
+                n_elements = np.sum(idx)
+                idx[idx] = random.choice(a=[False, True], size=(n_elements), p=[1 - p, p])
+                dirty_idx[idx] = True
+                if idx.sum() > 0:
+                    units_dirty[i] = True
+                result._y_train_dirty[idx] = 1 - result._y_train[idx]
         result._construct_provenance(groupings=groupings)
         result._groupings = groupings
         result._units_dirty = units_dirty
