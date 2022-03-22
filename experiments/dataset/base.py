@@ -505,6 +505,7 @@ def reduce_train_val_and_testsize(
 
 
 UCI_DEFAULT_SENSITIVE_FEATURE = 9
+FOLK_UCI_DEFAULT_SENSITIVE_FEATURE = 8
 
 
 def compute_bias(X: ndarray, y: ndarray, sf: int) -> float:
@@ -695,7 +696,7 @@ class FolkUCI(DirtyLabelDataset, BiasedMixin, modality=DatasetModality.TABULAR):
         valsize: int = DEFAULT_VALSIZE,
         testsize: int = DEFAULT_TESTSIZE,
         seed: int = DEFAULT_SEED,
-        sensitive_feature: int = UCI_DEFAULT_SENSITIVE_FEATURE,
+        sensitive_feature: int = FOLK_UCI_DEFAULT_SENSITIVE_FEATURE,
         **kwargs
     ) -> None:
         super().__init__(trainsize=trainsize, valsize=valsize, testsize=testsize, seed=seed, **kwargs)
