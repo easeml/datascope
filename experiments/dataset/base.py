@@ -582,6 +582,7 @@ class UCI(DirtyLabelDataset, BiasedMixin, modality=DatasetModality.TABULAR):
         assert self._X_train is not None and self._X_val is not None
         self._trainsize = self._X_train.shape[0]
         self._valsize = self._X_val.shape[0]
+        self._testsize = self._X_test.shape[0]
         self._construct_provenance()
 
     def load_biased(
@@ -679,7 +680,7 @@ def get_states_for_size(n: int) -> List[str]:
         return list(FOLKUCI_STATE_COUNTS_2018.keys())
     result: List[str] = []
     totsize = 0
-    for state in sorted(FOLKUCI_STATE_COUNTS_2018, key=lambda x: FOLKUCI_STATE_COUNTS_2018[x], reverse=True):
+    for state in sorted(FOLKUCI_STATE_COUNTS_2018, key=lambda x: FOLKUCI_STATE_COUNTS_2018[x], reverse=False):
         result.append(state)
         totsize += FOLKUCI_STATE_COUNTS_2018[state]
         if totsize > n:
@@ -732,6 +733,7 @@ class FolkUCI(DirtyLabelDataset, BiasedMixin, modality=DatasetModality.TABULAR):
         states = get_states_for_size(n)
         acs_data = data_source.get_data(states=states, download=True)
         X, y, _ = ACSIncome.df_to_numpy(acs_data)
+        del acs_data
 
         trainsize = self.trainsize if self.trainsize > 0 else None
         valsize = self.valsize if self.valsize > 0 else None
@@ -743,11 +745,13 @@ class FolkUCI(DirtyLabelDataset, BiasedMixin, modality=DatasetModality.TABULAR):
         self._X_val, self._X_test, self._y_val, self._y_test = train_test_split(
             self._X_val, self._y_val, train_size=valsize, test_size=testsize, random_state=self._seed
         )
+        del X, y
 
         self._loaded = True
         assert self._X_train is not None and self._X_val is not None
         self._trainsize = self._X_train.shape[0]
         self._valsize = self._X_val.shape[0]
+        self._testsize = self._X_test.shape[0]
         self._construct_provenance()
 
     def load_biased(
@@ -767,6 +771,7 @@ class FolkUCI(DirtyLabelDataset, BiasedMixin, modality=DatasetModality.TABULAR):
         states = get_states_for_size(n)
         acs_data = data_source.get_data(states=states, download=True)
         X, y, _ = ACSIncome.df_to_numpy(acs_data)
+        del acs_data
 
         idx_train, idx_val, idx_test = BiasedMixin._get_biased_indices(
             X=X,
