@@ -350,15 +350,21 @@ class BiasedMixin:
         seed: int = DEFAULT_SEED,
     ) -> Tuple[ndarray, ndarray, ndarray]:
         n = X.shape[0]
-        if not list(sorted(np.unique(X[:, sensitive_feature]))) == [0, 1]:
+        sensitive_feature_values = list(sorted(np.unique(X[:, sensitive_feature])))
+        if not len(sensitive_feature_values) == 2:
             raise ValueError("The specified sensitive feature must be a binary feature.")
+        f0, f1 = sensitive_feature_values
+        label_values = list(sorted(np.unique(y)))
+        if not len(label_values) == 2:
+            raise ValueError("The lebel must be a binary value.")
+        l0, l1 = label_values
         train_bias = train_bias * 0.5 + 0.5
         val_bias = val_bias * 0.5 + 0.5
         test_bias = test_bias * 0.5 + 0.5
-        idx_f0_l0 = np.nonzero((X[:, sensitive_feature] == 0) & (y == 0))[0]
-        idx_f0_l1 = np.nonzero((X[:, sensitive_feature] == 0) & (y == 1))[0]
-        idx_f1_l0 = np.nonzero((X[:, sensitive_feature] == 1) & (y == 0))[0]
-        idx_f1_l1 = np.nonzero((X[:, sensitive_feature] == 1) & (y == 1))[0]
+        idx_f0_l0 = np.nonzero((X[:, sensitive_feature] == f0) & (y == l0))[0]
+        idx_f0_l1 = np.nonzero((X[:, sensitive_feature] == f0) & (y == l1))[0]
+        idx_f1_l0 = np.nonzero((X[:, sensitive_feature] == f1) & (y == l0))[0]
+        idx_f1_l1 = np.nonzero((X[:, sensitive_feature] == f1) & (y == l1))[0]
         indices = [idx_f0_l0, idx_f0_l1, idx_f1_l0, idx_f1_l1]
 
         trainsize, valsize, testsize, totsize = balance_train_val_and_testsize(trainsize, valsize, testsize, n)
