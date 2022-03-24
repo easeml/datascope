@@ -175,7 +175,7 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
         n_units = dataset_dirty.units.shape[0]
         importance: Optional[ShapleyImportance] = None
         importances: Optional[Iterable[float]] = None
-        random = np.random.RandomState(seed=self._seed + self._iteration)
+        random = np.random.RandomState(seed=self._seed + self._iteration + 1)
         if self.method == RepairMethod.RANDOM:
             importances = list(random.rand(n_units))
         else:
@@ -226,8 +226,8 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
             target_units = argsorted_importances[unvisited_units[argsorted_importances]]
             if i + 1 < checkpoints:
                 target_units = target_units[:n_units_per_checkpoint]
-            target_query = np.zeros(n_units, dtype=int)
-            target_query[target_units] = 1
+            # target_query = np.zeros(n_units, dtype=int)
+            # target_query[target_units] = 1
             # target_unit = np.ma.array(importances, mask=visited_units).argmin()
             # target_query = np.eye(1, visited_units.shape[0], target_unit, dtype=int).flatten()
             # target_idx = get_indices(dataset_dirty.provenance, target_query)
