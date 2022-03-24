@@ -326,6 +326,12 @@ class ShapleyImportance(Importance):
         world: ndarray,
     ) -> Iterable[float]:
 
+        if checknan(provenance):  # TODO: Remove this hack.
+            units = np.arange(X.shape[0])
+            world = np.zeros_like(units, dtype=int)
+            provenance = np.arange(X.shape[0])
+            provenance = reshape(provenance)
+
         # Convert provenance and units to bit-arrays.
         provenance = binarize(provenance)
 
@@ -385,6 +391,12 @@ class ShapleyImportance(Importance):
         tolerance: float = DEFAULT_MC_TOLERANCE,
         truncation_steps: int = DEFAULT_MC_TRUNCATION_STEPS,
     ) -> Iterable[float]:
+
+        if checknan(provenance):  # TODO: Remove this hack.
+            units = np.arange(X.shape[0])
+            world = np.zeros_like(units, dtype=int)
+            provenance = np.arange(X.shape[0])
+            provenance = reshape(provenance)
 
         # Convert provenance and units to bit-arrays.
         provenance = binarize(provenance)
