@@ -336,9 +336,24 @@ class DirtyLabelDataset(Dataset):
         return result
 
 
+class BiasMethod(str, Enum):
+    Feature = "feature"
+    Label = "label"
+    FeatureLabel = "featurelabel"
+
+
+DEFAULT_BIAS_METHOD = BiasMethod.FeatureLabel
+
+
 class BiasedMixin:
     @abstractmethod
-    def load_biased(self, train_bias: float, val_bias: float = 0.0) -> None:
+    def load_biased(
+        self,
+        train_bias: float,
+        val_bias: float = 0.0,
+        test_bias: float = 0.0,
+        bias_method: BiasMethod = DEFAULT_BIAS_METHOD,
+    ) -> None:
         pass
 
     @property
@@ -364,6 +379,7 @@ class BiasedMixin:
         train_bias: float,
         val_bias: float = 0.0,
         test_bias: float = 0.0,
+        bias_method: BiasMethod = DEFAULT_BIAS_METHOD,
         seed: int = DEFAULT_SEED,
     ) -> Tuple[ndarray, ndarray, ndarray]:
         n = X.shape[0]
@@ -378,27 +394,45 @@ class BiasedMixin:
         train_bias = train_bias * 0.5 + 0.5
         val_bias = val_bias * 0.5 + 0.5
         test_bias = test_bias * 0.5 + 0.5
+
+        # The biasing method will determine how we will stratify the data examples.
         idx_f0_l0 = np.nonzero((X[:, sensitive_feature] == f0) & (y == l0))[0]
         idx_f0_l1 = np.nonzero((X[:, sensitive_feature] == f0) & (y == l1))[0]
         idx_f1_l0 = np.nonzero((X[:, sensitive_feature] == f1) & (y == l0))[0]
         idx_f1_l1 = np.nonzero((X[:, sensitive_feature] == f1) & (y == l1))[0]
-        indices = [idx_f0_l0, idx_f0_l1, idx_f1_l0, idx_f1_l1]
+        if bias_method == BiasMethod.FeatureLabel:
+            indices = [idx_f0_l0, idx_f0_l1, idx_f1_l0, idx_f1_l1]
+            requested_portions = [
+                (0.5 * train_bias, 0.5 * val_bias, 0.5 * test_bias),
+                (0.5 * (1 - train_bias), 0.5 * (1 - val_bias), 0.5 * (1 - test_bias)),
+                (0.5 * (1 - train_bias), 0.5 * (1 - val_bias), 0.5 * (1 - test_bias)),
+                (0.5 * train_bias, 0.5 * val_bias, 0.5 * test_bias),
+            ]
+        elif bias_method == BiasMethod.Feature:
+            indices = [np.concatenate((idx_f0_l0, idx_f0_l1)), np.concatenate((idx_f1_l0, idx_f1_l1))]
+            requested_portions = [
+                (train_bias, val_bias, test_bias),
+                (1 - train_bias, 1 - val_bias, 1 - test_bias),
+            ]
+        elif bias_method == BiasMethod.Label:
+            indices = [np.concatenate((idx_f0_l0, idx_f1_l0)), np.concatenate((idx_f0_l1, idx_f1_l1))]
+            requested_portions = [
+                (train_bias, val_bias, test_bias),
+                (1 - train_bias, 1 - val_bias, 1 - test_bias),
+            ]
+        else:
+            raise ValueError("Unknown bias method passed: %s" % repr(bias_method))
 
         trainsize, valsize, testsize, totsize = balance_train_val_and_testsize(trainsize, valsize, testsize, n)
         available_sizes = [idx.shape[0] for idx in indices]
-        requested_sizes = [
-            (0.5 * train_bias, 0.5 * val_bias, 0.5 * test_bias),
-            (0.5 * (1 - train_bias), 0.5 * (1 - val_bias), 0.5 * (1 - test_bias)),
-            (0.5 * (1 - train_bias), 0.5 * (1 - val_bias), 0.5 * (1 - test_bias)),
-            (0.5 * train_bias, 0.5 * val_bias, 0.5 * test_bias),
-        ]
-        for available_size, (requested_trainsize, requested_valsize, requested_testsize) in zip(
-            available_sizes, requested_sizes
+
+        for available_size, (requested_trainportion, requested_valportion, requested_testportion) in zip(
+            available_sizes, requested_portions
         ):
             requested_size = (
-                floor(requested_trainsize * trainsize)
-                + floor(requested_valsize * valsize)
-                + floor(requested_testsize * testsize)
+                floor(requested_trainportion * trainsize)
+                + floor(requested_valportion * valsize)
+                + floor(requested_testportion * testsize)
             )
             trainsize, valsize, testsize, totsize = reduce_train_val_and_testsize(
                 trainsize, valsize, testsize, totsize, requested_size, available_size
@@ -408,10 +442,10 @@ class BiasedMixin:
         idx_train, idx_val, idx_test = np.array([], dtype=int), np.array([], dtype=int), np.array([], dtype=int)
         for i, idx in enumerate(indices):
             random.shuffle(idx)
-            if i < 3:
-                trainslice = floor(requested_sizes[i][0] * trainsize)
-                valslice = floor(requested_sizes[i][1] * valsize)
-                testslice = floor(requested_sizes[i][2] * testsize)
+            if i < len(indices) - 1:
+                trainslice = floor(requested_portions[i][0] * trainsize)
+                valslice = floor(requested_portions[i][1] * valsize)
+                testslice = floor(requested_portions[i][2] * testsize)
             else:
                 trainslice = trainsize - idx_train.shape[0]
                 valslice = valsize - idx_val.shape[0]
@@ -614,6 +648,7 @@ class UCI(DirtyLabelDataset, BiasedMixin, modality=DatasetModality.TABULAR):
         train_bias: float,
         val_bias: float = 0.0,
         test_bias: float = 0.0,
+        bias_method: BiasMethod = DEFAULT_BIAS_METHOD,
     ) -> None:
         assert train_bias > -1.0 and train_bias < 1.0
         assert val_bias > -1.0 and val_bias < 1.0
@@ -631,6 +666,7 @@ class UCI(DirtyLabelDataset, BiasedMixin, modality=DatasetModality.TABULAR):
             train_bias=train_bias,
             val_bias=val_bias,
             test_bias=test_bias,
+            bias_method=bias_method,
             seed=self._seed,
         )
 
@@ -783,6 +819,7 @@ class FolkUCI(DirtyLabelDataset, BiasedMixin, modality=DatasetModality.TABULAR):
         train_bias: float,
         val_bias: float = 0.0,
         test_bias: float = 0.0,
+        bias_method: BiasMethod = DEFAULT_BIAS_METHOD,
     ) -> None:
         assert train_bias > -1.0 and train_bias < 1.0
         assert val_bias > -1.0 and val_bias < 1.0
@@ -807,6 +844,7 @@ class FolkUCI(DirtyLabelDataset, BiasedMixin, modality=DatasetModality.TABULAR):
             train_bias=train_bias,
             val_bias=val_bias,
             test_bias=test_bias,
+            bias_method=bias_method,
             seed=self._seed,
         )
 

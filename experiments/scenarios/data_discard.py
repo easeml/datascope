@@ -15,9 +15,9 @@ from datascope.importance.common import (
 from datascope.importance.shapley import ShapleyImportance
 from datetime import timedelta
 from time import process_time_ns
-from typing import Any, Iterable, Optional, Dict
+from typing import Any, Optional, Dict
 
-from experiments.dataset.base import BiasedMixin
+from experiments.dataset.base import BiasMethod, BiasedMixin
 
 from .datascope_scenario import (
     DatascopeScenario,
@@ -30,7 +30,7 @@ from .datascope_scenario import (
     UtilityType,
 )
 from .base import attribute
-from ..dataset import Dataset, DEFAULT_TRAINSIZE, DEFAULT_VALSIZE, DEFAULT_TESTSIZE
+from ..dataset import Dataset, DEFAULT_TRAINSIZE, DEFAULT_VALSIZE, DEFAULT_TESTSIZE, DEFAULT_BIAS_METHOD
 from ..pipelines import Pipeline, ModelType, get_model
 
 
@@ -66,6 +66,7 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
         model: ModelType = DEFAULT_MODEL,
         trainbias: float = DEFAULT_TRAIN_BIAS,
         valbias: float = DEFAULT_VAL_BIAS,
+        biasmethod: BiasMethod = DEFAULT_BIAS_METHOD,
         maxremove: float = DEFAULT_MAX_REMOVE,
         discardgoal: DiscardGoal = DEFAULT_DISCARD_GOAL,
         seed: int = DEFAULT_SEED,
@@ -95,6 +96,7 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
         )
         self._trainbias = trainbias
         self._valbias = valbias
+        self._biasmethod = biasmethod
         self._maxremove = maxremove
         self._discardgoal = discardgoal
 
@@ -112,6 +114,11 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
     def maxremove(self) -> float:
         """The maximum portion of data to remove."""
         return self._maxremove
+
+    @attribute(domain=[None])
+    def biasmethod(self) -> BiasMethod:
+        """The method to use when applying a bias to datasets."""
+        return self._biasmethod
 
     @attribute(domain=[None])
     def discardgoal(self) -> DiscardGoal:
@@ -149,7 +156,7 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
         )
         if self.discardgoal == DiscardGoal.FAIRNESS:
             assert isinstance(dataset, BiasedMixin)
-            dataset.load_biased(train_bias=self._trainbias, val_bias=self._valbias)
+            dataset.load_biased(train_bias=self._trainbias, val_bias=self._valbias, bias_method=self._biasmethod)
         else:
             dataset.load()
         self.logger.debug(
@@ -230,9 +237,9 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
         random = np.random.RandomState(seed=seed)
         importance_time_start = process_time_ns()
         importance: Optional[ShapleyImportance] = None
-        importances: Optional[Iterable[float]] = None
+        importances: Optional[np.ndarray] = None
         if self.method == RepairMethod.RANDOM:
-            importances = list(random.rand(dataset.trainsize))
+            importances = np.array(random.rand(dataset.trainsize))
         else:
             method = IMPORTANCE_METHODS[self.method]
             mc_iterations = MC_ITERATIONS[self.method]
@@ -245,7 +252,7 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
                 mc_timeout=self.timeout,
                 mc_preextract=mc_preextract,
             )
-            importances = importance.fit(dataset.X_train, dataset.y_train).score(dataset.X_val, dataset.y_val)
+            importances = np.array(importance.fit(dataset.X_train, dataset.y_train).score(dataset.X_val, dataset.y_val))
         importance_time_end = process_time_ns()
         self._importance_compute_time = (importance_time_end - importance_time_start) / 1e9
         self.logger.debug("Importance computed in: %s", str(timedelta(seconds=self._importance_compute_time)))
@@ -342,7 +349,6 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
             # Recompute if needed.
             if importance is not None and self.method == RepairMethod.KNN_Interactive:
                 importance_time_start = process_time_ns()
-                importances = np.empty(n_units, dtype=float)
                 importances[present_idx] = importance.fit(dataset_current.X_train, dataset_current.y_train).score(
                     dataset_current.X_val, dataset_current.y_val
                 )
