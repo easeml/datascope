@@ -2,13 +2,19 @@ from copy import deepcopy
 import numpy as np
 import pandas as pd
 
-from datascope.importance.common import SklearnModelAccuracy
+from datascope.importance.common import (
+    SklearnModelAccuracy,
+    JointUtility,
+    SklearnModelEqualizedOddsDifference,
+    Utility,
+    compute_groupings,
+)
 from datascope.importance.shapley import ShapleyImportance
 from datetime import timedelta
 from time import process_time_ns
 from typing import Any, Iterable, List, Optional, Union, Dict
 
-from experiments.dataset.base import DirtyLabelDataset
+from experiments.dataset.base import BiasedDirtyLabelDataset, DirtyLabelDataset
 
 from .base import attribute
 from .datascope_scenario import (
@@ -20,13 +26,16 @@ from .datascope_scenario import (
     DEFAULT_CHECKPOINTS,
     DEFAULT_PROVIDERS,
     DEFAULT_MODEL,
+    DEFAULT_REPAIR_GOAL,
     UtilityType,
+    RepairGoal,
 )
 from ..dataset import Dataset, DEFAULT_TRAINSIZE, DEFAULT_VALSIZE, DEFAULT_TESTSIZE
 from ..pipelines import Pipeline, ModelType, get_model
 
 
 DEFAULT_DIRTY_RATIO = 0.5
+DEFAULT_DIRTY_BIAS = 0.0
 KEYWORD_REPLACEMENTS = {
     "accuracy": "Accuracy",
     "accuracy_rel": "Relative Accuracy",
@@ -44,14 +53,17 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
         pipeline: str,
         method: RepairMethod,
         iteration: int,
+        utility: UtilityType = UtilityType.ACCURACY,
         model: ModelType = DEFAULT_MODEL,
         dirtyratio: float = DEFAULT_DIRTY_RATIO,
+        dirtybias: float = DEFAULT_DIRTY_BIAS,
         seed: int = DEFAULT_SEED,
         trainsize: int = DEFAULT_TRAINSIZE,
         valsize: int = DEFAULT_VALSIZE,
         testsize: int = DEFAULT_TESTSIZE,
         checkpoints: int = DEFAULT_CHECKPOINTS,
         providers: int = DEFAULT_PROVIDERS,
+        repairgoal: RepairGoal = DEFAULT_REPAIR_GOAL,
         evolution: Optional[pd.DataFrame] = None,
         importance_compute_time: Optional[float] = None,
         **kwargs: Any
@@ -61,7 +73,7 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
             dataset=dataset,
             pipeline=pipeline,
             method=method,
-            utility=UtilityType.ACCURACY,
+            utility=utility,
             iteration=iteration,
             model=model,
             seed=seed,
@@ -70,28 +82,43 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
             testsize=testsize,
             checkpoints=checkpoints,
             providers=providers,
+            repairgoal=repairgoal,
             evolution=evolution,
             importance_compute_time=importance_compute_time,
             **kwargs
         )
         self._dirtyratio = dirtyratio
+        self._dirtybias = dirtybias
 
     @classmethod
     def is_valid_config(cls, **attributes: Any) -> bool:
         result = True
-        if "utility" in attributes:
-            result = attributes["utility"] == UtilityType.ACCURACY
         if "method" in attributes:
             result = result and not RepairMethod.is_tmc_nonpipe(attributes["method"])
         if "dataset" in attributes:
             dataset_class = Dataset.datasets[attributes["dataset"]]
             result = result and issubclass(dataset_class, DirtyLabelDataset)
+
+        if "repairgoal" not in attributes or attributes["repairgoal"] == RepairGoal.FAIRNESS:
+            if "dataset" in attributes:
+                dataset = Dataset.datasets[attributes["dataset"]]()
+                result = result and isinstance(dataset, BiasedDirtyLabelDataset)
+        elif "repairgoal" in attributes and attributes["repairgoal"] == RepairGoal.ACCURACY:
+            if "dataset" in attributes:
+                result = result and (attributes["dataset"] != "random")
+            if "utility" in attributes:
+                result = result and attributes["utility"] == UtilityType.ACCURACY
         return result and super().is_valid_config(**attributes)
 
     @attribute
     def dirtyratio(self) -> float:
         """The proportion of examples that will have corrupted labels in label repair experiments."""
         return self._dirtyratio
+
+    @attribute
+    def dirtybias(self) -> float:
+        """The bias of dirty ratio between the sensitive data subgroup and the rest."""
+        return self._dirtybias
 
     @property
     def keyword_replacements(self) -> Dict[str, str]:
@@ -115,6 +142,13 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
             dataset.testsize,
         )
 
+        # Compute sensitive feature groupings.
+        groupings_val: Optional[np.ndarray] = None
+        groupings_test: Optional[np.ndarray] = None
+        if isinstance(dataset, BiasedDirtyLabelDataset):
+            groupings_val = compute_groupings(dataset.X_val, dataset.sensitive_feature)
+            groupings_test = compute_groupings(dataset.X_test, dataset.sensitive_feature)
+
         # Create the dirty dataset and apply the data corruption.
         # dataset_dirty = deepcopy(dataset)
         # random = np.random.RandomState(seed=self._seed + self._iteration)
@@ -127,8 +161,14 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
             clean_providers = self.providers - dirty_providers
             probabilities = [float(i + 1) / dirty_providers for i in range(dirty_providers)]
             probabilities += [0.0 for _ in range(clean_providers)]
-        dataset_dirty = dataset.corrupt_labels(probabilities=probabilities)
-        units_dirty = deepcopy(dataset_dirty.units_dirty)
+
+        if self.repairgoal == RepairGoal.ACCURACY:
+            dataset_dirty = dataset.corrupt_labels(probabilities=probabilities)
+            units_dirty = deepcopy(dataset_dirty.units_dirty)
+        if self.repairgoal == RepairGoal.FAIRNESS:
+            assert isinstance(dataset, BiasedDirtyLabelDataset)
+            dataset_dirty = dataset.corrupt_labels_with_bias(probabilities=probabilities, groupbias=self.dirtybias)
+            units_dirty = deepcopy(dataset_dirty.units_dirty)
 
         # Load the pipeline and process the data.
         pipeline = Pipeline.pipelines[self.pipeline].construct(dataset)
@@ -163,12 +203,39 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
 
         # Initialize the model and utility.
         model = get_model(self.model)
-        # if RepairMethod.is_pipe(self.method):
-        #     model_pipeline = deepcopy(pipeline)
-        #     model_pipeline.steps.append(("model", model))
-        #     model = model_pipeline
+        # model_pipeline = deepcopy(pipeline)
         # pipeline.steps.append(("model", model))
-        utility = SklearnModelAccuracy(model)
+        # if RepairMethod.is_pipe(self.method):
+        #     model = model_pipeline
+        accuracy_utility = SklearnModelAccuracy(model)
+        eqodds_utility: Optional[SklearnModelEqualizedOddsDifference] = None
+        if self.repairgoal == RepairGoal.FAIRNESS:
+            assert isinstance(dataset, BiasedDirtyLabelDataset)
+            eqodds_utility = SklearnModelEqualizedOddsDifference(
+                model, sensitive_features=dataset.sensitive_feature, groupings=groupings_test
+            )
+
+        # target_model = model if RepairMethod.is_tmc_nonpipe(self.method) else pipeline
+        target_utility: Utility
+        if self.utility == UtilityType.ACCURACY:
+            target_utility = JointUtility(SklearnModelAccuracy(model), weights=[-1.0])
+            # target_utility = SklearnModelAccuracy(model)
+        elif self.utility == UtilityType.EQODDS:
+            assert self.repairgoal == RepairGoal.FAIRNESS and isinstance(dataset, BiasedDirtyLabelDataset)
+            target_utility = SklearnModelEqualizedOddsDifference(
+                model, sensitive_features=dataset.sensitive_feature, groupings=groupings_val
+            )
+        elif self.utility == UtilityType.EQODDS_AND_ACCURACY:
+            assert self.repairgoal == RepairGoal.FAIRNESS and isinstance(dataset, BiasedDirtyLabelDataset)
+            target_utility = JointUtility(
+                SklearnModelAccuracy(model),
+                SklearnModelEqualizedOddsDifference(
+                    model, sensitive_features=dataset.sensitive_feature, groupings=groupings_val
+                ),
+                weights=[-0.5, 0.5],
+            )
+        else:
+            raise ValueError("Unknown utility type '%s'." % repr(self.utility))
 
         # Compute importance scores and time it.
         importance_time_start = process_time_ns()
@@ -184,7 +251,7 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
             mc_preextract = RepairMethod.is_tmc_nonpipe(self.method)
             importance = ShapleyImportance(
                 method=method,
-                utility=utility,
+                utility=target_utility,
                 pipeline=pipeline,
                 mc_iterations=mc_iterations,
                 mc_timeout=self.timeout,
@@ -204,10 +271,18 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
         # assert y_val is not None
         dataset_f = dataset.apply(pipeline)
         dataset_dirty_f = dataset_dirty.apply(pipeline)
-        accuracy = utility(dataset_dirty_f.X_train, dataset_dirty_f.y_train, dataset_f.X_test, dataset_f.y_test)
+        eqodds: Optional[float] = None
+        if eqodds_utility is not None:
+            eqodds = eqodds_utility(
+                dataset_dirty_f.X_train, dataset_dirty_f.y_train, dataset_f.X_test, dataset_f.y_test
+            )
+        accuracy = accuracy_utility(
+            dataset_dirty_f.X_train, dataset_dirty_f.y_train, dataset_f.X_test, dataset_f.y_test
+        )
 
         # Update result table.
-        evolution = [[0.0, accuracy, accuracy, 0, 0.0, 0, 0.0]]
+        evolution = [[0.0, eqodds, eqodds, accuracy, accuracy, 0, 0.0, 0, 0.0]]
+        eqodds_start = eqodds
         accuracy_start = accuracy
 
         # Set up progress bar.
@@ -238,7 +313,16 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
             dataset_dirty.units_dirty[target_units] = False
 
             # Run the model.
-            accuracy = utility(dataset_dirty_f.X_train, dataset_dirty.y_train, dataset_f.X_test, dataset_f.y_test)
+            if eqodds_utility is not None:
+                eqodds = eqodds_utility(
+                    dataset_dirty_f.X_train,
+                    dataset_dirty_f.y_train,
+                    dataset_dirty_f.X_test,
+                    dataset_dirty_f.y_test,
+                )
+            accuracy = accuracy_utility(
+                dataset_dirty_f.X_train, dataset_dirty_f.y_train, dataset_dirty_f.X_test, dataset_dirty_f.y_test
+            )
 
             # self.logger.debug("Dirty units: %.2f", np.sum(dataset_dirty.units_dirty))
             # self.logger.debug("Same labels: %.2f", np.sum(dataset_dirty.y_train == dataset.y_train))
@@ -249,7 +333,9 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
             repaired_rel = repaired / float(n_units)
             discovered = np.logical_and(visited_units, units_dirty).sum(dtype=int)
             discovered_rel = discovered / units_dirty.sum(dtype=float)
-            evolution.append([steps_rel, accuracy, accuracy, repaired, repaired_rel, discovered, discovered_rel])
+            evolution.append(
+                [steps_rel, eqodds, eqodds, accuracy, accuracy, repaired, repaired_rel, discovered, discovered_rel]
+            )
 
             # Recompute if needed.
             if importance is not None and self.method == RepairMethod.KNN_Interactive:
@@ -271,6 +357,8 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
             evolution,
             columns=[
                 "steps_rel",
+                "eqodds",
+                "eqodds_rel",
                 "accuracy",
                 "accuracy_rel",
                 "repaired",
@@ -281,7 +369,20 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
         )
         self._evolution.index.name = "steps"
 
-        # Fix relative score.
+        # Recompute relative equalized odds (if we were keeping track of it).
+        if eqodds_utility is not None:
+            assert eqodds is not None and eqodds_start is not None
+            eqodds_end = eqodds
+            eqqods_min = min(eqodds_start, eqodds_end)
+            eqodds_delta = abs(eqodds_end - eqodds_start)
+            self._evolution["eqodds_rel"] = self._evolution["eqodds_rel"].apply(
+                lambda x: (x - eqqods_min) / eqodds_delta
+            )
+        else:
+            # Otherwise drop those columns.
+            self._evolution.drop(["eqodds", "eqodds_rel"], axis=1, inplace=True)
+
+        # Recompute relative accuracy.
         accuracy_end = accuracy
         accuracy_delta = accuracy_end - accuracy_start
         self._evolution["accuracy_rel"] = self._evolution["accuracy_rel"].apply(

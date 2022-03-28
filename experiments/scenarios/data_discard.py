@@ -1,5 +1,4 @@
 from copy import deepcopy
-from enum import Enum
 import numpy as np
 import pandas as pd
 
@@ -17,8 +16,6 @@ from datetime import timedelta
 from time import process_time_ns
 from typing import Any, Optional, Dict
 
-from experiments.dataset.base import BiasMethod, BiasedMixin
-
 from .datascope_scenario import (
     DatascopeScenario,
     RepairMethod,
@@ -27,22 +24,26 @@ from .datascope_scenario import (
     DEFAULT_SEED,
     DEFAULT_CHECKPOINTS,
     DEFAULT_MODEL,
+    DEFAULT_REPAIR_GOAL,
+    DEFAULT_TRAIN_BIAS,
+    DEFAULT_VAL_BIAS,
     UtilityType,
+    RepairGoal,
 )
 from .base import attribute
-from ..dataset import Dataset, DEFAULT_TRAINSIZE, DEFAULT_VALSIZE, DEFAULT_TESTSIZE, DEFAULT_BIAS_METHOD
+from ..dataset import (
+    Dataset,
+    BiasMethod,
+    BiasedMixin,
+    DEFAULT_TRAINSIZE,
+    DEFAULT_VALSIZE,
+    DEFAULT_TESTSIZE,
+    DEFAULT_BIAS_METHOD,
+)
 from ..pipelines import Pipeline, ModelType, get_model
 
 
-class DiscardGoal(str, Enum):
-    FAIRNESS = "fairness"
-    SUMMARIZATION = "summarization"
-
-
-DEFAULT_TRAIN_BIAS = 0.8
-DEFAULT_VAL_BIAS = 0.0
 DEFAULT_MAX_REMOVE = 0.5
-DEFAULT_DISCARD_GOAL = DiscardGoal.FAIRNESS
 KEYWORD_REPLACEMENTS = {
     "eqodds": "Equalized Odds Difference",
     "eqodds_rel": "Relative Equalized Odds Difference",
@@ -68,7 +69,7 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
         valbias: float = DEFAULT_VAL_BIAS,
         biasmethod: BiasMethod = DEFAULT_BIAS_METHOD,
         maxremove: float = DEFAULT_MAX_REMOVE,
-        discardgoal: DiscardGoal = DEFAULT_DISCARD_GOAL,
+        repairgoal: RepairGoal = DEFAULT_REPAIR_GOAL,
         seed: int = DEFAULT_SEED,
         trainsize: int = DEFAULT_TRAINSIZE,
         valsize: int = DEFAULT_VALSIZE,
@@ -85,45 +86,25 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
             utility=utility,
             iteration=iteration,
             model=model,
+            trainbias=trainbias,
+            valbias=valbias,
+            biasmethod=biasmethod,
             seed=seed,
             trainsize=trainsize,
             valsize=valsize,
             testsize=testsize,
             checkpoints=checkpoints,
+            repairgoal=repairgoal,
             evolution=evolution,
             importance_compute_time=importance_compute_time,
             **kwargs
         )
-        self._trainbias = trainbias
-        self._valbias = valbias
-        self._biasmethod = biasmethod
         self._maxremove = maxremove
-        self._discardgoal = discardgoal
-
-    @attribute
-    def trainbias(self) -> float:
-        """The bias of the training dataset used in fairness experiments."""
-        return self._trainbias
-
-    @attribute
-    def valbias(self) -> float:
-        """The bias of the validation dataset used in fairness experiments."""
-        return self._valbias
 
     @attribute
     def maxremove(self) -> float:
         """The maximum portion of data to remove."""
         return self._maxremove
-
-    @attribute(domain=[None])
-    def biasmethod(self) -> BiasMethod:
-        """The method to use when applying a bias to datasets."""
-        return self._biasmethod
-
-    @attribute(domain=[None])
-    def discardgoal(self) -> DiscardGoal:
-        """The goal of discarding data which impacts the behavior of the scenario."""
-        return self._discardgoal
 
     @property
     def keyword_replacements(self) -> Dict[str, str]:
@@ -135,11 +116,11 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
         result = True
         if "method" in attributes:
             result = result and not RepairMethod.is_tmc_nonpipe(attributes["method"])
-        if "discardgoal" not in attributes or attributes["discardgoal"] == DiscardGoal.FAIRNESS:
+        if "repairgoal" not in attributes or attributes["repairgoal"] == RepairGoal.FAIRNESS:
             if "dataset" in attributes:
                 dataset = Dataset.datasets[attributes["dataset"]]()
                 result = result and isinstance(dataset, BiasedMixin)
-        elif "discardgoal" in attributes and attributes["discardgoal"] == DiscardGoal.SUMMARIZATION:
+        elif "repairgoal" in attributes and attributes["repairgoal"] == RepairGoal.ACCURACY:
             if "dataset" in attributes:
                 result = result and (attributes["dataset"] != "random")
             if "utility" in attributes:
@@ -154,7 +135,7 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
         dataset = Dataset.datasets[self.dataset](
             trainsize=self.trainsize, valsize=self.valsize, testsize=self.testsize, seed=seed
         )
-        if self.discardgoal == DiscardGoal.FAIRNESS:
+        if self.repairgoal == RepairGoal.FAIRNESS:
             assert isinstance(dataset, BiasedMixin)
             dataset.load_biased(train_bias=self._trainbias, val_bias=self._valbias, bias_method=self._biasmethod)
         else:
@@ -205,7 +186,7 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
         #     model = model_pipeline
         accuracy_utility = SklearnModelAccuracy(model)
         eqodds_utility: Optional[SklearnModelEqualizedOddsDifference] = None
-        if self.discardgoal == DiscardGoal.FAIRNESS:
+        if self.repairgoal == RepairGoal.FAIRNESS:
             assert isinstance(dataset, BiasedMixin)
             eqodds_utility = SklearnModelEqualizedOddsDifference(
                 model, sensitive_features=dataset.sensitive_feature, groupings=groupings_test
@@ -217,12 +198,12 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
             target_utility = JointUtility(SklearnModelAccuracy(model), weights=[-1.0])
             # target_utility = SklearnModelAccuracy(model)
         elif self.utility == UtilityType.EQODDS:
-            assert self.discardgoal == DiscardGoal.FAIRNESS and isinstance(dataset, BiasedMixin)
+            assert self.repairgoal == RepairGoal.FAIRNESS and isinstance(dataset, BiasedMixin)
             target_utility = SklearnModelEqualizedOddsDifference(
                 model, sensitive_features=dataset.sensitive_feature, groupings=groupings_val
             )
         elif self.utility == UtilityType.EQODDS_AND_ACCURACY:
-            assert self.discardgoal == DiscardGoal.FAIRNESS and isinstance(dataset, BiasedMixin)
+            assert self.repairgoal == RepairGoal.FAIRNESS and isinstance(dataset, BiasedMixin)
             target_utility = JointUtility(
                 SklearnModelAccuracy(model),
                 SklearnModelEqualizedOddsDifference(
@@ -391,7 +372,7 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
             self._evolution.drop(["eqodds", "eqodds_rel"], axis=1, inplace=True)
 
         # If our goal was not fairness then the dataset bias is also not useful.
-        if self.discardgoal != DiscardGoal.FAIRNESS:
+        if self.repairgoal != RepairGoal.FAIRNESS:
             self._evolution.drop("dataset_bias", axis=1, inplace=True)
 
         # Recompute relative accuracy.

@@ -6,7 +6,14 @@ from pandas import DataFrame
 from typing import Any, Optional, Dict
 
 from .base import Scenario, attribute, result
-from ..dataset import Dataset, DEFAULT_TRAINSIZE, DEFAULT_VALSIZE, DEFAULT_TESTSIZE
+from ..dataset import (
+    Dataset,
+    BiasMethod,
+    DEFAULT_TRAINSIZE,
+    DEFAULT_VALSIZE,
+    DEFAULT_TESTSIZE,
+    DEFAULT_BIAS_METHOD,
+)
 from ..pipelines import Pipeline, ModelType
 
 
@@ -65,6 +72,11 @@ class RepairMethod(str, Enum):
             RepairMethod.TMC_100,
             RepairMethod.TMC_500,
         ]
+
+
+class RepairGoal(str, Enum):
+    FAIRNESS = "fairness"
+    ACCURACY = "accuracy"
 
 
 class UtilityType(str, Enum):
@@ -138,6 +150,9 @@ DEFAULT_CHECKPOINTS = 100
 DEFAULT_PROVIDERS = 0
 DEFAULT_TIMEOUT = 3600
 DEFAULT_MODEL = ModelType.LogisticRegression
+DEFAULT_REPAIR_GOAL = RepairGoal.ACCURACY
+DEFAULT_TRAIN_BIAS = 0.0
+DEFAULT_VAL_BIAS = 0.0
 
 
 class DatascopeScenario(Scenario):
@@ -149,6 +164,9 @@ class DatascopeScenario(Scenario):
         utility: UtilityType,
         iteration: int,
         model: ModelType = DEFAULT_MODEL,
+        trainbias: float = DEFAULT_TRAIN_BIAS,
+        valbias: float = DEFAULT_VAL_BIAS,
+        biasmethod: BiasMethod = DEFAULT_BIAS_METHOD,
         seed: int = DEFAULT_SEED,
         trainsize: int = DEFAULT_TRAINSIZE,
         valsize: int = DEFAULT_VALSIZE,
@@ -156,6 +174,7 @@ class DatascopeScenario(Scenario):
         timeout: int = DEFAULT_TIMEOUT,
         checkpoints: int = DEFAULT_CHECKPOINTS,
         providers: int = DEFAULT_PROVIDERS,
+        repairgoal: RepairGoal = DEFAULT_REPAIR_GOAL,
         evolution: Optional[pd.DataFrame] = None,
         importance_compute_time: Optional[float] = None,
         **kwargs: Any
@@ -167,6 +186,9 @@ class DatascopeScenario(Scenario):
         self._utility = utility
         self._iteration = iteration
         self._model = model
+        self._trainbias = trainbias
+        self._valbias = valbias
+        self._biasmethod = biasmethod
         self._seed = seed
         self._trainsize = trainsize
         self._valsize = valsize
@@ -174,6 +196,7 @@ class DatascopeScenario(Scenario):
         self._timeout = timeout
         self._checkpoints = checkpoints
         self._providers = providers
+        self._repairgoal = repairgoal
         self._evolution = pd.DataFrame() if evolution is None else evolution
         self._importance_compute_time: Optional[float] = importance_compute_time
 
@@ -196,6 +219,21 @@ class DatascopeScenario(Scenario):
     def model(self) -> ModelType:
         """Model used to make predictions."""
         return self._model
+
+    @attribute
+    def trainbias(self) -> float:
+        """The bias of the training dataset used in fairness experiments."""
+        return self._trainbias
+
+    @attribute
+    def valbias(self) -> float:
+        """The bias of the validation dataset used in fairness experiments."""
+        return self._valbias
+
+    @attribute(domain=[None])
+    def biasmethod(self) -> BiasMethod:
+        """The method to use when applying a bias to datasets."""
+        return self._biasmethod
 
     @attribute
     def utility(self) -> UtilityType:
@@ -242,6 +280,11 @@ class DatascopeScenario(Scenario):
         The value 0 means that each data example is provided independently.
         """
         return self._providers
+
+    @attribute(domain=[None])
+    def repairgoal(self) -> RepairGoal:
+        """The goal of repairing data which impacts the behavior of the scenario."""
+        return self._repairgoal
 
     @result
     def evolution(self) -> DataFrame:

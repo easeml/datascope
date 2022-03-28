@@ -462,6 +462,18 @@ class BiasedMixin:
         return idx_train, idx_val, idx_test
 
 
+def reduce_train_val_and_testsize(
+    trainsize: int, valsize: int, totsize: int, testsize: int, requested_size: int, available_size: int
+) -> Tuple[int, int, int, int]:
+    if requested_size > available_size:
+        reduction = float(available_size) / requested_size
+        trainsize = floor(trainsize * reduction)
+        valsize = floor(valsize * reduction)
+        testsize = floor(testsize * reduction)
+        totsize = trainsize + valsize + testsize
+    return trainsize, valsize, testsize, totsize
+
+
 def balance_train_val_and_testsize(
     trainsize: int, valsize: int, testsize: int, totsize: int
 ) -> Tuple[int, int, int, int]:
@@ -516,49 +528,68 @@ def balance_train_val_and_testsize(
 
     return trainsize, valsize, testsize, totsize
 
-    # if trainsize > 0:
-    #     if valsize > 0:
-    #         if testsize > 0:
-    #             if trainsize + valsize + testsize <= totsize:
-    #                 totsize = trainsize + valsize + testsize
-    #             else:
-    #                 trainvaltestsize = trainsize + valsize + testsize
-    #                 trainsize = round(totsize * trainsize / trainvaltestsize)
-    #                 valsize = round(totsize * valsize / trainvaltestsize)
-    #                 testsize = totsize - trainsize - valsize
-    #         else:
-    #             if trainsize + valsize <= totsize:
-    #                 totsize = trainsize + valsize
-    #             else:
-    #                 trainsize = round(totsize * trainsize / (trainsize + valsize))
-    #                 valsize = totsize - trainsize
-    #     else:
-    #         if trainsize >= totsize:
-    #             raise ValueError("Requested trainsize %d more than available data %d." % (trainsize, totsize))
-    #         else:
-    #             valsize = totsize - trainsize
-    # else:
-    #     if valsize > 0:
-    #         if valsize >= totsize:
-    #             raise ValueError("Requested valsize %d more than available data %d." % (valsize, totsize))
-    #         else:
-    #             trainsize = totsize - valsize
-    #     else:
-    #         trainsize = round(0.75 * totsize)
-    #         valsize = totsize - trainsize
-    # return trainsize, valsize, totsize
 
+class BiasedDirtyLabelDataset(DirtyLabelDataset, BiasedMixin):
+    def corrupt_labels_with_bias(
+        self,
+        probabilities: Union[float, Sequence[float]],
+        groupbias: float = 0.0,
+    ) -> "DirtyLabelDataset":
+        if not self.loaded:
+            raise ValueError("The dataset is not loaded yet.")
+        result = deepcopy(self)
+        assert result._y_train is not None
+        result._y_train_dirty = deepcopy(result._y_train)
+        n_examples = result.X_train.shape[0]
 
-def reduce_train_val_and_testsize(
-    trainsize: int, valsize: int, totsize: int, testsize: int, requested_size: int, available_size: int
-) -> Tuple[int, int, int, int]:
-    if requested_size > available_size:
-        reduction = float(available_size) / requested_size
-        trainsize = floor(trainsize * reduction)
-        valsize = floor(valsize * reduction)
-        testsize = floor(testsize * reduction)
-        totsize = trainsize + valsize + testsize
-    return trainsize, valsize, testsize, totsize
+        # Determine indices of the sensitive feature groups.
+        assert result._X_train is not None
+        sensitive_feature_values = list(sorted(np.unique(result._X_train[:, self.sensitive_feature])))
+        if not len(sensitive_feature_values) == 2:
+            raise ValueError("The specified sensitive feature must be a binary feature.")
+        f0, f1 = sensitive_feature_values
+        idx_f0 = np.nonzero(result._X_train[:, self.sensitive_feature] == f0)[0]
+        idx_f1 = np.nonzero(result._X_train[:, self.sensitive_feature] == f1)[0]
+        groupbias = 0.5 * groupbias + 0.5
+        r_f0 = float(len(idx_f0)) / float(len(idx_f0) + len(idx_f1))
+        r_f1 = float(len(idx_f1)) / float(len(idx_f0) + len(idx_f1))
+
+        random = np.random.RandomState(seed=self._seed)
+        if not isinstance(probabilities, collections.Sequence):
+            assert isinstance(probabilities, float)
+            p = probabilities
+            p_f0, p_f1 = (p / r_f0) * groupbias, (p / r_f1) * (1 - groupbias)
+            dirty_idx = np.zeros(shape=n_examples, dtype=bool)
+            dirty_idx[idx_f0] = random.choice(a=[False, True], size=len(idx_f0), p=[1 - p_f0, p_f0])
+            dirty_idx[idx_f1] = random.choice(a=[False, True], size=len(idx_f1), p=[1 - p_f1, p_f1])
+            result._y_train_dirty[dirty_idx] = 1 - result._y_train[dirty_idx]
+            units_dirty = dirty_idx
+            groupings = None
+        else:
+            n_groups = len(probabilities)
+            n_examples_per_group = ceil(n_examples / float(n_groups))
+            groupings = np.tile(np.arange(n_groups), n_examples_per_group)[:n_examples]
+            random.shuffle(groupings)
+            dirty_idx = np.zeros(result.trainsize, dtype=bool)
+            units_dirty = np.zeros(n_groups, dtype=bool)
+            for i, p in enumerate(probabilities):
+                idx_g_f0: ndarray = groupings[idx_f0] == i
+                idx_g_f1: ndarray = groupings[idx_f1] == i
+                n_elements_f0 = np.sum(idx_g_f0)
+                n_elements_f1 = np.sum(idx_g_f1)
+                p_f0, p_f1 = (p / r_f0) * groupbias, (p / r_f1) * (1 - groupbias)
+                idx_g_f0[idx_g_f0] = random.choice(a=[False, True], size=(n_elements_f0), p=[1 - p_f0, p_f0])
+                idx_g_f1[idx_g_f1] = random.choice(a=[False, True], size=(n_elements_f1), p=[1 - p_f1, p_f1])
+                dirty_idx[idx_g_f0] = True
+                dirty_idx[idx_g_f1] = True
+                if idx_g_f0.sum() + idx_g_f0.sum() > 0:
+                    units_dirty[i] = True
+                result._y_train_dirty[idx_g_f0] = 1 - result._y_train[idx_g_f0]
+                result._y_train_dirty[idx_g_f1] = 1 - result._y_train[idx_g_f1]
+        result._construct_provenance(groupings=groupings)
+        result._groupings = groupings
+        result._units_dirty = units_dirty
+        return result
 
 
 UCI_DEFAULT_SENSITIVE_FEATURE = 9
@@ -574,7 +605,7 @@ def compute_bias(X: ndarray, y: ndarray, sf: int) -> float:
     return bias
 
 
-class UCI(DirtyLabelDataset, BiasedMixin, modality=DatasetModality.TABULAR):
+class UCI(BiasedDirtyLabelDataset, modality=DatasetModality.TABULAR):
     def __init__(
         self,
         trainsize: int = DEFAULT_TRAINSIZE,
@@ -748,7 +779,7 @@ def get_states_for_size(n: int) -> List[str]:
     return result
 
 
-class FolkUCI(DirtyLabelDataset, BiasedMixin, modality=DatasetModality.TABULAR):
+class FolkUCI(BiasedDirtyLabelDataset, modality=DatasetModality.TABULAR):
     def __init__(
         self,
         trainsize: int = DEFAULT_TRAINSIZE,
