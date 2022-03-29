@@ -14,7 +14,7 @@ from datetime import timedelta
 from time import process_time_ns
 from typing import Any, Iterable, List, Optional, Union, Dict
 
-from experiments.dataset.base import BiasedDirtyLabelDataset, DirtyLabelDataset
+from experiments.dataset.base import BiasMethod, BiasedDirtyLabelDataset, DirtyLabelDataset
 
 from .base import attribute
 from .datascope_scenario import (
@@ -68,7 +68,7 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
         importance_compute_time: Optional[float] = None,
         **kwargs: Any
     ) -> None:
-        kwargs.pop("utility", None)
+        kwargs.pop("biasmethod", None)
         super().__init__(
             dataset=dataset,
             pipeline=pipeline,
@@ -83,6 +83,7 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
             checkpoints=checkpoints,
             providers=providers,
             repairgoal=repairgoal,
+            biasmethod=BiasMethod.Feature,
             evolution=evolution,
             importance_compute_time=importance_compute_time,
             **kwargs
@@ -316,12 +317,12 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
             if eqodds_utility is not None:
                 eqodds = eqodds_utility(
                     dataset_dirty_f.X_train,
-                    dataset_dirty_f.y_train,
+                    dataset_dirty.y_train,
                     dataset_dirty_f.X_test,
                     dataset_dirty_f.y_test,
                 )
             accuracy = accuracy_utility(
-                dataset_dirty_f.X_train, dataset_dirty_f.y_train, dataset_dirty_f.X_test, dataset_dirty_f.y_test
+                dataset_dirty_f.X_train, dataset_dirty.y_train, dataset_dirty_f.X_test, dataset_dirty_f.y_test
             )
 
             # self.logger.debug("Dirty units: %.2f", np.sum(dataset_dirty.units_dirty))
