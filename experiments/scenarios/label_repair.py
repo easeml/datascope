@@ -265,7 +265,7 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
         self._importance_compute_time = (importance_time_end - importance_time_start) / 1e9
         self.logger.debug("Importance computed in: %s", str(timedelta(seconds=self._importance_compute_time)))
         visited_units = np.zeros(n_units, dtype=bool)
-        argsorted_importances = np.array(importances).argsort()
+        argsorted_importances = (-np.array(importances)).argsort()
         # argsorted_importances = np.ma.array(importances, mask=visited_units).argsort()
 
         # Run the model to get initial score.
@@ -346,7 +346,7 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
                 ).score(dataset.X_val, dataset.y_val)
                 importance_time_end = process_time_ns()
                 self._importance_compute_time += (importance_time_end - importance_time_start) / 1e9
-                argsorted_importances = np.array(importances).argsort()
+                argsorted_importances = (-np.array(importances)).argsort()
                 # argsorted_importances = np.ma.array(importances, mask=visited_units).argsort()
 
             # Update progress bar.
