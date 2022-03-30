@@ -1,15 +1,17 @@
 from __future__ import absolute_import
-import collections
-from copy import deepcopy
-from math import ceil, floor
 
+import collections
 import datasets
 import numpy as np
 import os
+import pandas as pd
+import urllib.request
 
 from abc import ABC, abstractmethod
+from copy import deepcopy
 from enum import Enum
 from folktables import ACSDataSource, ACSIncome
+from math import ceil, floor
 from numpy import ndarray
 from sklearn.datasets import fetch_openml, fetch_20newsgroups, make_classification
 from sklearn.model_selection import train_test_split
@@ -79,6 +81,10 @@ class Dataset(ABC):
         cls._dataset = id if id is not None else cls.__name__
         cls._modality = modality
         Dataset.datasets[cls._dataset] = cls
+
+    @classmethod
+    def preload(cls) -> None:
+        pass
 
     @abstractmethod
     def load(self) -> None:
@@ -640,6 +646,10 @@ class UCI(BiasedDirtyLabelDataset, modality=DatasetModality.TABULAR):
             raise ValueError("Dataset not loaded yet.")
         return compute_bias(self._X_test, self._y_test, self._sensitive_feature)
 
+    @classmethod
+    def preload(cls) -> None:
+        fetch_openml(data_id=1590, as_frame=False, data_home=DEFAULT_DATA_DIR)
+
     def load(self) -> None:
         data = fetch_openml(data_id=1590, as_frame=False, data_home=DEFAULT_DATA_DIR)
         X = np.nan_to_num(data.data)  # TODO: Maybe leave nan values.
@@ -814,6 +824,11 @@ class FolkUCI(BiasedDirtyLabelDataset, modality=DatasetModality.TABULAR):
             raise ValueError("Dataset not loaded yet.")
         return compute_bias(self._X_test, self._y_test, self._sensitive_feature)
 
+    @classmethod
+    def preload(cls) -> None:
+        data_source = ACSDataSource(survey_year="2018", horizon="1-Year", survey="person", root_dir=DEFAULT_DATA_DIR)
+        data_source.get_data(download=True)
+
     def load(self) -> None:
         data_source = ACSDataSource(survey_year="2018", horizon="1-Year", survey="person", root_dir=DEFAULT_DATA_DIR)
         n = (
@@ -905,6 +920,10 @@ class FashionMNIST(DirtyLabelDataset, modality=DatasetModality.IMAGE):
     def classes(self) -> Sequence[int]:
         return self._classes
 
+    @classmethod
+    def preload(cls) -> None:
+        datasets.load_dataset("fashion_mnist", cache_dir=DEFAULT_DATA_DIR)
+
     def load(self) -> None:
         data = datasets.load_dataset("fashion_mnist", cache_dir=DEFAULT_DATA_DIR)
         assert isinstance(data, datasets.dataset_dict.DatasetDict)
@@ -949,6 +968,12 @@ class FashionMNIST(DirtyLabelDataset, modality=DatasetModality.IMAGE):
 
 
 class TwentyNewsGroups(DirtyLabelDataset, modality=DatasetModality.TEXT):
+    @classmethod
+    def preload(cls) -> None:
+        categories = ["comp.graphics", "sci.med"]
+        fetch_20newsgroups(subset="train", categories=categories, shuffle=True, data_home=DEFAULT_DATA_DIR)
+        fetch_20newsgroups(subset="test", categories=categories, shuffle=True, data_home=DEFAULT_DATA_DIR)
+
     def load(self) -> None:
         categories = ["comp.graphics", "sci.med"]
         train = fetch_20newsgroups(
@@ -982,10 +1007,77 @@ class TwentyNewsGroups(DirtyLabelDataset, modality=DatasetModality.TEXT):
         self._construct_provenance()
 
 
+class Higgs(DirtyLabelDataset, modality=DatasetModality.TABULAR):
+
+    TRAINSIZES = [1000, 10000, 100000, 1000000]
+    TESTSIZES = [500, 5000, 50000, 500000]
+
+    @classmethod
+    def preload(cls) -> None:
+        url = "https://archive.ics.uci.edu/ml/machine-learning-databases/00280/HIGGS.csv.gz"
+        filedir = os.path.join(DEFAULT_DATA_DIR, "higgs")
+        os.makedirs(filedir, exist_ok=True)
+        filename = os.path.join(filedir, "HIGGS.csv.gz")
+        if os.path.exists(filename):
+            return
+        urllib.request.urlretrieve(url, filename=filename)
+        df = pd.read_csv(filename, compression="gzip", header=None)
+        df_tr, df_ts = df[:-500000], df[-500000:]
+
+        df_tr.to_csv(os.path.join(filedir, "HIGGS.train.csv.gz"), header=False, index=False, compression="gzip")
+        df_ts.to_csv(os.path.join(filedir, "HIGGS.test.csv.gz"), header=False, index=False, compression="gzip")
+        for n_tr, n_ts in zip(Higgs.TRAINSIZES, Higgs.TESTSIZES):
+            df_tr_s = df_tr.sample(n=n_tr, random_state=7)
+            df_ts_s = df_ts.sample(n=n_ts, random_state=7)
+            filename_tr = os.path.join(filedir, "HIGGS.train.%d.csv.gz" % n_tr)
+            filename_ts = os.path.join(filedir, "HIGGS.test.%d.csv.gz" % n_ts)
+            df_tr_s.to_csv(filename_tr, header=False, index=False, compression="gzip")
+            df_ts_s.to_csv(filename_ts, header=False, index=False, compression="gzip")
+
+    def load(self) -> None:
+        trainsize = self.trainsize if self.trainsize > 0 else None
+        valsize = self.valsize if self.valsize > 0 else None
+        trainvalsize = trainsize + valsize if trainsize is not None and valsize is not None else None
+        testsize = self.testsize if self.testsize > 0 else None
+        n_tr: Optional[int] = None
+        n_ts: Optional[int] = None
+        if trainvalsize is not None:
+            sizes = [n for n in Higgs.TRAINSIZES if n >= trainvalsize * 10]
+            n_tr = sizes[0] if len(sizes) > 0 else None
+        if testsize is not None:
+            sizes = [n for n in Higgs.TRAINSIZES if n >= testsize * 10]
+            n_ts = sizes[0] if len(sizes) > 0 else None
+
+        filedir = os.path.join(DEFAULT_DATA_DIR, "higgs")
+        filename_tr = (
+            os.path.join(filedir, "HIGGS.train.%d.csv.gz" % n_tr)
+            if n_tr is not None
+            else os.path.join(filedir, "HIGGS.train.csv.gz")
+        )
+        filename_ts = (
+            os.path.join(filedir, "HIGGS.test.%d.csv.gz" % n_ts)
+            if n_ts is not None
+            else os.path.join(filedir, "HIGGS.test.csv.gz")
+        )
+        df_tr = pd.read_csv(filename_tr, compression="gzip", header=None)
+        df_ts = pd.read_csv(filename_ts, compression="gzip", header=None)
+
+        y, X = df_tr.iloc[:, 0].to_numpy(dtype=int), df_tr.iloc[:, 1:].to_numpy()
+        self._X_train, self._X_val, self._y_train, self._y_val = train_test_split(
+            X, y, train_size=trainsize, test_size=valsize, random_state=self._seed
+        )
+
+        if testsize is not None:
+            df_ts = df_ts.sample(n=self.testsize, random_state=self._seed)
+        self._y_test, self._X_test = df_ts.iloc[:, 0].to_numpy(dtype=int), df_ts.iloc[:, 1:].to_numpy()
+
+        assert self._X_train is not None and self._X_val is not None
+        self._trainsize = self._X_train.shape[0]
+        self._valsize = self._X_val.shape[0]
+        self._testsize = self._X_test.shape[0]
+        self._construct_provenance()
+
+
 def preload_datasets(**kwargs) -> None:
-    fetch_openml(data_id=1590, as_frame=False, data_home=DEFAULT_DATA_DIR)
-    fetch_20newsgroups(subset="all", data_home=DEFAULT_DATA_DIR)
-    datasets.load_dataset("fashion_mnist", cache_dir=DEFAULT_DATA_DIR)
-    ACSDataSource(survey_year="2018", horizon="1-Year", survey="person", root_dir=DEFAULT_DATA_DIR).get_data(
-        download=True
-    )
+    for cls in Dataset.datasets.values():
+        cls.preload()
