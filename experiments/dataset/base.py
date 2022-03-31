@@ -1072,6 +1072,7 @@ class Higgs(DirtyLabelDataset, modality=DatasetModality.TABULAR):
         self._y_test, self._X_test = df_ts.iloc[:, 0].to_numpy(dtype=int), df_ts.iloc[:, 1:].to_numpy()
 
         assert self._X_train is not None and self._X_val is not None
+        self._loaded = True
         self._trainsize = self._X_train.shape[0]
         self._valsize = self._X_val.shape[0]
         self._testsize = self._X_test.shape[0]
