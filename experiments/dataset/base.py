@@ -1045,7 +1045,7 @@ class Higgs(DirtyLabelDataset, modality=DatasetModality.TABULAR):
             sizes = [n for n in Higgs.TRAINSIZES if n >= trainvalsize]
             n_tr = sizes[0] if len(sizes) > 0 else None
         if testsize is not None:
-            sizes = [n for n in Higgs.TRAINSIZES if n >= testsize]
+            sizes = [n for n in Higgs.TESTSIZES if n >= testsize]
             n_ts = sizes[0] if len(sizes) > 0 else None
 
         filedir = os.path.join(DEFAULT_DATA_DIR, "higgs")
