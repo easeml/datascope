@@ -579,16 +579,16 @@ class BiasedDirtyLabelDataset(DirtyLabelDataset, BiasedMixin):
             dirty_idx = np.zeros(result.trainsize, dtype=bool)
             units_dirty = np.zeros(n_groups, dtype=bool)
             for i, p in enumerate(probabilities):
-                idx_g_f0: ndarray = groupings[idx_f0] == i
-                idx_g_f1: ndarray = groupings[idx_f1] == i
+                idx_g_f0, idx_g_f1 = np.zeros(result.trainsize, dtype=bool), np.zeros(result.trainsize, dtype=bool)
+                idx_g_f0[idx_f0] = groupings[idx_f0] == i
+                idx_g_f1[idx_f1] = groupings[idx_f1] == i
                 n_elements_f0 = np.sum(idx_g_f0)
                 n_elements_f1 = np.sum(idx_g_f1)
                 p_f0, p_f1 = (p / r_f0) * groupbias, (p / r_f1) * (1 - groupbias)
+                p_f0, p_f1 = min(max(p_f0, 0.0), 1.0), min(max(p_f1, 0.0), 1.0)
                 idx_g_f0[idx_g_f0] = random.choice(a=[False, True], size=(n_elements_f0), p=[1 - p_f0, p_f0])
                 idx_g_f1[idx_g_f1] = random.choice(a=[False, True], size=(n_elements_f1), p=[1 - p_f1, p_f1])
-                dirty_idx[idx_g_f0] = True
-                dirty_idx[idx_g_f1] = True
-                if idx_g_f0.sum() + idx_g_f0.sum() > 0:
+                if idx_g_f0.sum() + idx_g_f1.sum() > 0:
                     units_dirty[i] = True
                 result._y_train_dirty[idx_g_f0] = 1 - result._y_train[idx_g_f0]
                 result._y_train_dirty[idx_g_f1] = 1 - result._y_train[idx_g_f1]
