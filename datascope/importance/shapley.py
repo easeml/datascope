@@ -4,7 +4,7 @@ import warnings
 
 from enum import Enum
 from itertools import product
-from math import comb
+from scipy.special import comb
 
 # from numba import prange, jit
 from numpy import ndarray
