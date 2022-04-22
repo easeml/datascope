@@ -5,7 +5,8 @@ import warnings
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from numpy import ndarray
-from typing_extensions import Iterable, Optional, Protocol, Callable, Sequence, Tuple, Union, List
+from typing import Iterable, Optional, Callable, Sequence, Tuple, Union, List
+from typing_extensions import Protocol
 from sklearn.base import clone
 from sklearn.metrics import accuracy_score
 
