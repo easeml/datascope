@@ -1,37 +1,40 @@
-# DataScope: Measuring data importance over ML pipelines using the Shapley value
+# ease.ml/datascope: Data Debugging for end-to-end ML pipelines
 
 This is a tool for inspecting ML pipelines by measuring how important is each training data point for predicting the label of a given test data example.
 
-## Development Guide
+## Quick Start
 
-### Setup
+Install by running:
 
-#### Install libGL.so for opencv
-```
-apt-get install ffmpeg libsm6 libxext6  -y
-```
-
-#### Create a new conda virtual environment
-```
-conda env create -f datascope.yml
+```bash
+pip install datascope
 ```
 
-#### Install datascope
+We can compute the Shapley importance scores for some scikit-learn pipeline `pipeline` using a training dataset `(X_train, y_train)` and a valiation dataset `(X_val, y_val)` as such:
+
+```python
+from datascope.importance.common import SklearnModelAccuracy
+from datascope.importance.shapley import ShapleyImportance
+
+utility = SklearnModelAccuracy(pipeline)
+importance = ShapleyImportance(method="neighbor", utility=utility)
+importances = importance.fit(X_train, y_train).score(X_val, y_val)
 ```
-python setup.py install
-```
 
-#### Install datascope-pipelines
+The variable `importances` contains Shapley values of all data examples in `(X_train, y_train)` computed using the nearest neighbor method (i.e. `"neighbor"`).
 
-### Repo Structure
+For a more complete example workflow, see the [demo notebook](https://github.com/easeml/datascope/blob/main/notebooks/DataScope-Demo-1.ipynb).
 
-This repository has several sections:
+## Why datascope?
 
-* Algorithms for computing the Shapley value are in `datascope/algorithms`
-* Code for inspecting ML pipelines defined with sklearn are in `datascope/inspection`
-* All tests are stored under `tests`
-* Any experiment scripts and Jupyter notebooks are stored under `experiments`
+Shapley values help you find faulty data examples ***much faster*** than if you were going about it randomly. For example, let's say you are given a dataset with 50% of labels corrupted, and you want to repair them one by one. Which one should you select first?
 
-### Adding Dependencies
+![Example data repair workflow using datascope](/dev/assets/uci-stdscaler-pipeline-experiment.png)
 
-For now we can keep all Python dependencies in the `requirements.txt`. Later on we will separate them by "flavor" (e.g. test dependencies, experiment dependencies).
+In the above figure we run different methods for prioritizing data examples that should get repaired (random selection, various methods that use the Shapley importance). After each repair, we measure the accuracy achieved on an XGBoost model. We can see in the left figure that each importance-based method is better than random. Furthermore, for the KNN method (i.e. the `"neighbor"` method), we are able to achieve peak performance after repairing only 50% of labels.
+
+> ease.ml/datascope speeds up data debugging by allowing you to focus on the most important data examples first
+
+If we look at speed (right figure), we measure three different methods (the `"neighbor"` method and the `"montecarlo"` method for 10 iterations and 100 iterations). We can see that our KNN-based importance computation method is orders of magnitude faster than the state-of-the-art MonteCarlo method.
+
+> The "neighbor" method in ease.ml/datascope can compute importances in seconds for datasets of several thousand examples
