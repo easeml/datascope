@@ -12,7 +12,9 @@ from scipy.sparse import csr_matrix, issparse, spmatrix
 from scipy.sparse.csgraph import connected_components
 from sklearn.metrics import DistanceMetric
 from sklearn.pipeline import Pipeline
-from typing import Dict, List, Literal, Optional, Iterable, Set, Tuple
+
+from typing_extensions import Literal
+from typing import Dict, List, Optional, Iterable, Set, Tuple
 
 from .add import ADD
 from .common import DEFAULT_SEED, DistanceCallable, Utility, binarize, get_indices, reshape
