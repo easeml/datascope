@@ -93,7 +93,7 @@ def test_compute_groupings_1():
     expected = np.random.randint(0, n_groups, size=n_test)
     X_test = np.random.random((n_test, n_features))
     X_test[:, sensitive_feature] = expected[:, np.newaxis] + 10
-    result = compute_groupings(X_test=X_test, sensitive_features=sensitive_feature)
+    result = compute_groupings(X=X_test, sensitive_features=sensitive_feature)
     assert np.array_equal(result, expected)
 
 
@@ -132,10 +132,10 @@ def test_eod_elementwise_score_1():
     result = utility.elementwise_score(X, y, X_test, y_test)
     expected = np.array(
         [
-            [0, 1, 0, 1],
+            [0, -1, 0, 1],
             [0, 0, 0, 0],
             [0, 0, 0, 0],
-            [0, 1, 0, 1],
+            [0, -1, 0, 1],
         ]
     )
     assert np.array_equal(result, expected)
