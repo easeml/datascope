@@ -7,3 +7,5 @@ pytest-cov >= 3.0
 black
 types-PyYAML >= 6.0
 cython >= 0.29
+jupyterlab >= 3.3
+twine >= 4.0

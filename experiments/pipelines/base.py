@@ -189,7 +189,7 @@ class TfidfPipeline(Pipeline, id="tf-idf", summary="TF-IDF", modalities=[Dataset
 
 
 class ToLowerUrlRemovePipeline(
-    Pipeline, id="tolower-urlremove-tfidf", summary="To-Lower + URL-Remove + TF-IDF", modalities=[DatasetModality.TEXT]
+    Pipeline, id="tolower-urlremove-tfidf", summary="ToLower + URLRemove + TF-IDF", modalities=[DatasetModality.TEXT]
 ):
     """
     A pipeline that applies a few text transformations such as converting everything to lowercase and removing URL's.

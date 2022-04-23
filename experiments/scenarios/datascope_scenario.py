@@ -13,6 +13,7 @@ from ..dataset import (
     DEFAULT_VALSIZE,
     DEFAULT_TESTSIZE,
     DEFAULT_BIAS_METHOD,
+    KEYWORD_REPLACEMENTS as DATASET_KEYWORD_REPLACEMENTS,
 )
 from ..pipelines import Pipeline, ModelType
 
@@ -138,12 +139,13 @@ KEYWORD_REPLACEMENTS = {
     "shapley-tmc-pipe-100": "Shapley TMC Pipe x100",
     "shapley-tmc-pipe-500": "Shapley TMC Pipe x500",
     "eqodds": "Equalized Odds Difference",
-    "importance_compute_time": "Importance Compute Time [s]",
+    "importance_compute_time": "Compute Time [s]",
     "steps": "Repair Steps Taken",
     "steps_rel": "Relative Repair Steps Taken",
     "acc": "Accuracy",
     "eqodds-acc": "Accuracy + Equalized Odds Difference",
 }
+KEYWORD_REPLACEMENTS.update(DATASET_KEYWORD_REPLACEMENTS)
 
 DEFAULT_SEED = 1
 DEFAULT_CHECKPOINTS = 100

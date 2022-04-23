@@ -5,7 +5,8 @@ import sys
 
 from distutils.core import setup
 from distutils.extension import Extension
-from typing import List
+from distutils.util import convert_path
+from typing import List, Dict, Any
 
 
 def parse_requirements(filename):
@@ -40,6 +41,10 @@ for filepath in cython_files:
     sourcepath = basepath + extension
     ext_modules.append(Extension(modulename, [sourcepath], include_dirs=include_dirs))
 
+main_ns: Dict[str, Any] = {}
+ver_path = convert_path("datascope/version.py")
+with open(ver_path) as ver_file:
+    exec(ver_file.read(), main_ns)
 
 install_requires = parse_requirements("requirements.txt")
 extras_require = {"dev": parse_requirements("requirements-dev.txt"), "exp": parse_requirements("requirements-exp.txt")}
@@ -49,10 +54,12 @@ extras_require["complete"] = extras_require_all
 
 setup(
     name="datascope",
-    version="0.1",
+    version=main_ns["__version__"],
     packages=["datascope", "datascope.algorithms", "datascope.utils", "datascope.inspection", "datascope.importance"],
     ext_modules=ext_modules,
     license="MIT",
+    author_email="easeml@ds3lab.com",
+    url="https://ease.ml/datascope/",
     description="Measuring data importance over ML pipelines using the Shapley value.",
     long_description=open("README.md").read(),
     long_description_content_type="text/markdown",

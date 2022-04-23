@@ -194,7 +194,7 @@ def has_attribute_value(target: object, name: str, value: Any, ignore_none: bool
         return target_value in value
 
 
-def save_dict(source: Dict[str, Any], dirpath: str, basename: str) -> None:
+def save_dict(source: Dict[str, Any], dirpath: str, basename: str, saveonly: Optional[Sequence[str]] = None) -> None:
     basedict: Dict[str, Any] = dict((k, v) for (k, v) in source.items() if type(v) in [int, float, bool, str])
     basedict.update(dict((k, v.value) for (k, v) in source.items() if isinstance(v, Enum)))
     if len(basedict) > 0:
@@ -205,6 +205,9 @@ def save_dict(source: Dict[str, Any], dirpath: str, basename: str) -> None:
         if data is None:
             continue
         if name not in basedict:
+            if saveonly is not None and len(saveonly) > 0 and name not in saveonly:
+                continue
+
             if isinstance(data, ndarray):
                 filename = os.path.join(dirpath, ".".join([basename, name, "npy"]))
                 np.save(filename, data)
@@ -913,6 +916,13 @@ def represent(x: Any):
         return repr(x)
 
 
+def stringify(x: Any):
+    if isinstance(x, Enum):
+        return str(x.value)
+    else:
+        return str(x)
+
+
 class Report(ABC):
 
     reports: Dict[str, Type["Report"]] = {}
@@ -989,14 +999,19 @@ class Report(ABC):
         raise NotImplementedError()
 
     def save(
-        self, path: Optional[str] = None, use_groupby: bool = True, use_id: bool = False, use_subdirs: bool = False
+        self,
+        path: Optional[str] = None,
+        use_groupby: bool = True,
+        use_id: bool = False,
+        use_subdirs: bool = False,
+        saveonly: Optional[Sequence[str]] = None,
     ) -> None:
         if path is None:
             path = os.path.join(self._study.path, "reports")
         basename = "report"
         if use_subdirs:
             if use_groupby:
-                groupby = [self._groupby[key] for key in sorted(self.groupby.keys())]
+                groupby = ["%s=%s" % (str(key), str(self._groupby[key])) for key in sorted(self.groupby.keys())]
                 path = os.path.join(path, *groupby)
             if use_id:
                 path = os.path.join(path, self._id)
@@ -1007,7 +1022,7 @@ class Report(ABC):
                 groupby = [self._groupby[key] for key in sorted(self.groupby.keys())]
                 basename = "_".join(
                     [basename]
-                    + ["%s=%s" % (str(key), represent(self._groupby[key])) for key in sorted(self.groupby.keys())]
+                    + ["%s=%s" % (str(key), stringify(self._groupby[key])) for key in sorted(self.groupby.keys())]
                 )
             if use_id:
                 basename = basename + "_id=" + self._id
@@ -1017,7 +1032,7 @@ class Report(ABC):
         # Save results as separate files.
         props = result.get_properties(type(self))
         results = dict((name, prop.fget(self) if prop.fget is not None else None) for (name, prop) in props.items())
-        save_dict(results, path, basename)
+        save_dict(results, path, basename, saveonly=saveonly)
 
     @classmethod
     def get_instances(

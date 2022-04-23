@@ -13,6 +13,7 @@ from .base import (
     DEFAULT_TESTSIZE,
     DEFAULT_NUMFEATURES,
     DEFAULT_BIAS_METHOD,
+    KEYWORD_REPLACEMENTS,
     preload_datasets,
 )
 
@@ -32,5 +33,6 @@ __all__ = [
     "DEFAULT_TESTSIZE",
     "DEFAULT_NUMFEATURES",
     "DEFAULT_BIAS_METHOD",
+    "KEYWORD_REPLACEMENTS",
     "preload_datasets",
 ]

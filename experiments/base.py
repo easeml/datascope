@@ -69,6 +69,8 @@ def report(
     study_path: Optional[str] = DEFAULT_STUDY_PATH,
     groupby: Optional[Sequence[str]] = None,
     output_path: Optional[str] = None,
+    saveonly: Optional[Sequence[str]] = None,
+    use_subdirs: bool = False,
     **attributes: Any
 ) -> None:
 
@@ -83,4 +85,4 @@ def report(
 
     for r in tqdm(reports, desc="Reports"):
         r.generate()
-        r.save(path=output_path)
+        r.save(path=output_path, use_subdirs=use_subdirs, saveonly=saveonly)

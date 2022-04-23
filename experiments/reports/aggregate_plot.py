@@ -13,8 +13,8 @@ from pandas import DataFrame
 
 from ..scenarios import Report, Study, result, attribute
 
-
-COLORS = ["#2BBFD9", "#DF362A", "#FAC802", "#8AB365", "#C670D2", "#C58F21", "#00AC9B", "#DC0030"]
+COLOR_NAMES = ["blue", "red", "yellow", "green", "purple", "brown", "cyan", "pink"]
+COLORS = ["#2BBFD9", "#DF362A", "#FAC802", "#8AB365", "#C670D2", "#C58F21", "#00AC9B", "#DB006A"]
 LABELS = {
     "random": "Random",
     "shapley-tmc": "Shapley TMC",
@@ -89,6 +89,8 @@ DEFAULT_FONTSIZE = 16
 def represent(x: Any):
     if isinstance(x, Enum):
         return repr(x.value)
+    if isinstance(x, float):
+        return "%.2f" % x
     else:
         return repr(x)
 
@@ -153,11 +155,31 @@ def replace_keywords(source: str, keyword_replacements: Dict[str, str]) -> str:
     return source
 
 
+def get_colors(keys: List[Tuple[str, ...]], colors: Optional[Dict[Tuple[str, ...], str]]) -> List[str]:
+    available_default_colors = [
+        COLORS[i]
+        for i in range(len(COLORS))
+        if colors is None or (COLORS[i] not in colors.values() and COLOR_NAMES[i] not in colors.values())
+    ]
+    result_colors: List[str] = []
+    for key in keys:
+        if colors is not None and key in colors:
+            color = colors[key]
+            if color in COLOR_NAMES:
+                color = COLORS[COLOR_NAMES.index(color)]
+            result_colors.append(color)
+        else:
+            result_colors.append(available_default_colors.pop(0))
+    return result_colors
+
+
 def lineplot(
     dataframe: DataFrame,
     index: str,
     targetval: str,
     compare: Optional[List[str]] = None,
+    compareorder: List[str] = [],
+    colors: Optional[Dict[str, str]] = None,
     aggmode: AggregationMode = AggregationMode.MEDIAN_PERC_95,
     errdisplay: ErrorDisplay = ErrorDisplay.SHADE,
     labelformat: Optional[str] = None,
@@ -189,6 +211,14 @@ def lineplot(
     else:
         comparison = [(targetval,)]
         dataframe.columns = dataframe.columns.map(lambda x: (targetval,) + tuple(x.split(":")))
+    compareorder_unpacked = [tuple(x.split(",")) for x in compareorder]
+    if len(compareorder_unpacked) > 0:
+        comparison = sorted(
+            comparison,
+            key=lambda x: compareorder_unpacked.index(x)
+            if compareorder_unpacked is not None and x in compareorder_unpacked
+            else len(comparison),
+        )
 
     figure: Optional[Figure] = None
     if axes is None:
@@ -210,6 +240,8 @@ def lineplot(
         labels.append(label)
 
     centercol = VALUE_MEASURE_C[aggmode]
+    split_colors = dict((tuple(k.split(",")), v) for (k, v) in colors.items()) if colors is not None else None
+    comp_colors = get_colors(comparison, colors=split_colors)
     for i, comp in enumerate(comparison):
         if ",".join(str(c) for c in comp) in dontcompare:
             continue
@@ -219,13 +251,13 @@ def lineplot(
         upper = dataframe[comp][targetval][uppercol]
         lower = dataframe[comp][targetval][lowercol]
         if errdisplay == ErrorDisplay.SHADE:
-            axes.fill_between(dataframe.index.values, upper, lower, color=COLORS[i], alpha=0.2)
+            axes.fill_between(dataframe.index.values, upper, lower, color=comp_colors[i], alpha=0.2)
         elif errdisplay == ErrorDisplay.BAR:
             center = dataframe[comp][targetval][centercol]
             xval = dataframe.index.values
             yval = center.to_numpy()
             yerr = np.abs(np.stack([lower.to_numpy(), upper.to_numpy()]) - yval)
-            axes.errorbar(xval, yval, yerr=yerr, fmt="o", linewidth=2, capsize=6, color=COLORS[i], label=labels[i])
+            axes.errorbar(xval, yval, yerr=yerr, fmt="o", linewidth=2, capsize=6, color=comp_colors[i], label=labels[i])
             if annotations:
                 for x, y in zip(xval, yval):
                     axes.annotate(
@@ -241,12 +273,12 @@ def lineplot(
     for i, comp in enumerate(comparison):
         if ",".join(str(c) for c in comp) in dontcompare:
             continue
-        axes.plot(dataframe[comp][targetval][centercol], color=COLORS[i], label=labels[i])
+        axes.plot(dataframe[comp][targetval][centercol], color=comp_colors[i], label=labels[i])
 
     # axes.set_xlim([dataframe.index.values[0], (dataframe.index.values[-1] - dataframe.index.values[0]) * 1.2])
     # axes.set_ylim([-0.2, 1])
-    axes.set_ylabel(replace_keywords(targetval, keyword_replacements), fontsize=fontsize)
-    axes.set_xlabel(replace_keywords(index, keyword_replacements), fontsize=fontsize)
+    axes.set_ylabel(replace_keywords(targetval, keyword_replacements), fontsize=fontsize, wrap=True)
+    axes.set_xlabel(replace_keywords(index, keyword_replacements), fontsize=fontsize, wrap=True)
     # axes.legend(loc="lower right", fontsize=fontsize, borderaxespad=0, edgecolor="black", fancybox=False)
     return figure
 
@@ -278,6 +310,8 @@ def barplot(
     summary: dict,
     targetval: str,
     compare: Optional[List[str]] = None,
+    compareorder: List[str] = [],
+    colors: Optional[Dict[str, str]] = None,
     labelformat: Optional[str] = None,
     aggmode: AggregationMode = AggregationMode.MEDIAN_PERC_90,
     keyword_replacements: Optional[Dict[str, str]] = None,
@@ -308,7 +342,20 @@ def barplot(
 
     # x, y, yerr = [], [], []
     summary = dictpivot(summary, compare=compare)
-    for i, (comp, values) in enumerate(summary.items()):
+    summary_items = list(summary.items())
+
+    comparison = [item[0] for item in summary_items]
+    split_colors = dict((tuple(k.split(",")), v) for (k, v) in colors.items()) if colors is not None else None
+    comp_colors = get_colors(comparison, colors=split_colors)
+    compareorder_unpacked = [tuple(x.split(",")) for x in compareorder]
+    if len(compareorder_unpacked) > 0:
+        summary_items = sorted(
+            summary_items,
+            key=lambda x: compareorder_unpacked.index(x[0])
+            if compareorder_unpacked is not None and x[0] in compareorder_unpacked
+            else len(comparison),
+        )
+    for i, (comp, values) in enumerate(summary_items):
         if ",".join(str(c) for c in comp) in dontcompare:
             continue
         centercol = VALUE_MEASURE_C[aggmode]
@@ -322,7 +369,7 @@ def barplot(
         uppercol = next(c for c in values.keys() if c.endswith("-h"))
         lowercol = next(c for c in values.keys() if c.endswith("-l"))
         yerr = np.abs(np.array([[values[col] - values[lowercol]], [values[col] - values[uppercol]]]))
-        axes.errorbar([xval], [yval], yerr=yerr, fmt="o", linewidth=2, capsize=6, color=COLORS[i], label=label)
+        axes.errorbar([xval], [yval], yerr=yerr, fmt="o", linewidth=2, capsize=6, color=comp_colors[i], label=label)
 
         if annotations:
             axes.annotate(
@@ -335,8 +382,13 @@ def barplot(
                 verticalalignment="center",
             )
 
-    axes.set_ylabel(replace_keywords(targetval, keyword_replacements), fontsize=fontsize)
+    axes.set_ylabel(replace_keywords(targetval, keyword_replacements), fontsize=fontsize, wrap=True)
     axes.get_xaxis().set_ticks([])
+
+    # Squeeze xlimit.
+    xlim = axes.get_xlim()
+    xlim_delta = xlim[1] - xlim[0]
+    axes.set_xlim((xlim[0] - xlim_delta * 0.1, xlim[1] + xlim_delta * 0.3))
     # axes.legend(
     #     loc="upper right", fontsize=fontsize, borderaxespad=0, edgecolor="black", fancybox=False, ncol=len(summary)
     # )
@@ -388,6 +440,19 @@ def parseplotspec(spec: Union[Tuple[PlotType, str], str]) -> Tuple[PlotType, str
     return spec
 
 
+def unpackdict(target: Dict[str, Union[Dict, Any]], prefix: str = "") -> Dict[str, Any]:
+    result: Dict[str, Any] = {}
+    for k, v in target.items():
+        if isinstance(v, dict):
+            for kk, vv in unpackdict(v, prefix=k).items():
+                key = ".".join(([] if prefix == "" else [prefix]) + [kk])
+                result[key] = vv
+        else:
+            key = ".".join(([] if prefix == "" else [prefix]) + [k])
+            result[key] = v
+    return result
+
+
 class AggregatePlot(Report, id="aggplot"):
     def __init__(
         self,
@@ -396,6 +461,8 @@ class AggregatePlot(Report, id="aggplot"):
         index: Optional[str] = None,
         targetval: Optional[Union[List[str], str]] = None,
         compare: Optional[Union[List[str], str]] = None,
+        compareorder: Optional[List[str]] = None,
+        colors: Optional[List[str]] = None,
         summarize: Optional[Union[List[str], str]] = None,
         resultfilter: Optional[str] = None,
         errdisplay: Optional[ErrorDisplay] = None,
@@ -413,7 +480,7 @@ class AggregatePlot(Report, id="aggplot"):
         fontsize: Optional[int] = None,
         usetex: Optional[bool] = True,
         legend: Optional[bool] = True,
-        titleformat: Optional[str] = None,
+        titleformat: Optional[List[str]] = None,
         id: Optional[str] = None,
         **kwargs: Any,
     ) -> None:
@@ -423,6 +490,8 @@ class AggregatePlot(Report, id="aggplot"):
         self._index = index
         self._targetval: List[str] = ensurelist(targetval, default=None)
         self._compare: List[str] = ensurelist(compare, default=None)
+        self._compareorder: List[str] = compareorder if compareorder is not None else []
+        self._colors: List[str] = colors if colors is not None else []
         self._summarize: List[str] = ensurelist(summarize, default=None)
         self._resultfilter: Optional[str] = resultfilter
         self._errdisplay = errdisplay if errdisplay is not None else ErrorDisplay.SHADE
@@ -452,7 +521,7 @@ class AggregatePlot(Report, id="aggplot"):
         self._usetex = usetex if usetex is not None else True
         self._legend = legend if legend is not None else True
         if titleformat is None:
-            titleformat = " ".join("%s=%%(%s)s" % (str(k).title(), str(k)) for k in self._groupby.keys())
+            titleformat = [" ".join("%s=%%(%s)s" % (str(k).title(), str(k)) for k in self._groupby.keys())]
         self._titleformat = titleformat
 
         self._view: Optional[DataFrame] = None
@@ -473,6 +542,16 @@ class AggregatePlot(Report, id="aggplot"):
     def compare(self) -> List[str]:
         """The attribute to compare by."""
         return self._compare
+
+    @attribute
+    def compareorder(self) -> List[str]:
+        """If specified, a list of comparison values."""
+        return self._compareorder
+
+    @attribute
+    def colors(self) -> List[str]:
+        """Assignments of colors to comparison values. Each assignment has to be formatted as comparevalue:color."""
+        return self._colors
 
     @attribute
     def index(self) -> Optional[str]:
@@ -563,13 +642,14 @@ class AggregatePlot(Report, id="aggplot"):
         return self._legend
 
     @attribute
-    def titleformat(self) -> str:
+    def titleformat(self) -> List[str]:
         """The formatted text to use in the title."""
         return self._titleformat
 
     def generate(self) -> None:
         dataframe = filter(self.study.dataframe, attributes=self.groupby, resultfilter=self.resultfilter)
         keyword_replacements: Dict[str, str] = {}
+        summarydict: Dict[str, str] = {}
         for scenario in self.study.scenarios:
             keyword_replacements.update(scenario.keyword_replacements)
 
@@ -591,12 +671,14 @@ class AggregatePlot(Report, id="aggplot"):
                     compare=self.compare,
                     summode=self.summode,
                 )
+            summarydict = dict((k, represent(v)) for (k, v) in unpackdict(self._summary).items())
 
         if len(self.plot) > 0:
             figsize = (len(self.plot) * self.plotsize[0], self.plotsize[1])
             self._figure = plt.figure(figsize=figsize)
             formatdict = dict(**self.groupby)
-            title = self.titleformat % formatdict
+            formatdict.update(summarydict)
+            title = "\n".join(self.titleformat) % formatdict
             title = replace_keywords(title, keyword_replacements)
             plt.rc("text", usetex=self.usetex)
             self._figure.suptitle(title, fontsize=self.fontsize * 1.2)
@@ -604,6 +686,7 @@ class AggregatePlot(Report, id="aggplot"):
             if len(self.plot) == 1:
                 axes = np.array([axes])
             axes = axes.flatten()
+            colors = dict((x.split(":")[0], x.split(":")[1]) for x in self._colors) if len(self._colors) > 0 else None
 
             for i, plotspec in enumerate(self.plot):
                 plottype, target = parseplotspec(plotspec)
@@ -624,6 +707,8 @@ class AggregatePlot(Report, id="aggplot"):
                         targetval=target,
                         summary=self._summary,
                         compare=self._compare,
+                        compareorder=self._compareorder,
+                        colors=colors,
                         errdisplay=self._errdisplay,
                         labelformat=self._labelformat,
                         aggmode=self._aggmode,
@@ -642,6 +727,8 @@ class AggregatePlot(Report, id="aggplot"):
                         summary=self._summary,
                         targetval=target,
                         compare=self.compare,
+                        compareorder=self._compareorder,
+                        colors=colors,
                         labelformat=self._labelformat,
                         aggmode=self._summode,
                         keyword_replacements=keyword_replacements,
@@ -657,11 +744,11 @@ class AggregatePlot(Report, id="aggplot"):
                     axes[i].set_yscale("log")
 
                 if self.xtickfmt[i] == TickFormat.PERCENT:
-                    axes[i].xaxis.set_major_formatter(PercentFormatter())
+                    axes[i].xaxis.set_major_formatter(PercentFormatter(xmax=1.0))
                 elif self.xtickfmt[i] == TickFormat.ENG:
                     axes[i].xaxis.set_major_formatter(EngFormatter(places=0, sep=""))
                 if self.ytickfmt[i] == TickFormat.PERCENT:
-                    axes[i].yaxis.set_major_formatter(PercentFormatter())
+                    axes[i].yaxis.set_major_formatter(PercentFormatter(xmax=1.0))
                 elif self.ytickfmt[i] == TickFormat.ENG:
                     axes[i].yaxis.set_major_formatter(EngFormatter(places=0, sep=""))
 

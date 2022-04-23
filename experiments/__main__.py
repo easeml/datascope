@@ -134,6 +134,19 @@ if __name__ == "__main__":
         help="List of columns used to group results.",
     )
 
+    parser_report.add_argument(
+        "--saveonly",
+        type=str,
+        nargs="+",
+        help="List of result attributes to save.",
+    )
+
+    parser_report.add_argument(
+        "--use-subdirs",
+        action="store_true",
+        help="Store report artifacts in a hierarchy of subdirectories based on groupby keys.",
+    )
+
     # Build arguments from report attributes.
     add_dynamic_arguments(
         parser_report,

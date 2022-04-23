@@ -35,6 +35,9 @@ class DatasetModality(str, Enum):
     TEXT = "text"
 
 
+KEYWORD_REPLACEMENTS = {"UCI": "UCI Adult", "FolkUCI": "Folktables Adult", "TwentyNewsGroups": "20NewsGroups"}
+
+
 DEFAULT_TRAINSIZE = 1000
 DEFAULT_VALSIZE = 100
 DEFAULT_TESTSIZE = 100
