@@ -1,0 +1,3 @@
+include README.md LICENSE requirements.txt requirements-dev.txt requirements-exp.txt
+
+global-exclude *.py[co]
