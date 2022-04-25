@@ -10,11 +10,10 @@ Once you know these "importances", we can use it to support a range of applicati
 clean your data and fix your data bugs, data acquisition, data summarization, etc.
 See more in our CVPR paper (https://arxiv.org/pdf/1911.07128.pdf). 
 
-DataScope is a tool for inspecting ML pipelines by measuring how important is each 
-training data point for predicting the label of a given test data example.
-The most prominent feature of DataScope is that it supports not only a single
-ML model, but also on any `sklearn` Pipeline --- it is also super fast, up to 
-four orders of magnitude faster than previous approaches.
+DataScope is a tool for inspecting ML pipelines by measuring how important each 
+training data point is. The most prominent feature of DataScope is that it 
+supports not only a single ML model, but also on any `sklearn` Pipeline --- it is 
+also super fast, up to four orders of magnitude faster than previous approaches.
 
 In just seconds, you will be able to get the importance score for each of your 
 training example, and get your data-centric cleaning/debugging iterations
