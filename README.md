@@ -7,8 +7,8 @@ centric AI, the fundemental question becomes
   > Which training data example is most important to improve the accuracy/fairness of my ML model?
 
 Once you know these "importances", we can use it to support a range of applications ---
-clean your data and fix your data bugs, data acquisition, data summarization, etc.
-See more in our CVPR paper (https://arxiv.org/pdf/1911.07128.pdf). 
+clean your data and fix your data bugs, data acquisition, data summarization, etc. 
+(e.g., https://arxiv.org/pdf/1911.07128.pdf). 
 
 DataScope is a tool for inspecting ML pipelines by measuring how important each 
 training data point is. The most prominent feature of DataScope is that it 
