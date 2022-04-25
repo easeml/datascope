@@ -1,6 +1,29 @@
-# ease.ml/datascope: Data Debugging for end-to-end ML pipelines
+# Ease.ml/Datascope: Guiding your Data-centric Data Iterations, over End-to-end ML pipelines
 
-This is a tool for inspecting ML pipelines by measuring how important is each training data point for predicting the label of a given test data example.
+Developing ML applications are data-centric --- often *the quality of your model
+is a reflection of the quality of your underlying data*. In the era of data
+centric AI, the fundemental question becomes
+
+  > Which training data examples is most important to improve the accuracy/fairness of my ML model?
+
+Once you know these "importances", we can use it to support a range of applications ---
+clean your data and fix your data bugs, data acquisition, data summarization, etc.
+See more in our CVPR paper (https://arxiv.org/pdf/1911.07128.pdf). 
+
+DataScope is a tool for inspecting ML pipelines by measuring how important is each 
+training data point for predicting the label of a given test data example.
+The most prominent feature of DataScope is that it supports not only a single
+ML model, but also on any `sklearn` Pipeline --- it is also super fast, up to 
+four orders of magnitude faster than previous approaches.
+
+In just seconds, you will be able to get the importance score for each of your 
+training example, and get your data-centric cleaning/debugging iterations
+started!
+
+If you want to learn more about how DataScope works, the main reference is https://XXXXXXXXX
+and more information can be found at https://ease.ml/datascope
+
+DataScope is part of the Ease.ML data-centric ML DevOps eco-system: https://Ease.ML
 
 ## Quick Start
 
