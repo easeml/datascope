@@ -4,7 +4,7 @@ Developing ML applications are data-centric --- often *the quality of your model
 is a reflection of the quality of your underlying data*. In the era of data
 centric AI, the fundemental question becomes
 
-  > Which training data examples is most important to improve the accuracy/fairness of my ML model?
+  > Which training data example is most important to improve the accuracy/fairness of my ML model?
 
 Once you know these "importances", we can use it to support a range of applications ---
 clean your data and fix your data bugs, data acquisition, data summarization, etc.
