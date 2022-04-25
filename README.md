@@ -23,7 +23,7 @@ importances = importance.fit(X_train, y_train).score(X_val, y_val)
 
 The variable `importances` contains Shapley values of all data examples in `(X_train, y_train)` computed using the nearest neighbor method (i.e. `"neighbor"`).
 
-For a more complete example workflow, see the [demo notebook](https://github.com/easeml/datascope/blob/main/notebooks/DataScope-Demo-1.ipynb).
+For a more complete example workflow, see the [demo Colab notebook](https://colab.research.google.com/drive/1faCvkKLFA7m4kj8GzxBNBMMq0nXi70H3?usp=sharing).
 
 ## Why datascope?
 
