@@ -14,13 +14,15 @@ DataScope is a tool for inspecting ML pipelines by measuring how important each
 training data point is. The most prominent feature of DataScope is that it 
 supports not only a single ML model, but also on any `sklearn` Pipeline --- it is 
 also super fast, up to four orders of magnitude faster than previous approaches.
+The secret sauce of DataScope is a collection of new results on computing
+the Shapley value of a specific family of ML models (K-nearest neighbor classiifers)
+in PTIME, over relational data provenances. If you want to learn more about how DataScope works, 
+the main reference is https://XXXXXXXXX, and a series of our previous studies on
+KNN Shapley proxies can be found at https://ease.ml/datascope.
 
 In just seconds, you will be able to get the importance score for each of your 
 training example, and get your data-centric cleaning/debugging iterations
 started!
-
-If you want to learn more about how DataScope works, the main reference is https://XXXXXXXXX
-and more information can be found at https://ease.ml/datascope
 
 DataScope is part of the Ease.ML data-centric ML DevOps eco-system: https://Ease.ML
 
