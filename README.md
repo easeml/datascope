@@ -17,7 +17,7 @@ also super fast, up to four orders of magnitude faster than previous approaches.
 The secret sauce of DataScope is a collection of new results on computing
 the Shapley value of a specific family of ML models (K-nearest neighbor classiifers)
 in PTIME, over relational data provenances. If you want to learn more about how DataScope works, 
-the main reference is https://XXXXXXXXX, and a series of our previous studies on
+the main reference is https://arxiv.org/abs/2204.11131, and a series of our previous studies on
 KNN Shapley proxies can be found at https://ease.ml/datascope.
 
 In just seconds, you will be able to get the importance score for each of your 
@@ -25,6 +25,16 @@ training example, and get your data-centric cleaning/debugging iterations
 started!
 
 DataScope is part of the Ease.ML data-centric ML DevOps eco-system: https://Ease.ML
+
+## References
+
+@misc{https://doi.org/10.48550/arxiv.2204.11131,
+  url = {https://arxiv.org/abs/2204.11131},
+  author = {Karlaš, Bojan and Dao, David and Interlandi, Matteo and Li, Bo and Schelter, Sebastian and Wu, Wentao and Zhang, Ce},
+  title = {Data Debugging with Shapley Importance over End-to-End Machine Learning Pipelines},
+  publisher = {arXiv}, year = {2022},
+}
+
 
 ## Quick Start
 
