@@ -28,12 +28,14 @@ DataScope is part of the Ease.ML data-centric ML DevOps eco-system: https://Ease
 
 ## References
 
+```
 @misc{https://doi.org/10.48550/arxiv.2204.11131,
   url = {https://arxiv.org/abs/2204.11131},
   author = {Karlaš, Bojan and Dao, David and Interlandi, Matteo and Li, Bo and Schelter, Sebastian and Wu, Wentao and Zhang, Ce},
   title = {Data Debugging with Shapley Importance over End-to-End Machine Learning Pipelines},
   publisher = {arXiv}, year = {2022},
 }
+```
 
 
 ## Quick Start
