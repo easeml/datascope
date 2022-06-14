@@ -75,3 +75,24 @@ test-benchmark:
 clean:
 	rm -rf $(VENV_DIR)
 	find -iname "*.pyc" -delete
+
+.PHONY: package
+## Package into .whl and source code archive (.tar.gz).
+package:
+	python -m build
+
+.PHONY: publish-test
+## Publish to pypi (test)
+publish-test:
+	twine upload --repository-url https://test.pypi.org/legacy/ dist/*
+
+.PHONY: publish-test
+## Publish to pypi
+publish:
+	twine upload dist/*
+
+.PHONY: publish-clean
+## remove the distribution files
+publish-clean:
+	rm -rf dist/
+	rm -rf datascope.egg-info
