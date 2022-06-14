@@ -138,3 +138,5 @@ dmypy.json
 .vscode/
 .benchmarks/
 datascope/version.py
+
+docs/

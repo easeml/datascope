@@ -96,3 +96,8 @@ publish:
 publish-clean:
 	rm -rf dist/
 	rm -rf datascope.egg-info
+
+.PHONY: docs
+## Generate the documentation.
+docs:
+	pdoc -d markdown --docformat numpy --output-dir docs --logo https://ease.ml/images/easeml-component-generic_hu85950f4ba52b697b532288a389d2b3d7_8523_250x250_fit_q100_h1_box_2.webp --logo-link https://ease.ml ./datascope
