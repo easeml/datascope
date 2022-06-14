@@ -1,7 +1,6 @@
 import glob
 import numpy as np
 import os
-import sys
 
 from setuptools import setup
 from distutils.extension import Extension
@@ -48,7 +47,7 @@ extras_require_all = set(r for e in extras_require.values() for r in e)
 extras_require["complete"] = extras_require_all
 
 setup(
-    name="datascope_test",
+    name="datascope",
     version=main_ns["__version__"],
     packages=["datascope", "datascope.algorithms", "datascope.utils", "datascope.inspection", "datascope.importance"],
     ext_modules=ext_modules,
