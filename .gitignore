@@ -137,3 +137,6 @@ dmypy.json
 # Misc
 .vscode/
 .benchmarks/
+datascope/version.py
+
+docs/

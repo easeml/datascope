@@ -75,3 +75,29 @@ test-benchmark:
 clean:
 	rm -rf $(VENV_DIR)
 	find -iname "*.pyc" -delete
+
+.PHONY: package
+## Package into .whl and source code archive (.tar.gz).
+package:
+	python -m build
+
+.PHONY: publish-test
+## Publish to pypi (test)
+publish-test:
+	twine upload --repository-url https://test.pypi.org/legacy/ dist/*
+
+.PHONY: publish-test
+## Publish to pypi
+publish:
+	twine upload dist/*
+
+.PHONY: publish-clean
+## remove the distribution files
+publish-clean:
+	rm -rf dist/
+	rm -rf datascope.egg-info
+
+.PHONY: docs
+## Generate the documentation.
+docs:
+	pdoc -d markdown --docformat numpy --output-dir docs --logo https://ease.ml/images/easeml-component-generic_hu85950f4ba52b697b532288a389d2b3d7_8523_250x250_fit_q100_h1_box_2.webp --logo-link https://ease.ml ./datascope
