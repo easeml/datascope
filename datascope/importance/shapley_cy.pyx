@@ -8,7 +8,7 @@ cimport numpy as np
 cimport cython
 np.import_array()
 
-DTYPE = np.float
+DTYPE = float
 ctypedef np.float_t DTYPE_t
 
 

@@ -117,7 +117,7 @@ def get_unit_distances_and_utilities(
     n_units = len(units)
     # We check if we are dealing with the trivial situation, when we need only to return the trivial answer.
     if simple_provenance or (
-        provenance.ndim == 3 and provenance.shape[-1] == 1 and np.all(provenance[..., 0] == np.eye(n_units))
+        provenance.ndim == 3 and provenance.shape[-1] == 1 and np.all(np.equal(provenance[..., 0],np.eye(n_units)))
     ):
         return distances, utilities
 
@@ -423,7 +423,7 @@ class ShapleyImportance(Importance):
         n_candidates_total = provenance.shape[3]
         n_units = len(units)
         simple_provenance = self._simple_provenance or bool(
-            provenance.shape[1] == 1 and provenance.shape[3] == 1 and np.all(provenance[:, 0, :, 0] == np.eye(n_units))
+            provenance.shape[1] == 1 and provenance.shape[3] == 1 and np.all(np.equal(provenance[:, 0, :, 0],np.eye(n_units)))
         )
         all_importances = np.zeros((n_units, iterations))
         start_time = time.time()

@@ -512,7 +512,7 @@ def get_indices(provenance: ndarray, query: ndarray, simple_provenance: bool = F
 
     n_units = query.shape[0]
     if simple_provenance or (
-        provenance.shape[1] == 1 and provenance.shape[3] == 1 and np.all(provenance[:, 0, :, 0] == np.eye(n_units))
+        provenance.shape[1] == 1 and provenance.shape[3] == 1 and np.all(np.equal(provenance[:, 0, :, 0],np.eye(n_units)))
     ):
         return query[:, 0].astype(bool)
     # newshape = provenance.shape[:1] + tuple(1 for _ in range(3 - provenance.ndim)) + provenance.shape[1:]
