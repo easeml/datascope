@@ -3,13 +3,15 @@
 CMD="python -m experiments report \
         --compare method \
         --targetval importance_compute_time \
+        --index trainsize \
         --plot line:importance_compute_time \
         --xlogscale true \
         --ylogscale true \
+        --xtickfmt engineer \
         --aggmode median-perc-90 \
         --plotsize 6 5 \
         --titleformat \"\" \
-        --fontsize 22 \
+        --fontsize 28 \
         --errdisplay bar \
         --legend false"
 

@@ -4,7 +4,7 @@ CMD="python -m experiments report \
         --groupby dataset pipeline \
         --index repaired_rel \
         --compare method \
-        --compareorder random shapley-knn-single shapley-knn-interactive shapley-tmc-010 shapley-tmc-100 \
+        --compareorder random shapley-knn-single shapley-tmc-pipe-010 shapley-tmc-pipe-100 shapley-tmc-010 shapley-tmc-100 \
         --targetval accuracy \
         --summarize importance_compute_time \
         --plot line:accuracy bar:importance_compute_time \
@@ -16,7 +16,7 @@ CMD="python -m experiments report \
         --legend true \
         --annotation true \
         --fontsize 22 \
-        --dontcompare - random \
+        --dontcompare shapley-knn-interactive random,shapley-knn-interactive \
         --titleformat \"Dataset: %(dataset)s; Pipeline: %(pipeline)s\" "
 
 CMD+=" ${@}"
