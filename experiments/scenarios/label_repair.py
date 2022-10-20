@@ -94,8 +94,8 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
     @classmethod
     def is_valid_config(cls, **attributes: Any) -> bool:
         result = True
-        if "method" in attributes:
-            result = result and not RepairMethod.is_tmc_nonpipe(attributes["method"])
+        # if "method" in attributes:
+        #     result = result and not RepairMethod.is_tmc_nonpipe(attributes["method"])
         if "dataset" in attributes:
             dataset_class = Dataset.datasets[attributes["dataset"]]
             result = result and issubclass(dataset_class, DirtyLabelDataset)
@@ -257,6 +257,7 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
                 mc_iterations=mc_iterations,
                 mc_timeout=self.timeout,
                 mc_preextract=mc_preextract,
+                logger=self.logger,
             )
             importances = importance.fit(
                 dataset_dirty.X_train, dataset_dirty.y_train, provenance=dataset_dirty.provenance

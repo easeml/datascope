@@ -7,6 +7,7 @@ from itertools import product
 from scipy.special import comb
 
 # from numba import prange, jit
+from logging import Logger, getLogger
 from numpy import ndarray
 from scipy.sparse import csr_matrix, issparse, spmatrix
 from scipy.sparse.csgraph import connected_components
@@ -242,6 +243,7 @@ class ShapleyImportance(Importance):
         nn_k: int = DEFAULT_NN_K,
         nn_distance: DistanceCallable = DEFAULT_NN_DISTANCE,
         seed: int = DEFAULT_SEED,
+        logger: Optional[Logger] = None,
     ) -> None:
         super().__init__()
         self.method = ImportanceMethod(method)
@@ -259,6 +261,7 @@ class ShapleyImportance(Importance):
         self.provenance: Optional[ndarray] = None
         self._simple_provenance = False
         self.randomstate = np.random.RandomState(seed)
+        self.logger = logger if logger is not None else getLogger(__name__)
 
     def _fit(self, X: ndarray, y: ndarray, provenance: Optional[ndarray] = None) -> "ShapleyImportance":
         self.X = X
@@ -417,6 +420,7 @@ class ShapleyImportance(Importance):
         # If pre-extract was specified, run feature extraction once for the whole dataset.
         if self.mc_preextract:
             X = X_tr  # TODO: Handle provenance if the pipeline is not a map pipeline.
+            X_test = X_ts
 
         # Run a given number of iterations.
         n_units_total = provenance.shape[2]
@@ -426,6 +430,7 @@ class ShapleyImportance(Importance):
             provenance.shape[1] == 1 and provenance.shape[3] == 1 and np.all(provenance[:, 0, :, 0] == np.eye(n_units))
         )
         all_importances = np.zeros((n_units, iterations))
+        all_truncations = np.ones(iterations, dtype=int) * n_units
         start_time = time.time()
         for i in range(iterations):
             idxs = self.randomstate.permutation(n_units)
@@ -435,7 +440,7 @@ class ShapleyImportance(Importance):
             new_score = null_score
             truncation_counter = 0
 
-            for idx in idxs:
+            for j, idx in enumerate(idxs):
                 old_score = new_score
 
                 # Get indices of data points selected based on the iteration query.
@@ -462,6 +467,7 @@ class ShapleyImportance(Importance):
                 if np.abs(new_score - mean_score) <= np.abs(tolerance * mean_score):
                     truncation_counter += 1
                     if truncation_steps > 0 and truncation_counter > truncation_steps:
+                        all_truncations[i] = j + 1
                         break
                 else:
                     truncation_counter = 0
@@ -475,6 +481,8 @@ class ShapleyImportance(Importance):
                 break
 
         scores = np.average(all_importances, axis=1)
+        truncations = np.average(all_truncations)
+        self.logger.debug("Truncation ratio: %s", str(truncations / n_units))
         return scores
 
     def _shapley_neighbor(
