@@ -36,6 +36,7 @@ class ErrorDisplay(str, Enum):
 class PlotType(str, Enum):
     BAR = "bar"
     LINE = "line"
+    DOT = "dot"
 
 
 class TickFormat(str, Enum):
@@ -396,6 +397,105 @@ def barplot(
     return figure
 
 
+def dotplot(
+    summary: dict,
+    xtargetval: str,
+    ytargetval: str,
+    compare: Optional[List[str]] = None,
+    compareorder: List[str] = [],
+    colors: Optional[Dict[str, str]] = None,
+    labelformat: Optional[str] = None,
+    aggmode: AggregationMode = AggregationMode.MEDIAN_PERC_90,
+    keyword_replacements: Optional[Dict[str, str]] = None,
+    axes: Optional[plt.Axes] = None,
+    fontsize: int = DEFAULT_FONTSIZE,
+    annotations: bool = False,
+    dontcompare: Optional[str] = None,
+) -> Optional[Figure]:
+    if compare is None:
+        compare = []
+    # if len(compare) == 0:
+    #     compare = ["value"]
+    #     summary = {"value": summary}
+
+    if labelformat is None:
+        if len(compare) > 0:
+            labelformat = "; ".join("%%(%s)s" % c for c in compare)
+        else:
+            labelformat = "; ".join("%%(%s)s" % c for c in [xtargetval, ytargetval])
+    if keyword_replacements is None:
+        keyword_replacements = {}
+    if dontcompare is None:
+        dontcompare = ""
+    figure: Optional[Figure] = None
+    if axes is None:
+        figure = plt.figure(figsize=(10, 8))
+        axes = figure.subplots()
+
+    # x, y, yerr = [], [], []
+    summary = dictpivot(summary, compare=compare)
+    summary_items = list(summary.items())
+
+    comparison = [item[0] for item in summary_items]
+    split_colors = dict((tuple(k.split(",")), v) for (k, v) in colors.items()) if colors is not None else None
+    comp_colors = get_colors(comparison, colors=split_colors)
+    compareorder_unpacked = [tuple(x.split(",")) for x in compareorder]
+    if len(compareorder_unpacked) > 0:
+        summary_items = sorted(
+            summary_items,
+            key=lambda x: compareorder_unpacked.index(x[0])
+            if compareorder_unpacked is not None and x[0] in compareorder_unpacked
+            else len(comparison),
+        )
+    for i, (comp, values) in enumerate(summary_items):
+        if ",".join(str(c) for c in comp) in dontcompare:
+            continue
+        centercol = VALUE_MEASURE_C[aggmode]
+        formatdict = dict(zip(compare, comp))
+        label = labelformat % formatdict
+        label = replace_keywords(label, keyword_replacements)
+        xval = "; ".join(str(x) for x in comp)
+        xcol = xtargetval + ":" + centercol
+        xval = values[xcol]
+        ycol = ytargetval + ":" + centercol
+        yval = values[ycol]
+
+        xuppercol = next(c for c in values.keys() if c.startswith(xtargetval) and c.endswith("-h"))
+        xlowercol = next(c for c in values.keys() if c.startswith(xtargetval) and c.endswith("-l"))
+        xerr = np.abs(np.array([[values[xcol] - values[xlowercol]], [values[xcol] - values[xuppercol]]]))
+
+        yuppercol = next(c for c in values.keys() if c.startswith(ytargetval) and c.endswith("-h"))
+        ylowercol = next(c for c in values.keys() if c.startswith(ytargetval) and c.endswith("-l"))
+        yerr = np.abs(np.array([[values[ycol] - values[ylowercol]], [values[ycol] - values[yuppercol]]]))
+        axes.errorbar(
+            [xval], [yval], xerr=xerr, yerr=yerr, fmt="o", linewidth=2, capsize=6, color=comp_colors[i], label=label
+        )
+
+        if annotations:
+            axes.annotate(
+                "%.2f" % yval,
+                xy=(xval, yval),
+                xytext=(fontsize * 0.5, 0),
+                textcoords="offset points",
+                fontsize=fontsize,
+                horizontalalignment="left",
+                verticalalignment="center",
+            )
+
+    axes.set_ylabel(replace_keywords(ytargetval, keyword_replacements), fontsize=fontsize, wrap=True)
+    axes.set_xlabel(replace_keywords(xtargetval, keyword_replacements), fontsize=fontsize, wrap=True)
+
+    # Squeeze xlimit.
+    # xlim = axes.get_xlim()
+    # xlim_delta = xlim[1] - xlim[0]
+    # axes.set_xlim((xlim[0] - xlim_delta * 0.1, xlim[1] + xlim_delta * 0.3))
+    # axes.legend(
+    #     loc="upper right", fontsize=fontsize, borderaxespad=0, edgecolor="black", fancybox=False, ncol=len(summary)
+    # )
+
+    return figure
+
+
 NONE_SYMBOL = "-"
 DEFAULT_PLOTSIZE = [10, 8]
 
@@ -430,12 +530,12 @@ def ensurelist(
     # return [x if x != NONE_SYMBOL else None for x in result]
 
 
-def parseplotspec(spec: Union[Tuple[PlotType, str], str]) -> Tuple[PlotType, str]:
+def parseplotspec(spec: Union[Tuple[PlotType, List[str]], str]) -> Tuple[PlotType, List[str]]:
     if isinstance(spec, str):
         splits = spec.split(":")
-        if len(splits) != 2:
-            raise ValueError("The plot specifications must be formatted as plottype:target.")
-        plottype, target = splits[0], splits[1]
+        if len(splits) != 2 and len(splits) != 3:
+            raise ValueError("The plot specifications must be formatted as plottype:target[:target].")
+        plottype, target = splits[0], splits[1:]
         return (PlotType(plottype), target)
     return spec
 
@@ -464,6 +564,7 @@ class AggregatePlot(Report, id="aggplot"):
         compareorder: Optional[List[str]] = None,
         colors: Optional[List[str]] = None,
         summarize: Optional[Union[List[str], str]] = None,
+        sliceby: Optional[Union[List[str], str]] = None,
         resultfilter: Optional[str] = None,
         errdisplay: Optional[ErrorDisplay] = None,
         aggmode: Optional[AggregationMode] = None,
@@ -493,6 +594,8 @@ class AggregatePlot(Report, id="aggplot"):
         self._compareorder: List[str] = compareorder if compareorder is not None else []
         self._colors: List[str] = colors if colors is not None else []
         self._summarize: List[str] = ensurelist(summarize, default=None)
+        self._filter = filter
+        self._sliceby: List[str] = ensurelist(sliceby, default=None)
         self._resultfilter: Optional[str] = resultfilter
         self._errdisplay = errdisplay if errdisplay is not None else ErrorDisplay.SHADE
         self._aggmode = aggmode if aggmode is not None else AggregationMode.MEDIAN_PERC_95
@@ -562,6 +665,12 @@ class AggregatePlot(Report, id="aggplot"):
     def summarize(self) -> List[str]:
         """The attribute aggregate over the entire dataframe."""
         return self._summarize
+
+    @attribute
+    def sliceby(self) -> List[str]:
+        """Slice along the index attribute by taking the first value in each slice plane.
+        We use the given set of attributes to define a slice plane."""
+        return self._sliceby
 
     @attribute
     def resultfilter(self) -> Optional[str]:
@@ -648,6 +757,10 @@ class AggregatePlot(Report, id="aggplot"):
 
     def generate(self) -> None:
         dataframe = filter(self.study.dataframe, attributes=self.groupby, resultfilter=self.resultfilter)
+        if len(self.sliceby) > 0:
+            groupattrs = self.sliceby + self.compare
+            dataframe = dataframe.groupby(groupattrs).first()
+            dataframe.reset_index()
         keyword_replacements: Dict[str, str] = {}
         summarydict: Dict[str, str] = {}
         for scenario in self.study.scenarios:
@@ -704,7 +817,7 @@ class AggregatePlot(Report, id="aggplot"):
                     lineplot(
                         self._view,
                         index=self._index,
-                        targetval=target,
+                        targetval=target[0],
                         summary=self._summary,
                         compare=self._compare,
                         compareorder=self._compareorder,
@@ -718,14 +831,40 @@ class AggregatePlot(Report, id="aggplot"):
                         annotations=self._annotations[i],
                         dontcompare=self._dontcompare[i],
                     )
-                else:
+                elif plottype == PlotType.BAR:
 
                     if self._summary is None:
                         raise ValueError("A bar plot can only be generated from a summary.")
 
                     barplot(
                         summary=self._summary,
-                        targetval=target,
+                        targetval=target[0],
+                        compare=self.compare,
+                        compareorder=self._compareorder,
+                        colors=colors,
+                        labelformat=self._labelformat,
+                        aggmode=self._summode,
+                        keyword_replacements=keyword_replacements,
+                        axes=axes[i],
+                        fontsize=self.fontsize,
+                        annotations=self._annotations[i],
+                        dontcompare=self._dontcompare[i],
+                    )
+
+                else:
+
+                    if self._summary is None:
+                        raise ValueError("A dot plot can only be generated from a summary.")
+
+                    if len(target) != 2:
+                        raise ValueError(
+                            "A dot plot must be specified with two targets. One for the x-axis and one for the y-axis."
+                        )
+
+                    dotplot(
+                        summary=self._summary,
+                        xtargetval=target[0],
+                        ytargetval=target[1],
                         compare=self.compare,
                         compareorder=self._compareorder,
                         colors=colors,
