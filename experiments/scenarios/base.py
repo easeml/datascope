@@ -260,6 +260,12 @@ def load_dict(dirpath: str, basename: str) -> Dict[str, Any]:
     return res
 
 
+class Backend(str, Enum):
+    LOCAL = "local"
+    RAY = "ray"
+    SLURM = "slurm"
+
+
 class Progress:
     class Event:
         class Type(Enum):
@@ -539,6 +545,11 @@ class Scenario(ABC):
         kwargs = {"logstream": logstream}
         return cls.from_dict({**attributes, **results, **kwargs})
 
+    @classmethod
+    def isscenario(cls, path: str) -> bool:
+        attributes_filename = os.path.join(path, ".".join(["attributes", "yaml"]))
+        return os.path.isdir(path) and os.path.isfile(attributes_filename)  # TODO: Refine this check.
+
     def is_match(self, other: "Scenario") -> bool:
         other_attributes = other.attributes
         return all(other_attributes.get(k, None) == v for (k, v) in self.attributes.items() if k != "id")
@@ -589,10 +600,12 @@ class Table(Sequence[V]):
 
 
 DEFAULT_RESULTS_PATH = os.path.join("var", "results")
+DEFAULT_RESULTS_SCENARIOS_PATH = os.path.join("var", "results", "scenarios")
 DEFAULT_REPORTS_PATH = os.path.join("var", "reports")
 ALL_STUDY_PATHS = glob(os.path.join(DEFAULT_RESULTS_PATH, "*"))
 DEFAULT_STUDY_PATH = max(ALL_STUDY_PATHS, key=lambda x: os.path.getmtime(x)) if len(ALL_STUDY_PATHS) > 0 else None
 DEFAULT_SCENARIO_PATH_FORMAT = "{id}"
+DEFAULT_BACKEND = Backend.LOCAL
 
 
 class Study:
@@ -677,7 +690,7 @@ class Study:
         catch_exceptions: bool = True,
         progress_bar: bool = True,
         console_log: bool = True,
-        parallel: bool = True,
+        backend: Backend = DEFAULT_BACKEND,
         ray_address: Optional[str] = None,
         ray_numprocs: Optional[int] = None,
         eagersave: bool = True,
@@ -697,7 +710,7 @@ class Study:
 
         # Set up progress bar.
         # pbar = None if not progress_bar else tqdm(total=len(self.scenarios), desc="Scenarios", position=0)
-        queue = Queue() if parallel else None
+        queue = None if backend == Backend.LOCAL else Queue()
         pbar = None if not progress_bar else Progress(queue, id=self.id)
         if pbar is not None:
             pbar.start(total=len(self.scenarios), desc="Scenarios")
@@ -718,7 +731,7 @@ class Study:
 
             scenarios = []
             runner = Study._get_scenario_runner(queue, catch_exceptions, progress_bar, console_log)
-            if parallel:
+            if backend == Backend.RAY:
                 monitor = threading.Thread(target=Study._status_monitor, args=(queue, self.logger))
                 monitor.start()
                 pool = Pool(processes=ray_numprocs, ray_address=ray_address)
@@ -729,7 +742,7 @@ class Study:
                     if eagersave:
                         self.save_scenario(scenario)
 
-            else:
+            elif backend == Backend.LOCAL:
                 for scenario in map(runner, self.scenarios):
                     scenarios.append(scenario)
                     if pbar is not None:
@@ -737,12 +750,19 @@ class Study:
                     if eagersave:
                         self.save_scenario(scenario)
 
+            elif backend == Backend.SLURM:
+                for scenario in self.scenarios:
+                    path = self.save_scenario(scenario)
+                    run_command = "python -m experiments run-scenario -o %s" % path
+                    slurm_command = 'sbatch --job-name=study --time=24:00:00 --wrap="%s"' % run_command
+                    os.system(slurm_command)
+
             self._scenarios = scenarios
 
             if pbar is not None:
                 pbar.close()
 
-            if parallel:
+            if backend == Backend.RAY:
                 assert queue is not None and monitor is not None
                 queue.put(None)
                 monitor.join()

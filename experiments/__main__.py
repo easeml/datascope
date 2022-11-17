@@ -5,9 +5,15 @@ import experiments.scenarios
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Set
 
-from .base import run, report
+from .base import run, run_scenario, report
 from .dataset import preload_datasets
-from .scenarios import DEFAULT_RESULTS_PATH, DEFAULT_STUDY_PATH
+from .scenarios import (
+    Backend,
+    DEFAULT_RESULTS_PATH,
+    DEFAULT_RESULTS_SCENARIOS_PATH,
+    DEFAULT_STUDY_PATH,
+    DEFAULT_BACKEND,
+)
 
 
 def make_type_parser(target: Optional[type]) -> Callable[[str], Any]:
@@ -35,6 +41,7 @@ def add_dynamic_arguments(
     attribute_defaults: Dict[str, Optional[Any]],
     attribute_helpstrings: Dict[str, Optional[str]],
     attribute_isiterable: Dict[str, bool],
+    single_instance: bool = False,
 ) -> None:
     for name in attribute_domains:
         default = attribute_defaults[name]
@@ -43,7 +50,7 @@ def add_dynamic_arguments(
             domain = None
         helpstring = attribute_helpstrings[name] or ("Scenario " + name + ".")
         if default is None:
-            helpstring += " Default: [all]"
+            helpstring += " Default: [all]" if not single_instance else ""
         else:
             helpstring += " Default: %s" % str(default)
         parser.add_argument(
@@ -51,7 +58,7 @@ def add_dynamic_arguments(
             help=helpstring,
             type=make_type_parser(attribute_types[name]),
             choices=domain,
-            nargs="+" if attribute_isiterable[name] else None,  # type: ignore
+            nargs=(1 if single_instance else "+") if attribute_isiterable[name] else None,  # type: ignore
         )
 
 
@@ -73,15 +80,18 @@ if __name__ == "__main__":
     )
 
     parser_run.add_argument(
-        "--no-parallelism",
-        action="store_true",
-        help="Prevent parallel execution of scenarios.",
+        "-b",
+        "--backend",
+        type=Backend,
+        choices=[x.value for x in list(Backend)],
+        default=DEFAULT_BACKEND,
+        help="The backend to run against. Default: '%s'" % str(DEFAULT_BACKEND.value),
     )
 
     parser_run.add_argument(
         "--no-save",
         action="store_true",
-        help="Prevent saving the scenario.",
+        help="Prevent saving the study.",
     )
 
     parser_run.add_argument(
@@ -99,14 +109,40 @@ if __name__ == "__main__":
     )
 
     # Build arguments from scenario attributes.
-    attribute_isiterable = dict((k, True) for k in experiments.scenarios.Scenario.attribute_types.keys())
     add_dynamic_arguments(
-        parser_run,
-        experiments.scenarios.Scenario.attribute_domains,
-        experiments.scenarios.Scenario.attribute_types,
-        experiments.scenarios.Scenario.attribute_defaults,
-        experiments.scenarios.Scenario.attribute_helpstrings,
-        experiments.scenarios.Scenario.attribute_isiterable,
+        parser=parser_run,
+        attribute_domains=experiments.scenarios.Scenario.attribute_domains,
+        attribute_types=experiments.scenarios.Scenario.attribute_types,
+        attribute_defaults=experiments.scenarios.Scenario.attribute_defaults,
+        attribute_helpstrings=experiments.scenarios.Scenario.attribute_helpstrings,
+        attribute_isiterable=experiments.scenarios.Scenario.attribute_isiterable,
+        single_instance=False,
+    )
+
+    parser_run_scenario = subparsers.add_parser("run-scenario")
+
+    parser_run_scenario.add_argument(
+        "-o",
+        "--output-path",
+        type=str,
+        default=DEFAULT_RESULTS_SCENARIOS_PATH,
+        help="Path where the data is stored. Default: '%s'" % DEFAULT_RESULTS_SCENARIOS_PATH,
+    )
+
+    parser_run_scenario.add_argument(
+        "--no-save",
+        action="store_true",
+        help="Prevent saving the scenario.",
+    )
+
+    add_dynamic_arguments(
+        parser=parser_run_scenario,
+        attribute_domains=experiments.scenarios.Scenario.attribute_domains,
+        attribute_types=experiments.scenarios.Scenario.attribute_types,
+        attribute_defaults=experiments.scenarios.Scenario.attribute_defaults,
+        attribute_helpstrings=experiments.scenarios.Scenario.attribute_helpstrings,
+        attribute_isiterable=experiments.scenarios.Scenario.attribute_isiterable,
+        single_instance=True,
     )
 
     parser_report = subparsers.add_parser("report")
@@ -149,12 +185,13 @@ if __name__ == "__main__":
 
     # Build arguments from report attributes.
     add_dynamic_arguments(
-        parser_report,
-        experiments.scenarios.Report.attribute_domains,
-        experiments.scenarios.Report.attribute_types,
-        experiments.scenarios.Report.attribute_defaults,
-        experiments.scenarios.Report.attribute_helpstrings,
-        experiments.scenarios.Report.attribute_isiterable,
+        parser=parser_report,
+        attribute_domains=experiments.scenarios.Report.attribute_domains,
+        attribute_types=experiments.scenarios.Report.attribute_types,
+        attribute_defaults=experiments.scenarios.Report.attribute_defaults,
+        attribute_helpstrings=experiments.scenarios.Report.attribute_helpstrings,
+        attribute_isiterable=experiments.scenarios.Report.attribute_isiterable,
+        single_instance=False,
     )
 
     # print(Report.attribute_domains)
@@ -166,6 +203,8 @@ if __name__ == "__main__":
 
     if args.command == "run":
         run(**kwargs)
+    if args.command == "run-scenario":
+        run_scenario(**kwargs)
     elif args.command == "report":
         report(**kwargs)
     elif args.command == "dataload":

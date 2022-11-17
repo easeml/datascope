@@ -1,15 +1,24 @@
+import logging
 import os
 
 from experiments.scenarios.base import Report
 from tqdm import tqdm
 from typing import Any, Optional, Sequence
 
-from .scenarios import Study, Scenario, DEFAULT_RESULTS_PATH, DEFAULT_STUDY_PATH
+from .scenarios import (
+    Study,
+    Scenario,
+    Backend,
+    DEFAULT_RESULTS_PATH,
+    DEFAULT_RESULTS_SCENARIOS_PATH,
+    DEFAULT_STUDY_PATH,
+    DEFAULT_BACKEND,
+)
 
 
 def run(
     output_path: str = DEFAULT_RESULTS_PATH,
-    no_parallelism: bool = False,
+    backend: Backend = DEFAULT_BACKEND,
     no_save: bool = False,
     ray_address: Optional[str] = None,
     ray_numprocs: Optional[int] = None,
@@ -58,11 +67,46 @@ def run(
         study.save()
 
     # Run the study.
-    study.run(parallel=not no_parallelism, ray_address=ray_address, ray_numprocs=ray_numprocs, eagersave=not no_save)
+    study.run(backend=backend, ray_address=ray_address, ray_numprocs=ray_numprocs, eagersave=not no_save)
 
     # Save the study.
     if not no_save:
         study.save()
+
+
+def run_scenario(output_path: str = DEFAULT_RESULTS_SCENARIOS_PATH, no_save: bool = False, **attributes: Any) -> None:
+
+    # If we should continue the execution of an existing scenario, then we should load it.
+    scenario: Optional[Scenario] = None
+    path = output_path
+    if Scenario.isscenario(path):
+        scenario = Scenario.load(path=path)
+
+    else:
+        # Otherwise, we will try to use the provided attributes to instantiate a scenario.
+        scenarios = list(Scenario.get_instances(**attributes))
+
+        # print(len(scenarios))
+        # for s in scenarios:
+        #     print(s)
+
+        if len(scenarios) == 0:
+            raise ValueError("The provided attributes do not correspond to any valid scenario.")
+        elif len(scenarios) > 1:
+            raise ValueError("The provided attributes correspond to more than one valid scenarios.")
+        scenario = scenarios[0]
+        path = os.path.join(output_path, scenario.id)
+
+        # Eagerly save the scenario.
+        if not no_save:
+            scenario.save(path)
+
+    scenario.logger.setLevel(logging.DEBUG)
+    scenario.run()  # TODO: Handle progress, logging and exceptions.
+
+    # Save the scenario.
+    if not no_save:
+        scenario.save(path)
 
 
 def report(
