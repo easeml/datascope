@@ -135,6 +135,14 @@ if __name__ == "__main__":
         help="Prevent saving the scenario.",
     )
 
+    parser_run_scenario.add_argument(
+        "-e",
+        "--event-server",
+        type=str,
+        default=None,
+        help="Address of the event server. If specified, logging and progress events will be streamed to it.",
+    )
+
     add_dynamic_arguments(
         parser=parser_run_scenario,
         attribute_domains=experiments.scenarios.Scenario.attribute_domains,
@@ -203,7 +211,7 @@ if __name__ == "__main__":
 
     if args.command == "run":
         run(**kwargs)
-    if args.command == "run-scenario":
+    elif args.command == "run-scenario":
         run_scenario(**kwargs)
     elif args.command == "report":
         report(**kwargs)

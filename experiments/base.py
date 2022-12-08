@@ -1,7 +1,7 @@
 import logging
 import os
+import zerorpc
 
-from experiments.scenarios.base import Report
 from tqdm import tqdm
 from typing import Any, Optional, Sequence
 
@@ -9,6 +9,9 @@ from .scenarios import (
     Study,
     Scenario,
     Backend,
+    Report,
+    QueueProtocol,
+    get_scenario_runner,
     DEFAULT_RESULTS_PATH,
     DEFAULT_RESULTS_SCENARIOS_PATH,
     DEFAULT_STUDY_PATH,
@@ -74,7 +77,12 @@ def run(
         study.save()
 
 
-def run_scenario(output_path: str = DEFAULT_RESULTS_SCENARIOS_PATH, no_save: bool = False, **attributes: Any) -> None:
+def run_scenario(
+    output_path: str = DEFAULT_RESULTS_SCENARIOS_PATH,
+    no_save: bool = False,
+    event_server: Optional[str] = None,
+    **attributes: Any
+) -> None:
 
     # If we should continue the execution of an existing scenario, then we should load it.
     scenario: Optional[Scenario] = None
@@ -100,9 +108,17 @@ def run_scenario(output_path: str = DEFAULT_RESULTS_SCENARIOS_PATH, no_save: boo
         # Eagerly save the scenario.
         if not no_save:
             scenario.save(path)
+    queue: Optional[QueueProtocol] = None
+    pickled_queue = False
+    if event_server is not None:
+        client = zerorpc.Client()
+        client.connect(event_server)
+        queue = client
+        pickled_queue = True
+    runner = get_scenario_runner(queue=queue, pickled_queue=pickled_queue)
 
     scenario.logger.setLevel(logging.DEBUG)
-    scenario.run()  # TODO: Handle progress, logging and exceptions.
+    scenario = runner(scenario)
 
     # Save the scenario.
     if not no_save:

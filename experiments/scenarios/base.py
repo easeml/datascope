@@ -1,12 +1,17 @@
 import collections.abc
 import datetime
+import gevent
+import gevent.signal
 import logging
 import logging.handlers
 import numpy as np
 import os
 import pandas as pd
+import pickle
 import random
 import re
+import signal
+import socket
 import string
 import sys
 import threading
@@ -14,6 +19,7 @@ import time
 import traceback
 import warnings
 import yaml
+import zerorpc
 
 from abc import ABC, abstractmethod
 from enum import Enum
@@ -23,10 +29,11 @@ from io import TextIOBase, StringIO, SEEK_END
 from itertools import product
 from logging import Logger
 from matplotlib.figure import Figure
+from multiprocessing import Process, Queue as MultiprocessingQueue
 from numpy import ndarray
 from pandas import DataFrame
 from ray.util.multiprocessing import Pool
-from ray.util.queue import Queue
+from ray.util.queue import Queue as RayQueue
 from shutil import copyfileobj
 from tqdm.auto import tqdm
 from tqdm.contrib.logging import logging_redirect_tqdm
@@ -46,7 +53,16 @@ from typing import (
     get_args,
     overload,
     Union,
+    Protocol,
 )
+
+
+class Queue(Protocol):
+    def get(self, block: bool = True, timeout: Optional[float] = None) -> Any:
+        ...
+
+    def put(self, item: Any, block: bool = True, timeout: Optional[float] = None) -> None:
+        ...
 
 
 class PropertyTag(property):
@@ -280,8 +296,9 @@ class Progress:
 
     pbars: Dict[str, tqdm] = {}
 
-    def __init__(self, queue: Optional[Queue] = None, id: Optional[str] = None) -> None:
+    def __init__(self, queue: Optional[Queue] = None, id: Optional[str] = None, pickled: bool = False) -> None:
         self._queue = queue
+        self._pickled = pickled
         self._id = id if id is not None else "".join(random.choices(string.ascii_lowercase + string.digits, k=10))
 
     def start(self, total: Optional[int] = None, desc: Optional[str] = None) -> None:
@@ -297,7 +314,10 @@ class Progress:
         if self._queue is None:
             self.handle(event)
         else:
-            self._queue.put(event)
+            payload: Union["Progress.Event", bytes] = event
+            if self._pickled:
+                payload = pickle.dumps(payload)
+            self._queue.put(payload)
 
     def new(self, id: Optional[str] = None) -> "Progress":
         return Progress(self._queue, id)
@@ -309,6 +329,14 @@ class Progress:
     @queue.setter
     def queue(self, value: Optional[Queue]) -> None:
         self._queue = value
+
+    @property
+    def pickled(self) -> bool:
+        return self._pickled
+
+    @pickled.setter
+    def pickled(self, value: bool) -> None:
+        self._pickled = value
 
     @classmethod
     def refresh(cls: Type["Progress"]) -> None:
@@ -555,6 +583,17 @@ class Scenario(ABC):
         return all(other_attributes.get(k, None) == v for (k, v) in self.attributes.items() if k != "id")
 
 
+class ScenarioEvent:
+    class Type(Enum):
+        STARTED = "started"
+        COMPLETED = "completed"
+
+    def __init__(self, type: "ScenarioEvent.Type", id: str, **kwargs: Any) -> None:
+        self.type = type
+        self.id = id
+        self.kwargs = kwargs
+
+
 V = TypeVar("V")
 
 
@@ -599,6 +638,89 @@ class Table(Sequence[V]):
         return self.df._repr_html_()
 
 
+class QueueHandler(logging.handlers.QueueHandler):
+    def __init__(self, queue, pickled: bool = False):
+        logging.handlers.QueueHandler.__init__(self, queue)
+        self.pickled = pickled
+
+    def enqueue(self, record):
+        if self.pickled:
+            record = pickle.dumps(record)
+        self.queue.put_nowait(record)
+
+
+def get_scenario_runner(
+    queue: Optional[Queue] = None,
+    catch_exceptions: bool = True,
+    progress_bar: bool = True,
+    console_log: bool = True,
+    rerun: bool = False,
+    pickled_queue: bool = False,
+) -> Callable[[Scenario], Scenario]:
+    def _scenario_runner(scenario: Scenario) -> Scenario:
+        try:
+            scenario.progress.queue = queue
+            scenario.progress.pickled = pickled_queue
+            scenario.logger.setLevel(logging.DEBUG)
+            qh: Optional[logging.Handler] = None
+            ch: Optional[logging.Handler] = None
+            if queue is not None:
+                qh = QueueHandler(queue, pickled=pickled_queue)  # type: ignore
+                scenario.logger.addHandler(qh)
+                payload: Union["ScenarioEvent", bytes] = ScenarioEvent(ScenarioEvent.Type.STARTED, id=scenario.id)
+                if pickled_queue:
+                    payload = pickle.dumps(payload)
+                queue.put(payload)
+            elif console_log:
+                formatter = logging.Formatter("[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s")
+                ch = logging.StreamHandler(sys.stdout)
+                ch.setFormatter(formatter)
+                scenario.logger.addHandler(ch)
+
+            if rerun or not scenario.completed:
+                if queue is not None:
+                    scenario.run(progress_bar=progress_bar, console_log=False)
+                else:
+                    with logging_redirect_tqdm(loggers=[scenario.logger]):
+                        scenario.run(progress_bar=progress_bar, console_log=False)
+            else:
+                scenario.logger.info("Scenario instance already completed. Skipping...")
+        except Exception as e:
+            if catch_exceptions:
+                trace_output = traceback.format_exc()
+                scenario.logger.error(trace_output)
+            else:
+                raise e
+        finally:
+            scenario.progress.queue = None
+            if queue is not None:
+                payload = ScenarioEvent(ScenarioEvent.Type.COMPLETED, id=scenario.id)
+                if pickled_queue:
+                    payload = pickle.dumps(payload)
+                queue.put(payload)
+            if qh is not None:
+                scenario.logger.removeHandler(qh)
+            if ch is not None:
+                scenario.logger.removeHandler(ch)
+        return scenario
+
+    return _scenario_runner
+
+
+def get_ip() -> str:
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s.settimeout(0)
+    try:
+        # doesn't even have to be reachable
+        s.connect(("10.254.254.254", 1))
+        ip = s.getsockname()[0]
+    except Exception:
+        ip = "127.0.0.1"
+    finally:
+        s.close()
+    return ip
+
+
 DEFAULT_RESULTS_PATH = os.path.join("var", "results")
 DEFAULT_RESULTS_SCENARIOS_PATH = os.path.join("var", "results", "scenarios")
 DEFAULT_REPORTS_PATH = os.path.join("var", "reports")
@@ -606,6 +728,7 @@ ALL_STUDY_PATHS = glob(os.path.join(DEFAULT_RESULTS_PATH, "*"))
 DEFAULT_STUDY_PATH = max(ALL_STUDY_PATHS, key=lambda x: os.path.getmtime(x)) if len(ALL_STUDY_PATHS) > 0 else None
 DEFAULT_SCENARIO_PATH_FORMAT = "{id}"
 DEFAULT_BACKEND = Backend.LOCAL
+DEFAULT_HOST_PORT = 4242
 
 
 class Study:
@@ -626,60 +749,27 @@ class Study:
         self._verify_scenario_path(scenario_path_format, scenarios)
 
     @staticmethod
-    def _get_scenario_runner(
-        queue: Optional[Queue] = None,
-        catch_exceptions: bool = True,
-        progress_bar: bool = True,
-        console_log: bool = True,
-        rerun: bool = False,
-    ) -> Callable[[Scenario], Scenario]:
-        def _scenario_runner(scenario: Scenario) -> Scenario:
-            try:
-                scenario.progress.queue = queue
-                scenario.logger.setLevel(logging.DEBUG)
-                qh: Optional[logging.Handler] = None
-                ch: Optional[logging.Handler] = None
-                if queue is not None:
-                    qh = logging.handlers.QueueHandler(queue)  # type: ignore
-                    scenario.logger.addHandler(qh)
-                elif console_log:
-                    formatter = logging.Formatter("[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s")
-                    ch = logging.StreamHandler(sys.stdout)
-                    ch.setFormatter(formatter)
-                    scenario.logger.addHandler(ch)
-
-                if rerun or not scenario.completed:
-                    if queue is not None:
-                        scenario.run(progress_bar=progress_bar, console_log=False)
-                    else:
-                        with logging_redirect_tqdm(loggers=[scenario.logger]):
-                            scenario.run(progress_bar=progress_bar, console_log=False)
-                else:
-                    scenario.logger.info("Scenario instance already completed. Skipping...")
-            except Exception as e:
-                if catch_exceptions:
-                    trace_output = traceback.format_exc()
-                    scenario.logger.error(trace_output)
-                else:
-                    raise e
-            finally:
-                scenario.progress.queue = None
-                if qh is not None:
-                    scenario.logger.removeHandler(qh)
-                if ch is not None:
-                    scenario.logger.removeHandler(ch)
-            return scenario
-
-        return _scenario_runner
-
-    @staticmethod
-    def _status_monitor(queue: Queue, logger: Logger) -> None:
+    def _status_monitor(
+        queue: Queue,
+        logger: Logger,
+        study_queue: Optional[Queue] = None,
+        pickled: bool = False,
+    ) -> None:
         while True:
-            record: Optional[Union[logging.LogRecord, Progress.Event]] = queue.get()
+            record: Optional[Union[logging.LogRecord, Progress.Event]] = None
+            payload = queue.get()
+            if pickled:
+                if payload is not None:
+                    record = pickle.loads(payload)
+            else:
+                record = payload
             if record is None:
                 break
             if isinstance(record, Progress.Event):
                 Progress.handle(record)
+            elif isinstance(record, ScenarioEvent):
+                if study_queue is not None:
+                    study_queue.put(record)
             else:
                 # logger = logging.getLogger(record.name)
                 logger.handle(record)
@@ -693,6 +783,8 @@ class Study:
         backend: Backend = DEFAULT_BACKEND,
         ray_address: Optional[str] = None,
         ray_numprocs: Optional[int] = None,
+        host_ip: Optional[str] = None,
+        host_port: int = DEFAULT_HOST_PORT,
         eagersave: bool = True,
         **kwargs: Any
     ) -> None:
@@ -710,8 +802,15 @@ class Study:
 
         # Set up progress bar.
         # pbar = None if not progress_bar else tqdm(total=len(self.scenarios), desc="Scenarios", position=0)
-        queue = None if backend == Backend.LOCAL else Queue()
-        pbar = None if not progress_bar else Progress(queue, id=self.id)
+        queue: Optional[Queue] = None
+        process: Optional[Process] = None
+        pickled_queue = backend == Backend.SLURM
+        if backend == Backend.RAY:
+            queue = RayQueue()
+        elif backend == Backend.SLURM:
+            queue = MultiprocessingQueue()
+
+        pbar = None if not progress_bar else Progress(queue, id=self.id, pickled=pickled_queue)
         if pbar is not None:
             pbar.start(total=len(self.scenarios), desc="Scenarios")
 
@@ -730,7 +829,9 @@ class Study:
             #             pbar.update(1)
 
             scenarios = []
-            runner = Study._get_scenario_runner(queue, catch_exceptions, progress_bar, console_log)
+            runner = get_scenario_runner(
+                queue, catch_exceptions, progress_bar, console_log, pickled_queue=pickled_queue
+            )
             if backend == Backend.RAY:
                 monitor = threading.Thread(target=Study._status_monitor, args=(queue, self.logger))
                 monitor.start()
@@ -751,19 +852,62 @@ class Study:
                         self.save_scenario(scenario)
 
             elif backend == Backend.SLURM:
+
+                # Set up the process that will host the queue RPC server.
+                # Reference: https://stackoverflow.com/a/21146917
+                def serve(queue: Queue) -> None:
+                    server = zerorpc.Server(queue, heartbeat=5)
+                    server.bind("tcp://0.0.0.0:%d" % host_port)
+
+                    def stop_routine():
+                        server.stop()
+
+                    def stop_handler(number, frame):
+                        gevent.spawn(stop_routine)
+
+                    gevent.signal.signal(signal.SIGTERM, stop_handler)
+                    gevent.signal.signal(signal.SIGINT, stop_handler)
+                    server.run()
+                    sys.stdout.flush()
+
+                process = Process(target=serve, args=(queue,))
+                process.start()
+
+                study_queue: Queue = MultiprocessingQueue()
+                monitor = threading.Thread(
+                    target=Study._status_monitor, args=(queue, self.logger, study_queue, pickled_queue)
+                )
+                monitor.start()
+
+                if host_ip is None:
+                    host_ip = get_ip()
+                address = "tcp://%s:%d" % (host_ip, host_port)
+
+                # Create a batch job on slurm for every scenario.
                 for scenario in self.scenarios:
                     path = self.save_scenario(scenario)
-                    run_command = "python -m experiments run-scenario -o %s" % path
-                    slurm_command = 'sbatch --job-name=study --time=24:00:00 --wrap="%s"' % run_command
+                    logpath = os.path.join(path, "slurm.log")
+                    run_command = "python -m experiments run-scenario -o %s -e %s" % (path, address)
+                    slurm_command = 'sbatch --job-name=study --time=24:00:00 -o %s --wrap="%s"' % (logpath, run_command)
                     os.system(slurm_command)
+
+                scenarios_running = len(self.scenarios)
+                while scenarios_running > 0:
+                    scenario_event: ScenarioEvent = study_queue.get()
+                    if pbar is not None and scenario_event.type == ScenarioEvent.Type.COMPLETED:
+                        pbar.update(1)
+                        scenarios_running -= 1
+                scenarios = Study.load_scenarios(self.path)
 
             self._scenarios = scenarios
 
             if pbar is not None:
                 pbar.close()
 
-            if backend == Backend.RAY:
+            if backend == Backend.RAY or backend == Backend.SLURM:
                 assert queue is not None and monitor is not None
+                if process is not None:
+                    process.terminate()
                 queue.put(None)
                 monitor.join()
 
@@ -787,7 +931,7 @@ class Study:
 
     def save_scenario(self, scenario: Scenario) -> str:
         if self.path is None:
-            raise ValueError("This scenario has no output path.")
+            raise ValueError("This study has no output path.")
         attributes = re.findall(r"\{(.*?)\}", self._scenario_path_format)
         replacements = dict((name, get_property_value(scenario, name)) for name in attributes)
         exppath = self._scenario_path_format.format_map(replacements)
@@ -833,6 +977,16 @@ class Study:
                 # scenario.save(full_exppath)
 
     @classmethod
+    def load_scenarios(cls, path: str) -> List[Scenario]:
+        # Load all scenarios.
+        scenarios: List[Scenario] = []
+        for attpath in glob(os.path.join(path, "**/attributes.yaml"), recursive=True):
+            exppath = os.path.dirname(attpath)
+            scenario = Scenario.load(exppath)
+            scenarios.append(scenario)
+        return scenarios
+
+    @classmethod
     def load(cls, path: str, id: Optional[str] = None) -> "Study":
         outpath = path
         if id is None:
@@ -858,11 +1012,7 @@ class Study:
                 logstream = StringIO(f.read())
 
         # Load all scenarios.
-        scenarios: List[Scenario] = []
-        for attpath in glob(os.path.join(path, "**/attributes.yaml"), recursive=True):
-            exppath = os.path.dirname(attpath)
-            scenario = Scenario.load(exppath)
-            scenarios.append(scenario)
+        scenarios = Study.load_scenarios(path)
 
         # Reconstruct study and return it.
         result = Study(
