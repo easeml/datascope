@@ -13,7 +13,7 @@ VENV_DIR := .venv
 include $(ROOT_DIR_PATH)/dev/makefiles/show-help.mk
 
 $(VENV_DIR)/touchfile:
-	test -d $(VENV_DIR) || virtualenv $(VENV_DIR) --prompt "(datascope) " --python $(PYTHON)
+	test -d $(VENV_DIR) || virtualenv $(VENV_DIR) --prompt "(datascope)" --python $(PYTHON)
 	touch $(VENV_DIR)/touchfile
 
 .PHONY: shell
