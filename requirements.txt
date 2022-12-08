@@ -9,3 +9,4 @@ matplotlib >= 3.5
 PyYAML >= 6.0
 tqdm >= 4.62
 setuptools
+zerorpc >= 0.6.3
