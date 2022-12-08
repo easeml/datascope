@@ -17,6 +17,7 @@ from sklearn.datasets import fetch_openml, fetch_20newsgroups, make_classificati
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import LabelEncoder
+from tqdm import tqdm
 from typing import Dict, List, Optional, Sequence, Tuple, Type, Union
 
 from datascope.importance.common import binarize, get_indices
@@ -1083,5 +1084,6 @@ class Higgs(DirtyLabelDataset, modality=DatasetModality.TABULAR):
 
 
 def preload_datasets(**kwargs) -> None:
-    for cls in Dataset.datasets.values():
+    for cls in tqdm(Dataset.datasets.values()):
+        tqdm.write("Loading dataset '%s'." % cls._dataset)
         cls.preload()
