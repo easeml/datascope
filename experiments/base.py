@@ -16,6 +16,7 @@ from .scenarios import (
     DEFAULT_RESULTS_SCENARIOS_PATH,
     DEFAULT_STUDY_PATH,
     DEFAULT_BACKEND,
+    DEFAULT_SLURM_JOBMEMORY,
 )
 
 
@@ -25,6 +26,7 @@ def run(
     no_save: bool = False,
     ray_address: Optional[str] = None,
     ray_numprocs: Optional[int] = None,
+    slurm_jobmemory: Optional[str] = DEFAULT_SLURM_JOBMEMORY,
     **attributes: Any
 ) -> None:
     # print("run", output_path, attributes)
@@ -70,7 +72,13 @@ def run(
         study.save()
 
     # Run the study.
-    study.run(backend=backend, ray_address=ray_address, ray_numprocs=ray_numprocs, eagersave=not no_save)
+    study.run(
+        backend=backend,
+        ray_address=ray_address,
+        ray_numprocs=ray_numprocs,
+        slurm_jobmemory=slurm_jobmemory,
+        eagersave=not no_save,
+    )
 
     # Save the study.
     if not no_save:

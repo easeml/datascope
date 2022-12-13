@@ -12,6 +12,7 @@ from .base import (
     DEFAULT_REPORTS_PATH,
     DEFAULT_STUDY_PATH,
     DEFAULT_BACKEND,
+    DEFAULT_SLURM_JOBMEMORY,
 )
 from .label_repair import LabelRepairScenario
 from .data_discard import DataDiscardScenario
@@ -31,6 +32,7 @@ __all__ = [
     "DEFAULT_REPORTS_PATH",
     "DEFAULT_STUDY_PATH",
     "DEFAULT_BACKEND",
+    "DEFAULT_SLURM_JOBMEMORY",
     "LabelRepairScenario",
     "DataDiscardScenario",
     "ComputeTimeScenario",

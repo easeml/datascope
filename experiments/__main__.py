@@ -13,6 +13,7 @@ from .scenarios import (
     DEFAULT_RESULTS_SCENARIOS_PATH,
     DEFAULT_STUDY_PATH,
     DEFAULT_BACKEND,
+    DEFAULT_SLURM_JOBMEMORY,
 )
 
 
@@ -106,6 +107,13 @@ if __name__ == "__main__":
         type=int,
         default=None,
         help="Number of ray processes to start if running in parallel. Defaults to the number of cores.",
+    )
+
+    parser_run.add_argument(
+        "--slurm-jobmemory",
+        type=str,
+        default=DEFAULT_SLURM_JOBMEMORY,
+        help="Memory requirements for each slurm job (if slurm is used as backend).",
     )
 
     # Build arguments from scenario attributes.

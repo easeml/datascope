@@ -13,6 +13,7 @@ import re
 import signal
 import socket
 import string
+import subprocess
 import sys
 import threading
 import time
@@ -729,6 +730,7 @@ DEFAULT_STUDY_PATH = max(ALL_STUDY_PATHS, key=lambda x: os.path.getmtime(x)) if 
 DEFAULT_SCENARIO_PATH_FORMAT = "{id}"
 DEFAULT_BACKEND = Backend.LOCAL
 DEFAULT_HOST_PORT = 4242
+DEFAULT_SLURM_JOBMEMORY = "4G"
 
 
 class Study:
@@ -783,6 +785,7 @@ class Study:
         backend: Backend = DEFAULT_BACKEND,
         ray_address: Optional[str] = None,
         ray_numprocs: Optional[int] = None,
+        slurm_jobmemory: Optional[str] = DEFAULT_SLURM_JOBMEMORY,
         host_ip: Optional[str] = None,
         host_port: int = DEFAULT_HOST_PORT,
         eagersave: bool = True,
@@ -884,19 +887,32 @@ class Study:
                 address = "tcp://%s:%d" % (host_ip, host_port)
 
                 # Create a batch job on slurm for every scenario.
+                scenarios_running = len(self.scenarios)
                 for scenario in self.scenarios:
+                    if scenario.completed:
+                        scenarios_running -= 1
+                        if pbar is not None:
+                            pbar.update(1)
+                        continue
                     path = self.save_scenario(scenario)
                     logpath = os.path.join(path, "slurm.log")
                     run_command = "python -m experiments run-scenario -o %s -e %s" % (path, address)
-                    slurm_command = 'sbatch --job-name=study --time=24:00:00 -o %s --wrap="%s"' % (logpath, run_command)
-                    os.system(slurm_command)
+                    slurm_command_format = 'sbatch --job-name=study --time=24:00:00 --mem-per-cpu=%s -o %s --wrap="%s"'
+                    slurm_command = slurm_command_format % (slurm_jobmemory, logpath, run_command)
+                    result = subprocess.run(slurm_command, capture_output=True, shell=True)
+                    if result.returncode != 0:
+                        raise RuntimeError(
+                            "Slurm sbatch command resulted in non-zero return code. \nstdout:\n%r\nstderr:\n%r\n"
+                            % (result.stdout, result.stderr)
+                        )
 
-                scenarios_running = len(self.scenarios)
                 while scenarios_running > 0:
                     scenario_event: ScenarioEvent = study_queue.get()
-                    if pbar is not None and scenario_event.type == ScenarioEvent.Type.COMPLETED:
-                        pbar.update(1)
+                    if scenario_event.type == ScenarioEvent.Type.COMPLETED:
                         scenarios_running -= 1
+                        if pbar is not None:
+                            pbar.update(1)
+
                 scenarios = Study.load_scenarios(self.path)
 
             self._scenarios = scenarios
