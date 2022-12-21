@@ -10,6 +10,7 @@ from matplotlib.ticker import EngFormatter, PercentFormatter
 from typing import Callable, Optional, Dict, Any, List, Union, TypeVar, Tuple
 
 from pandas import DataFrame
+from pandas.core.groupby.groupby import GroupBy
 
 from ..scenarios import Report, Study, result, attribute
 
@@ -81,6 +82,29 @@ VALUE_MEASURE_C: Dict[AggregationMode, str] = {
     AggregationMode.MEDIAN_PERC_90: "median",
     AggregationMode.MEDIAN_PERC_95: "median",
     AggregationMode.MEDIAN_PERC_99: "median",
+}
+
+
+class SliceOp(str, Enum):
+    COUNT = "count"
+    FIRST = "first"
+    LAST = "last"
+    MAX = "max"
+    MIN = "min"
+    MEAN = "mean"
+    STD = "std"
+    MEDIAN = "median"
+
+
+SLICE_OPS: Dict[SliceOp, Callable[[GroupBy], Any]] = {
+    SliceOp.COUNT: GroupBy.count,
+    SliceOp.FIRST: GroupBy.first,
+    SliceOp.LAST: GroupBy.last,
+    SliceOp.MAX: GroupBy.max,
+    SliceOp.MIN: GroupBy.min,
+    SliceOp.MEAN: GroupBy.mean,
+    SliceOp.STD: GroupBy.std,
+    SliceOp.MEDIAN: GroupBy.median,
 }
 
 DEFAULT_LABEL_FORMAT = "{compare}"
@@ -249,15 +273,15 @@ def lineplot(
         cols: List[str] = dataframe[comp][targetval].columns.to_list()
         uppercol = next(c for c in cols if c.endswith("-h"))
         lowercol = next(c for c in cols if c.endswith("-l"))
-        upper = dataframe[comp][targetval][uppercol]
-        lower = dataframe[comp][targetval][lowercol]
+        upper = dataframe[comp][targetval][uppercol].to_numpy()
+        lower = dataframe[comp][targetval][lowercol].to_numpy()
         if errdisplay == ErrorDisplay.SHADE:
             axes.fill_between(dataframe.index.values, upper, lower, color=comp_colors[i], alpha=0.2)
         elif errdisplay == ErrorDisplay.BAR:
             center = dataframe[comp][targetval][centercol]
             xval = dataframe.index.values
             yval = center.to_numpy()
-            yerr = np.abs(np.stack([lower.to_numpy(), upper.to_numpy()]) - yval)
+            yerr = np.abs(np.stack([lower, upper]) - yval)
             axes.errorbar(xval, yval, yerr=yerr, fmt="o", linewidth=2, capsize=6, color=comp_colors[i], label=labels[i])
             if annotations:
                 for x, y in zip(xval, yval):
@@ -565,6 +589,7 @@ class AggregatePlot(Report, id="aggplot"):
         colors: Optional[List[str]] = None,
         summarize: Optional[Union[List[str], str]] = None,
         sliceby: Optional[Union[List[str], str]] = None,
+        sliceop: Optional[SliceOp] = None,
         resultfilter: Optional[str] = None,
         errdisplay: Optional[ErrorDisplay] = None,
         aggmode: Optional[AggregationMode] = None,
@@ -596,6 +621,7 @@ class AggregatePlot(Report, id="aggplot"):
         self._summarize: List[str] = ensurelist(summarize, default=None)
         self._filter = filter
         self._sliceby: List[str] = ensurelist(sliceby, default=None)
+        self._sliceop = sliceop if sliceop is not None else SliceOp.FIRST
         self._resultfilter: Optional[str] = resultfilter
         self._errdisplay = errdisplay if errdisplay is not None else ErrorDisplay.SHADE
         self._aggmode = aggmode if aggmode is not None else AggregationMode.MEDIAN_PERC_95
@@ -671,6 +697,11 @@ class AggregatePlot(Report, id="aggplot"):
         """Slice along the index attribute by taking the first value in each slice plane.
         We use the given set of attributes to define a slice plane."""
         return self._sliceby
+
+    @attribute
+    def sliceop(self) -> SliceOp:
+        """If we perform slicing on the dataframe, this specifies the aggregation operation to perform on each slice."""
+        return self._sliceop
 
     @attribute
     def resultfilter(self) -> Optional[str]:
@@ -757,10 +788,7 @@ class AggregatePlot(Report, id="aggplot"):
 
     def generate(self) -> None:
         dataframe = filter(self.study.dataframe, attributes=self.groupby, resultfilter=self.resultfilter)
-        if len(self.sliceby) > 0:
-            groupattrs = self.sliceby + self.compare
-            dataframe = dataframe.groupby(groupattrs).first()
-            dataframe.reset_index()
+
         keyword_replacements: Dict[str, str] = {}
         summarydict: Dict[str, str] = {}
         for scenario in self.study.scenarios:
@@ -777,6 +805,15 @@ class AggregatePlot(Report, id="aggplot"):
                 )
 
         if len(self.summarize) > 0:
+
+            # If slicing was specified, then we slice the dataframe first.
+            if len(self.sliceby) > 0:
+                groupattrs = self.sliceby + self.compare
+                groupby = dataframe.groupby(groupattrs)
+                sliceop = SLICE_OPS[self.sliceop]
+                dataframe = sliceop(groupby)
+                dataframe.reset_index()
+
             if self._summary is None:
                 self._summary = summarize(
                     dataframe=dataframe,

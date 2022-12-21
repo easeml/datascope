@@ -6,8 +6,10 @@ CMD="python -m experiments report \
         --compare method \
         --compareorder random shapley-knn-single shapley-knn-interactive shapley-tmc-010 shapley-tmc-100 \
         --targetval accuracy \
-        --summarize importance_compute_time \
-        --plot line:accuracy bar:importance_compute_time \
+        --summarize importance_cputime \
+        --sliceby iteration \
+        --sliceop max \
+        --plot line:accuracy bar:importance_cputime \
         --ylogscale false true \
         --aggmode median-perc-90 \
         --summode median-perc-90 \

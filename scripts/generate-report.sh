@@ -16,8 +16,8 @@ then
         --targetval ${TARGETVAL} \
         --aggmode median-perc-95 \
         --summode mean-std \
-        --summarize importance_compute_time \
-        --labelformat "%(method)s - %(importance_compute_time:mean).2f +/- %(importance_compute_time:std).2f"
+        --summarize importance_cputime \
+        --labelformat "%(method)s - %(importance_cputime:mean).2f +/- %(importance_cputime:std).2f"
 
 else
     python -m experiments report \
@@ -27,8 +27,8 @@ else
         --targetval ${TARGETVAL} \
         --aggmode median-perc-95 \
         --summode mean-std \
-        --summarize importance_compute_time \
-        --labelformat "%(method)s - %(importance_compute_time:mean).2f +/- %(importance_compute_time:std).2f" \
+        --summarize importance_cputime \
+        --labelformat "%(method)s - %(importance_cputime:mean).2f +/- %(importance_cputime:std).2f" \
         --study-path "$1" \
         --output-path "$1/reports/${TARGETVAL}"
 fi

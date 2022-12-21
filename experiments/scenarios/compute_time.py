@@ -41,7 +41,7 @@ class ComputeTimeScenario(Scenario, id="compute-time"):
         valsize: int = DEFAULT_VALSIZE,
         numfeatures: int = DEFAULT_NUMFEATURES,
         timeout: int = DEFAULT_TIMEOUT,
-        importance_compute_time: Optional[float] = None,
+        importance_cputime: Optional[float] = None,
         **kwargs: Any
     ) -> None:
         super().__init__(**kwargs)
@@ -55,7 +55,7 @@ class ComputeTimeScenario(Scenario, id="compute-time"):
         self._valsize = valsize
         self._numfeatures = numfeatures
         self._timeout = timeout
-        self._importance_compute_time: Optional[float] = importance_compute_time
+        self._importance_cputime: Optional[float] = importance_cputime
 
     @classmethod
     def is_valid_config(cls, **attributes: Any) -> bool:
@@ -112,13 +112,13 @@ class ComputeTimeScenario(Scenario, id="compute-time"):
         return self._timeout
 
     @result
-    def importance_compute_time(self) -> Optional[float]:
+    def importance_cputime(self) -> Optional[float]:
         """The time it takes to compute importance."""
-        return self._importance_compute_time
+        return self._importance_cputime
 
     @property
     def completed(self) -> bool:
-        return self.importance_compute_time is not None
+        return self.importance_cputime is not None
 
     @property
     def dataframe(self) -> DataFrame:
@@ -133,7 +133,7 @@ class ComputeTimeScenario(Scenario, id="compute-time"):
                 valsize=[self.valsize],
                 numfeatures=[self.numfeatures],
                 timeout=[self.timeout],
-                importance_compute_time=[self.importance_compute_time],
+                importance_cputime=[self.importance_cputime],
             )
         )
 
@@ -182,5 +182,5 @@ class ComputeTimeScenario(Scenario, id="compute-time"):
             )
             importance.fit(dataset.X_train, dataset.y_train, provenance=provenance).score(dataset.X_val, dataset.y_val)
         importance_time_end = process_time_ns()
-        self._importance_compute_time = (importance_time_end - importance_time_start) / 1e9
-        self.logger.debug("Importance computed in: %s", str(timedelta(seconds=self._importance_compute_time)))
+        self._importance_cputime = (importance_time_end - importance_time_start) / 1e9
+        self.logger.debug("Importance computed in: %s", str(timedelta(seconds=self._importance_cputime)))

@@ -27,6 +27,7 @@ from .datascope_scenario import (
     DEFAULT_REPAIR_GOAL,
     DEFAULT_TRAIN_BIAS,
     DEFAULT_VAL_BIAS,
+    DEFAULT_TIMEOUT,
     UtilityType,
     RepairGoal,
 )
@@ -74,9 +75,10 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
         trainsize: int = DEFAULT_TRAINSIZE,
         valsize: int = DEFAULT_VALSIZE,
         testsize: int = DEFAULT_TESTSIZE,
+        timeout: int = DEFAULT_TIMEOUT,
         checkpoints: int = DEFAULT_CHECKPOINTS,
         evolution: Optional[pd.DataFrame] = None,
-        importance_compute_time: Optional[float] = None,
+        importance_cputime: Optional[float] = None,
         **kwargs: Any
     ) -> None:
         super().__init__(
@@ -93,10 +95,11 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
             trainsize=trainsize,
             valsize=valsize,
             testsize=testsize,
+            timeout=timeout,
             checkpoints=checkpoints,
             repairgoal=repairgoal,
             evolution=evolution,
-            importance_compute_time=importance_compute_time,
+            importance_cputime=importance_cputime,
             **kwargs
         )
         self._maxremove = maxremove
@@ -235,8 +238,8 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
             )
             importances = np.array(importance.fit(dataset.X_train, dataset.y_train).score(dataset.X_val, dataset.y_val))
         importance_time_end = process_time_ns()
-        self._importance_compute_time = (importance_time_end - importance_time_start) / 1e9
-        self.logger.debug("Importance computed in: %s", str(timedelta(seconds=self._importance_compute_time)))
+        importance_cputime = (importance_time_end - importance_time_start) / 1e9
+        self.logger.debug("Importance computed in: %s", str(timedelta(seconds=importance_cputime)))
         n_units = dataset.trainsize
         discarded_units = np.zeros(n_units, dtype=bool)
         argsorted_importances = (-np.array(importances)).argsort()
@@ -251,7 +254,7 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
 
         # Update result table.
         dataset_bias = dataset.train_bias if isinstance(dataset, BiasedMixin) else None
-        evolution = [[0.0, eqodds, eqodds, accuracy, accuracy, 0, 0.0, dataset_bias, dataset.y_train.mean()]]
+        evolution = [[0.0, eqodds, eqodds, accuracy, accuracy, 0, 0.0, dataset_bias, dataset.y_train.mean(), 0.0]]
         eqodds_start = eqodds
         accuracy_start = accuracy
 
@@ -324,7 +327,18 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
             dataset_bias = dataset_current.train_bias if isinstance(dataset_current, BiasedMixin) else None
             mean_label = np.mean(dataset_current.y_train)
             evolution.append(
-                [steps_rel, eqodds, eqodds, accuracy, accuracy, discarded, discarded_rel, dataset_bias, mean_label]
+                [
+                    steps_rel,
+                    eqodds,
+                    eqodds,
+                    accuracy,
+                    accuracy,
+                    discarded,
+                    discarded_rel,
+                    dataset_bias,
+                    mean_label,
+                    importance_cputime,
+                ]
             )
 
             # Recompute if needed.
@@ -334,7 +348,7 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
                     dataset_current.X_val, dataset_current.y_val
                 )
                 importance_time_end = process_time_ns()
-                self._importance_compute_time += (importance_time_end - importance_time_start) / 1e9
+                importance_cputime += (importance_time_end - importance_time_start) / 1e9
                 argsorted_importances = (-np.array(importances)).argsort()
 
             # Update progress bar.
@@ -354,6 +368,7 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
                 "discarded_rel",
                 "dataset_bias",
                 "mean_label",
+                "importance_cputime",
             ],
         )
         self._evolution.index.name = "steps"

@@ -27,6 +27,7 @@ from .datascope_scenario import (
     DEFAULT_PROVIDERS,
     DEFAULT_MODEL,
     DEFAULT_REPAIR_GOAL,
+    DEFAULT_TIMEOUT,
     UtilityType,
     RepairGoal,
 )
@@ -61,11 +62,12 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
         trainsize: int = DEFAULT_TRAINSIZE,
         valsize: int = DEFAULT_VALSIZE,
         testsize: int = DEFAULT_TESTSIZE,
+        timeout: int = DEFAULT_TIMEOUT,
         checkpoints: int = DEFAULT_CHECKPOINTS,
         providers: int = DEFAULT_PROVIDERS,
         repairgoal: RepairGoal = DEFAULT_REPAIR_GOAL,
         evolution: Optional[pd.DataFrame] = None,
-        importance_compute_time: Optional[float] = None,
+        importance_cputime: Optional[float] = None,
         **kwargs: Any
     ) -> None:
         kwargs.pop("biasmethod", None)
@@ -80,12 +82,13 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
             trainsize=trainsize,
             valsize=valsize,
             testsize=testsize,
+            timeout=timeout,
             checkpoints=checkpoints,
             providers=providers,
             repairgoal=repairgoal,
             biasmethod=BiasMethod.Feature,
             evolution=evolution,
-            importance_compute_time=importance_compute_time,
+            importance_cputime=importance_cputime,
             **kwargs
         )
         self._dirtyratio = dirtyratio
@@ -263,8 +266,8 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
                 dataset_dirty.X_train, dataset_dirty.y_train, provenance=dataset_dirty.provenance
             ).score(dataset.X_val, dataset.y_val)
         importance_time_end = process_time_ns()
-        self._importance_compute_time = (importance_time_end - importance_time_start) / 1e9
-        self.logger.debug("Importance computed in: %s", str(timedelta(seconds=self._importance_compute_time)))
+        importance_cputime = (importance_time_end - importance_time_start) / 1e9
+        self.logger.debug("Importance computed in: %s", str(timedelta(seconds=importance_cputime)))
         visited_units = np.zeros(n_units, dtype=bool)
         argsorted_importances = (-np.array(importances)).argsort()
         # argsorted_importances = np.ma.array(importances, mask=visited_units).argsort()
@@ -283,7 +286,7 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
         )
 
         # Update result table.
-        evolution = [[0.0, eqodds, eqodds, accuracy, accuracy, 0, 0.0, 0, 0.0]]
+        evolution = [[0.0, eqodds, eqodds, accuracy, accuracy, 0, 0.0, 0, 0.0, 0.0]]
         eqodds_start = eqodds
         accuracy_start = accuracy
 
@@ -336,7 +339,18 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
             discovered = np.logical_and(visited_units, units_dirty).sum(dtype=int)
             discovered_rel = discovered / units_dirty.sum(dtype=float)
             evolution.append(
-                [steps_rel, eqodds, eqodds, accuracy, accuracy, repaired, repaired_rel, discovered, discovered_rel]
+                [
+                    steps_rel,
+                    eqodds,
+                    eqodds,
+                    accuracy,
+                    accuracy,
+                    repaired,
+                    repaired_rel,
+                    discovered,
+                    discovered_rel,
+                    importance_cputime,
+                ]
             )
 
             # Recompute if needed.
@@ -346,7 +360,7 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
                     dataset_dirty.X_train, dataset_dirty.y_train, provenance=dataset_dirty.provenance
                 ).score(dataset.X_val, dataset.y_val)
                 importance_time_end = process_time_ns()
-                self._importance_compute_time += (importance_time_end - importance_time_start) / 1e9
+                importance_cputime += (importance_time_end - importance_time_start) / 1e9
                 argsorted_importances = (-np.array(importances)).argsort()
                 # argsorted_importances = np.ma.array(importances, mask=visited_units).argsort()
 
@@ -367,6 +381,7 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
                 "repaired_rel",
                 "discovered",
                 "discovered_rel",
+                "importance_cputime",
             ],
         )
         self._evolution.index.name = "steps"

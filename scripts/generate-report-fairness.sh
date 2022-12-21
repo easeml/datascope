@@ -5,8 +5,10 @@ CMD="python -m experiments report \
         --index repaired_rel \
         --compare method \
         --targetval accuracy eqodds \
-        --summarize importance_compute_time \
-        --plot line:accuracy line:eqodds bar:importance_compute_time \
+        --sliceby iteration \
+        --sliceop max \
+        --summarize importance_cputime \
+        --plot line:accuracy line:eqodds bar:importance_cputime \
         --ylogscale false false true \
         --aggmode median-perc-90 \
         --summode median-perc-90 \

@@ -2,9 +2,9 @@
 
 CMD="python -m experiments report \
         --compare method \
-        --targetval importance_compute_time \
+        --targetval importance_cputime \
         --index trainsize \
-        --plot line:importance_compute_time \
+        --plot line:importance_cputime \
         --xlogscale true \
         --ylogscale true \
         --xtickfmt engineer \

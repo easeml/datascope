@@ -5,8 +5,10 @@ CMD="python -m experiments report \
         --index discarded_rel \
         --compare method \
         --targetval accuracy \
-        --summarize importance_compute_time \
-        --plot line:accuracy bar:importance_compute_time \
+        --sliceby iteration \
+        --sliceop max \
+        --summarize importance_cputime \
+        --plot line:accuracy bar:importance_cputime \
         --ylogscale false true \
         --aggmode median-perc-90 \
         --summode median-perc-90 \

@@ -139,7 +139,7 @@ KEYWORD_REPLACEMENTS = {
     "shapley-tmc-pipe-100": "Shapley TMC Pipe x100",
     "shapley-tmc-pipe-500": "Shapley TMC Pipe x500",
     "eqodds": "Equalized Odds Difference",
-    "importance_compute_time": "Compute Time [s]",
+    "importance_cputime": "Compute Time [s]",
     "steps": "Repair Steps Taken",
     "steps_rel": "Relative Repair Steps Taken",
     "acc": "Accuracy",
@@ -178,7 +178,7 @@ class DatascopeScenario(Scenario):
         providers: int = DEFAULT_PROVIDERS,
         repairgoal: RepairGoal = DEFAULT_REPAIR_GOAL,
         evolution: Optional[pd.DataFrame] = None,
-        importance_compute_time: Optional[float] = None,
+        importance_cputime: Optional[float] = None,
         **kwargs: Any
     ) -> None:
         super().__init__(**kwargs)
@@ -200,7 +200,7 @@ class DatascopeScenario(Scenario):
         self._providers = providers
         self._repairgoal = repairgoal
         self._evolution = pd.DataFrame() if evolution is None else evolution
-        self._importance_compute_time: Optional[float] = importance_compute_time
+        self._importance_cputime: Optional[float] = importance_cputime
 
     @attribute(domain=Dataset.datasets.keys())
     def dataset(self) -> str:
@@ -293,11 +293,6 @@ class DatascopeScenario(Scenario):
         """The evolution of the experimental parameters."""
         return self._evolution
 
-    @result
-    def importance_compute_time(self) -> Optional[float]:
-        """The time it takes to compute importance."""
-        return self._importance_compute_time
-
     @property
     def completed(self) -> bool:
         return len(self._evolution) == self.checkpoints + 1
@@ -311,8 +306,9 @@ class DatascopeScenario(Scenario):
             method=self.method,
             utility=self.utility,
             iteration=self.iteration,
-            importance_compute_time=self.importance_compute_time,
         )
+        if "importance_cputime" not in result.columns and self._importance_cputime is not None:
+            result = result.assign(importance_cputime=self._importance_cputime)
         return result
 
     @property
