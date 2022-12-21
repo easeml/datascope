@@ -1,4 +1,4 @@
-import collections
+import collections.abc
 import numpy as np
 import warnings
 
@@ -256,7 +256,7 @@ class SklearnModelUtility(Utility):
         for _ in range(maxiter):
             idx = np.random.choice(len(y_test), int(len(y_test) * 0.5))
             scores.append(self._metric_score(self.metric, y_test[idx], y_pred[idx], X_test=X_test[idx, :], indices=idx))
-        return np.mean(scores)
+        return np.mean(scores).item()
 
 
 class SklearnModelAccuracy(SklearnModelUtility):
@@ -293,7 +293,7 @@ class SklearnModelAccuracy(SklearnModelUtility):
 
 
 def compute_groupings(X: ndarray, sensitive_features: Union[int, Sequence[int]]) -> ndarray:
-    if not isinstance(sensitive_features, collections.Sequence):
+    if not isinstance(sensitive_features, collections.abc.Sequence):
         sensitive_features = [sensitive_features]
     X_sf = X[:, sensitive_features]
     unique_values = np.unique(X_sf, axis=0)
@@ -345,7 +345,7 @@ class SklearnModelEqualizedOddsDifference(SklearnModelUtility):
         groupings: Optional[ndarray] = None,
     ) -> None:
         super().__init__(model, None)
-        if not isinstance(sensitive_features, collections.Sequence):
+        if not isinstance(sensitive_features, collections.abc.Sequence):
             sensitive_features = [sensitive_features]
         self._sensitive_features = sensitive_features
         self._groupings = groupings
@@ -512,7 +512,10 @@ def get_indices(provenance: ndarray, query: ndarray, simple_provenance: bool = F
 
     n_units = query.shape[0]
     if simple_provenance or (
-        provenance.shape[1] == 1 and provenance.shape[3] == 1 and np.all(provenance[:, 0, :, 0] == np.eye(n_units))
+        provenance.shape[1] == 1
+        and provenance.shape[3] == 1
+        and provenance.shape[0] == provenance.shape[2]
+        and np.all(np.equal(provenance[:, 0, :, 0], np.eye(n_units)))
     ):
         return query[:, 0].astype(bool)
     # newshape = provenance.shape[:1] + tuple(1 for _ in range(3 - provenance.ndim)) + provenance.shape[1:]

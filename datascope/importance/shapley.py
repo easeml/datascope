@@ -17,7 +17,7 @@ from sklearn.pipeline import Pipeline
 from typing_extensions import Literal
 from typing import Dict, List, Optional, Iterable, Set, Tuple
 
-from .add import ADD
+# from .add import ADD
 from .common import DEFAULT_SEED, DistanceCallable, Utility, binarize, get_indices, reshape
 from .importance import Importance
 
@@ -91,17 +91,17 @@ def factorize_provenance(
     return factors, leaves
 
 
-def compile_add(sigma: ndarray, provenance: ndarray, units: ndarray, btuple: int) -> ADD:
-    pass
+# def compile_add(sigma: ndarray, provenance: ndarray, units: ndarray, btuple: int) -> ADD:
+#     pass
 
 
-def compute_shapley_add(
-    distances: ndarray,
-    utilities: ndarray,
-    provenance: ndarray,
-    units: ndarray,
-) -> Iterable[float]:
-    pass
+# def compute_shapley_add(
+#     distances: ndarray,
+#     utilities: ndarray,
+#     provenance: ndarray,
+#     units: ndarray,
+# ) -> Iterable[float]:
+#     pass
 
 
 # @jit(nopython=True)
@@ -118,7 +118,10 @@ def get_unit_distances_and_utilities(
     n_units = len(units)
     # We check if we are dealing with the trivial situation, when we need only to return the trivial answer.
     if simple_provenance or (
-        provenance.ndim == 3 and provenance.shape[-1] == 1 and np.all(provenance[..., 0] == np.eye(n_units))
+        provenance.ndim == 3
+        and provenance.shape[-1] == 1
+        and provenance.shape[0] == provenance.shape[1]
+        and np.all(np.equal(provenance[..., 0], np.eye(n_units)))
     ):
         return distances, utilities
 
@@ -427,7 +430,10 @@ class ShapleyImportance(Importance):
         n_candidates_total = provenance.shape[3]
         n_units = len(units)
         simple_provenance = self._simple_provenance or bool(
-            provenance.shape[1] == 1 and provenance.shape[3] == 1 and np.all(provenance[:, 0, :, 0] == np.eye(n_units))
+            provenance.shape[1] == 1
+            and provenance.shape[3] == 1
+            and provenance.shape[0] == provenance.shape[2]
+            and np.all(np.equal(provenance[:, 0, :, 0], np.eye(n_units)))
         )
         all_importances = np.zeros((n_units, iterations))
         all_truncations = np.ones(iterations, dtype=int) * n_units
