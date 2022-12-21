@@ -319,7 +319,7 @@ class DirtyLabelDataset(Dataset):
         result._y_train_dirty = deepcopy(result._y_train)
         n_examples = result.X_train.shape[0]
         random = np.random.RandomState(seed=self._seed)
-        if not isinstance(probabilities, collections.Sequence):
+        if not isinstance(probabilities, collections.abc.Sequence):
             assert isinstance(probabilities, float)
             dirty_idx = random.choice(a=[False, True], size=(n_examples), p=[1 - probabilities, probabilities])
             result._y_train_dirty[dirty_idx] = 1 - result._y_train[dirty_idx]
@@ -565,7 +565,7 @@ class BiasedDirtyLabelDataset(DirtyLabelDataset, BiasedMixin):
         r_f1 = float(len(idx_f1)) / float(len(idx_f0) + len(idx_f1))
 
         random = np.random.RandomState(seed=self._seed)
-        if not isinstance(probabilities, collections.Sequence):
+        if not isinstance(probabilities, collections.abc.Sequence):
             assert isinstance(probabilities, float)
             p = probabilities
             p_f0, p_f1 = (p / r_f0) * groupbias, (p / r_f1) * (1 - groupbias)
@@ -652,10 +652,10 @@ class UCI(BiasedDirtyLabelDataset, modality=DatasetModality.TABULAR):
 
     @classmethod
     def preload(cls) -> None:
-        fetch_openml(data_id=1590, as_frame=False, data_home=DEFAULT_DATA_DIR)
+        fetch_openml(data_id=1590, as_frame=False, data_home=DEFAULT_DATA_DIR, parser="pandas")
 
     def load(self) -> None:
-        data = fetch_openml(data_id=1590, as_frame=False, data_home=DEFAULT_DATA_DIR)
+        data = fetch_openml(data_id=1590, as_frame=False, data_home=DEFAULT_DATA_DIR, parser="liac-arff")
         X = np.nan_to_num(data.data)  # TODO: Maybe leave nan values.
         y = np.array(data.target == ">50K", dtype=int)
 
@@ -697,7 +697,7 @@ class UCI(BiasedDirtyLabelDataset, modality=DatasetModality.TABULAR):
     ) -> None:
         assert train_bias > -1.0 and train_bias < 1.0
         assert val_bias > -1.0 and val_bias < 1.0
-        data = fetch_openml(data_id=1590, as_frame=False, data_home=DEFAULT_DATA_DIR)
+        data = fetch_openml(data_id=1590, as_frame=False, data_home=DEFAULT_DATA_DIR, parser="pandas")
         X = np.nan_to_num(data.data)  # TODO: Maybe leave nan values.
         y = np.array(data.target == ">50K", dtype=int)
 
