@@ -1,0 +1,17 @@
+# Datascope dependency
+datascope >= 0.0.3
+
+# Experiment dependencies
+matplotlib >= 3.5
+datasets >= 1.17
+folktables >= 0.0.11
+ray >= 1.10
+xgboost >= 1.5
+scikit-image >= 0.18
+
+# Pipelines dependencies
+# torchvision >= 0.11
+# tensorflow >= 2.7
+# keras >= 2.7
+# seaborn >= 0.11
+# fairlearn >= 0.7
