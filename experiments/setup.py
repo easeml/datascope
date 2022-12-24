@@ -1,4 +1,4 @@
-from setuptools import setup
+from setuptools import setup, find_namespace_packages
 from distutils.util import convert_path
 from typing import Dict, Any
 
@@ -10,7 +10,7 @@ def parse_requirements(filename):
 
 
 main_ns: Dict[str, Any] = {}
-ver_path = convert_path("experiments/version.py")
+ver_path = convert_path("datascope/experiments/version.py")
 with open(ver_path) as ver_file:
     exec(ver_file.read(), main_ns)
 
@@ -19,14 +19,8 @@ install_requires = parse_requirements("requirements.txt")
 setup(
     name="datascope-experiments",
     version=main_ns["__version__"],
-    packages=[
-        "experiments",
-        "experiments.datasets",
-        "experiments.pipelines",
-        "experiments.reports",
-        "experiments.scenarios",
-    ],
-    entry_points={"console_scripts": ["datascope-experiments=experiments:main"]},
+    packages=find_namespace_packages(include=["datascope.*"]),
+    entry_points={"console_scripts": ["datascope-experiments=datascope.experiments:main"]},
     license="MIT",
     author_email="easeml@ds3lab.com",
     url="https://ease.ml/datascope/",

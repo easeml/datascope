@@ -1,0 +1,4 @@
+include README.md LICENSE requirements.txt
+
+global-exclude *.py[co]
+recursive-include cython *

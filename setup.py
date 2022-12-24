@@ -2,7 +2,7 @@ import glob
 import numpy as np
 import os
 
-from setuptools import setup
+from setuptools import setup, find_namespace_packages
 from distutils.extension import Extension
 from distutils.util import convert_path
 from typing import List, Dict, Any
@@ -42,14 +42,14 @@ with open(ver_path) as ver_file:
     exec(ver_file.read(), main_ns)
 
 install_requires = parse_requirements("requirements.txt")
-extras_require = {"dev": parse_requirements("requirements-dev.txt"), "exp": parse_requirements("requirements-exp.txt")}
+extras_require = {"dev": parse_requirements("requirements-dev.txt")}
 extras_require_all = set(r for e in extras_require.values() for r in e)
 extras_require["complete"] = extras_require_all
 
 setup(
     name="datascope",
     version=main_ns["__version__"],
-    packages=["datascope", "datascope.algorithms", "datascope.utils", "datascope.inspection", "datascope.importance"],
+    packages=find_namespace_packages(include=["datascope.*"]),
     ext_modules=ext_modules,
     license="MIT",
     author_email="easeml@ds3lab.com",
