@@ -47,15 +47,14 @@ setup-dev: requirements-dev.txt
 
 .PHONY: setup-exp
 ## Install the base and experimental bundles of datascope to the current python environment.
-setup-exp: requirements-exp.txt
-	pip install -e .[exp]
-	pip install git+https://github.com/DS3Lab/datascope-pipelines
+setup-exp: experiments/requirements.txt
+	pip install -e experiments
 
 .PHONY: setup-all
 ## Install all bundles of datascope to the current python environment.
-setup-all: requirements.txt requirements-dev.txt requirements-exp.txt
+setup-all: requirements.txt requirements-dev.txt experiments/requirements.txt
 	pip install -e .[complete]
-	pip install git+https://github.com/DS3Lab/datascope-pipelines
+	pip install -e experiments
 
 .PHONY: test
 ## Run tests (excluding benchmark tests).
@@ -76,23 +75,30 @@ clean:
 	rm -rf $(VENV_DIR)
 	find -iname "*.pyc" -delete
 
+.PHONY: version
+## Update the version file to increment the patch version of the module.
+version:
+	$(ROOT_DIR_PATH)/dev/scripts/increment-version.py datascope/version.py --patch
+
 .PHONY: package
 ## Package into .whl and source code archive (.tar.gz).
 package:
 	python -m build
 
 .PHONY: publish-test
-## Publish to pypi (test)
+## Publish to pypi (test version at test.pypi.org using the easeml account).
 publish-test:
-	twine upload --repository-url https://test.pypi.org/legacy/ dist/*
+	twine upload --username easeml --repository-url https://test.pypi.org/legacy/ dist/*.tar.gz
 
 .PHONY: publish
-## Publish to pypi
+## Publish to pypi (using the API token stored in the PYPI_API_TOKEN_DATASCOPE environment variable).
 publish:
-	twine upload dist/*
+	$(eval TWINE_PASSWORD := $(PYPI_API_TOKEN_DATASCOPE))
+	$(eval export TWINE_PASSWORD)
+	twine upload --username __token__ dist/*.tar.gz
 
 .PHONY: publish-clean
-## remove the distribution files
+## Remove the distribution files.
 publish-clean:
 	rm -rf dist/
 	rm -rf datascope.egg-info
