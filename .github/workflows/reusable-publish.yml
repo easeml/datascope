@@ -1,0 +1,151 @@
+# This is a reusable workflow for building source distributions (sdist) and wheels of a given target package.
+
+name: Build and Publish
+
+on:
+  workflow_call:
+    inputs:
+      package-path:
+        type: string
+        description: The path to the directory that contains the makefile of the target package.
+        required: false
+        default: "."
+      version-increment:
+        type: boolean
+        description: Whether to increment the patch version number.
+        required: false
+        default: true
+      publish-test:
+        type: boolean
+        description: Whether to publish to PyPI test.
+        required: false
+        default: true
+      publish:
+        type: boolean
+        description: Whether to publish to PyPI.
+        required: false
+        default: true
+  workflow_dispatch:
+    inputs:
+      package-path:
+        type: string
+        description: The path to the directory that contains the makefile of the target package.
+        required: false
+        default: "."
+      version-increment:
+        type: boolean
+        description: Whether to increment the patch version number.
+        required: false
+        default: true
+      publish-test:
+        type: boolean
+        description: Whether to publish to PyPI test.
+        required: false
+        default: true
+      publish:
+        type: boolean
+        description: Whether to publish to PyPI.
+        required: false
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    name: Increment Patch Version Number
+    runs-on: ubuntu-latest
+    if: inputs.version-increment == true
+    steps:
+    - uses: actions/checkout@v3
+    - name: Set up Python ${{ env.python-version }}
+      uses: actions/setup-python@v3
+      with:
+        python-version: ${{ env.python-version }}
+    - name: Increment Version
+      working-directory: inputs.package-path
+      run: |
+        make version
+    - name: Commit Version File
+      uses: stefanzweifel/git-auto-commit-action@v4
+      with:
+        commit_message: Increment Patch Version Number
+        file_pattern: "**/version.py"
+  
+  package_sdist:
+    name: Package Python Source Distribution
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Set up Python ${{ env.python-version }}
+      uses: actions/setup-python@v3
+      with:
+        python-version: ${{ env.python-version }}
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install setuptools
+    - name: Package sdist
+      working-directory: inputs.package-path
+      run: |
+        make package
+    - name: Upload Artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        path: ${{ inputs.package-path }}/dist/*.tar.gz
+  
+  package_wheels:
+    name: Package wheels on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-20.04, windows-2019, macos-10.15]
+
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v3
+        name: Install Python
+        with:
+          python-version: ${{ env.python-version }}
+
+      - name: Build wheels
+        uses: pypa/cibuildwheel@v2.11.4
+        with:
+          package-dir: inputs.package-path
+          output-dir: ${{ inputs.package-path }}/dist
+
+      - uses: actions/upload-artifact@v3
+        with:
+          path: ${{ inputs.package-path }}/dist/*.whl
+  
+  publish:
+    name: Publish to PyPi
+    needs: [package_sdist, package_wheels]
+    runs-on: ubuntu-latest
+    if: inputs.publish-test == true || inputs.publish == true
+    steps:
+    - uses: actions/checkout@v3
+    - name: Set up Python ${{ env.python-version }}
+      uses: actions/setup-python@v3
+      with:
+        python-version: ${{ env.python-version }}
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install twine
+    - uses: actions/download-artifact@v3
+      with:
+        name: artifact
+        path: ${{ inputs.package-path }}/dist
+    - name: Publish to PyPI Test
+      if: inputs.publish-test == true
+      working-directory: inputs.package-path
+      run: |
+        make publish-test
+    - name: Publish to PyPI
+      if: inputs.publish == true
+      working-directory: inputs.package-path
+      run: |
+        make publish
