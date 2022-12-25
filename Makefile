@@ -43,7 +43,6 @@ setup: requirements.txt
 ## Install the base and development bundles of datascope to the current python environment.
 setup-dev: requirements-dev.txt
 	pip install -e .[dev]
-	mypy --install-types --non-interactive
 
 .PHONY: setup-exp
 ## Install the base and experimental bundles of datascope to the current python environment.
