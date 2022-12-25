@@ -20,6 +20,16 @@ include $(ROOT_DIR_PATH)/dev/makefiles/show-help.mk
 setup: requirements.txt
 	pip install -e .
 
+.PHONY: lint
+## Run linter to automatically test for formatting errors.
+lint:
+	flake8 --max-line-length=120 --show-source --statistics -v datascope setup.py
+
+.PHONY: format
+## Run the formatter to automatically fix formatting errors.
+format:
+	black --line-length 120 -v datascope setup.py
+
 .PHONY: version
 ## Update the version file to increment the patch version of the module.
 version:
