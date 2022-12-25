@@ -1,0 +1,94 @@
+# This workflow will install Python dependencies, run tests and lint with a variety of Python versions
+# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-python
+
+name: Module "datascope" - Build, Lint, Test, Version, Publish
+
+on:
+  push:
+    branches: [ "main" ]
+    paths: ["datascope/*", "setup.py", "setup.cfg", "requirements*.txt", "MANIFEST.in", "pyproject.toml"]
+  pull_request:
+    branches: [ "main" ]
+    paths: ["datascope/*", "setup.py", "setup.cfg", "requirements*.txt", "MANIFEST.in", "pyproject.toml"]
+env:
+  python-version: '3.8'
+jobs:
+  test:
+    name: Run Full Tests
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.8", "3.9", "3.10"]
+
+    steps:
+    - uses: actions/checkout@v3
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v3
+      with:
+        python-version: ${{ matrix.python-version }}
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        make setup-dev
+    - name: Lint
+      run: |
+        make lint
+    - name: Test
+      run: |
+        make test
+  
+  version:
+    name: Increment Patch Version Number
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Set up Python ${{ env.python-version }}
+      uses: actions/setup-python@v3
+      with:
+        python-version: ${{ env.python-version }}
+    - name: Increment Version
+      run: |
+        make version
+    - name: Commit Version File
+      uses: stefanzweifel/git-auto-commit-action@v4
+      with:
+        commit_message: Increment Patch Version Number
+        file_pattern: datascope/version.py
+  
+  package_sdist:
+    name: Package Python Source Distribution
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Set up Python ${{ env.python-version }}
+      uses: actions/setup-python@v3
+      with:
+        python-version: ${{ env.python-version }}
+    - name: Package sdist
+      run: |
+        make package
+    - name: Upload Artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        path: ./dist/*.tar.gz
+    
+  publish:
+    name: Publish to PyPi
+    needs: [package_sdist]
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Set up Python ${{ env.python-version }}
+      uses: actions/setup-python@v3
+      with:
+        python-version: ${{ env.python-version }}
+    - uses: actions/download-artifact@v3
+      with:
+        name: artifact
+        path: dist
+    - name: Publish
+      run: |
+        make publish
