@@ -8,5 +8,4 @@ black
 types-PyYAML >= 6.0
 cython >= 0.29
 jupyterlab >= 3.3
-build >= 0.9
 twine >= 4.0

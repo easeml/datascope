@@ -81,9 +81,17 @@ lint:
 format:
 	black --line-length 120 -v datascope setup.py
 
-clean:
+.PHONY: clean-shell
+## Clean the virtual environment and all the pyc files.
+clean-shell:
 	rm -rf $(VENV_DIR)
 	find -iname "*.pyc" -delete
+
+.PHONY: clean-package
+## Clean all the package distribution directories.
+clean-package:
+	rm -rf dist/
+	rm -rf datascope.egg-info
 
 .PHONY: version
 ## Update the version file to increment the patch version of the module.
@@ -91,9 +99,9 @@ version:
 	$(ROOT_DIR_PATH)/dev/scripts/increment-version.py datascope/version.py --patch
 
 .PHONY: package
-## Package into .whl and source code archive (.tar.gz).
-package:
-	python -m build
+## Package into a source distribution (sdist).
+package-sdist:
+	python setup.py sdist
 
 .PHONY: publish-test
 ## Publish to pypi (test version at test.pypi.org using the easeml account).
@@ -107,7 +115,7 @@ publish:
 	$(eval export TWINE_PASSWORD)
 	twine upload --username __token__ dist/*.tar.gz
 
-.PHONY: publish-clean
+.PHONY: clean
 ## Remove the distribution files.
 publish-clean:
 	rm -rf dist/
