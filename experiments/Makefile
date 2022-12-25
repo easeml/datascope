@@ -36,21 +36,23 @@ version:
 	$(ROOT_DIR_PATH)/dev/scripts/increment-version.py datascope/experiments/version.py --patch
 
 .PHONY: package
-## Package into .whl and source code archive (.tar.gz).
+## Package into a source distribution (sdist).
 package:
-	python -m build
+	python setup.py sdist
 
 .PHONY: publish-test
-## Publish to pypi (test version at test.pypi.org using the easeml account)
+## Publish to pypi (using the API token stored in the PYPI_TEST_API_TOKEN_DATASCOPE_EXPERIMENTS environment variable).
 publish-test:
-	twine upload --username easeml --repository-url https://test.pypi.org/legacy/ dist/*.tar.gz
+	$(eval TWINE_PASSWORD := $(PYPI_TEST_API_TOKEN_DATASCOPE_EXPERIMENTS))
+	$(eval export TWINE_PASSWORD)
+	twine upload --username __token__ --repository-url https://test.pypi.org/legacy/ dist/*
 
 .PHONY: publish
 ## Publish to pypi (using the API token stored in the PYPI_API_TOKEN_DATASCOPE_EXPERIMENTS environment variable)
 publish:
 	$(eval TWINE_PASSWORD := $(PYPI_API_TOKEN_DATASCOPE_EXPERIMENTS))
 	$(eval export TWINE_PASSWORD)
-	twine upload --username __token__ dist/*.tar.gz
+	twine upload --username __token__ dist/*
 
 .PHONY: publish-clean
 ## remove the distribution files

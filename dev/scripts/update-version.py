@@ -2,11 +2,12 @@
 
 import argparse
 import re
+import sys
 
 from typing import Tuple, List
 
 
-def increment_version(versionfile: str, major: bool, minor: bool, patch: bool) -> Tuple[str, str]:
+def update_version(versionfile: str, major: bool, minor: bool, patch: bool) -> Tuple[str, str]:
     pre_version, post_version = "", ""
     with open(versionfile, "r") as f:
         line = f.readline()
@@ -52,5 +53,7 @@ if __name__ == "__main__":
     parser.add_argument("--patch", action="store_true", default=False, help="Increment the patch version number.")
 
     args = parser.parse_args()
-    pre, post = increment_version(versionfile=args.versionfile, major=args.major, minor=args.minor, patch=args.patch)
-    print("Original version: %s; New version: %s" % (pre, post))
+    pre, post = update_version(versionfile=args.versionfile, major=args.major, minor=args.minor, patch=args.patch)
+    if pre != post:
+        print("Original version: %s; New version: %s" % (pre, post), file=sys.stderr)
+    print(post, file=sys.stdout)

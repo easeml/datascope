@@ -95,7 +95,17 @@ clean-package:
 .PHONY: version
 ## Update the version file to increment the patch version of the module.
 version:
-	$(ROOT_DIR_PATH)/dev/scripts/increment-version.py datascope/version.py --patch
+	$(ROOT_DIR_PATH)/dev/scripts/update-version.py datascope/version.py --patch
+
+.PHONY: version-minor
+## Update the version file to increment the minor version of the module.
+version-minor:
+	$(ROOT_DIR_PATH)/dev/scripts/update-version.py datascope/version.py --minor
+
+.PHONY: version-major
+## Update the version file to increment the major version of the module.
+version-major:
+	$(ROOT_DIR_PATH)/dev/scripts/update-version.py datascope/version.py --major
 
 .PHONY: package
 ## Package into a source distribution (sdist).
@@ -103,16 +113,18 @@ package-sdist:
 	python setup.py sdist
 
 .PHONY: publish-test
-## Publish to pypi (test version at test.pypi.org using the easeml account).
+## Publish to pypi (using the API token stored in the PYPI_TEST_API_TOKEN_DATASCOPE environment variable).
 publish-test:
-	twine upload --username easeml --repository-url https://test.pypi.org/legacy/ dist/*.tar.gz
+	$(eval TWINE_PASSWORD := $(PYPI_API_TOKEN_DATASCOPE))
+	$(eval export TWINE_PASSWORD)
+	twine upload --username __token__ --repository-url https://test.pypi.org/legacy/ dist/*
 
 .PHONY: publish
 ## Publish to pypi (using the API token stored in the PYPI_API_TOKEN_DATASCOPE environment variable).
 publish:
 	$(eval TWINE_PASSWORD := $(PYPI_API_TOKEN_DATASCOPE))
 	$(eval export TWINE_PASSWORD)
-	twine upload --username __token__ dist/*.tar.gz
+	twine upload --username __token__ dist/*
 
 .PHONY: clean
 ## Remove the distribution files.
