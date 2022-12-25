@@ -63,7 +63,7 @@ jobs:
       with:
         python-version: ${{ env.python-version }}
     - name: Increment Version
-      working-directory: inputs.package-path
+      working-directory: ${{ inputs.package-path }}
       run: |
         make version
     - name: Commit Version File
@@ -75,6 +75,7 @@ jobs:
   package_sdist:
     name: Package Python Source Distribution
     needs: version
+    if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
@@ -87,7 +88,7 @@ jobs:
         python -m pip install --upgrade pip
         pip install setuptools
     - name: Package sdist
-      working-directory: inputs.package-path
+      working-directory: ${{ inputs.package-path }}
       run: |
         make package
     - name: Upload Artifacts
@@ -113,7 +114,7 @@ jobs:
       - name: Build wheels
         uses: pypa/cibuildwheel@v2.11.4
         with:
-          package-dir: inputs.package-path
+          package-dir: ${{ inputs.package-path }}
           output-dir: ${{ inputs.package-path }}/dist
 
       - uses: actions/upload-artifact@v3
@@ -141,11 +142,11 @@ jobs:
         path: ${{ inputs.package-path }}/dist
     - name: Publish to PyPI Test
       if: inputs.publish-test == true
-      working-directory: inputs.package-path
+      working-directory: ${{ inputs.package-path }}
       run: |
         make publish-test
     - name: Publish to PyPI
       if: inputs.publish == true
-      working-directory: inputs.package-path
+      working-directory: ${{ inputs.package-path }}
       run: |
         make publish
