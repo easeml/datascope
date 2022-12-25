@@ -279,9 +279,9 @@ class ADD:
         diameter = 2 ** (len(variables) - 1)
         d = ADD(variables=variables, diameter=diameter, atype=atype)
         for i in range(len(variables) - 1):
-            d.nodes[i, : 2 ** i] = np.ones(2 ** i)
-            d.cleft[i, : 2 ** i] = np.arange(0, 2 ** (i + 1), 2)
-            d.cright[i, : 2 ** i] = np.arange(1, 2 ** (i + 1) + 1, 2)
+            d.nodes[i, : 2**i] = np.ones(2**i)
+            d.cleft[i, : 2**i] = np.arange(0, 2 ** (i + 1), 2)
+            d.cright[i, : 2**i] = np.arange(1, 2 ** (i + 1) + 1, 2)
         d.nodes[len(variables) - 1] = 1
         return d
 
@@ -349,9 +349,9 @@ class ADD:
 
         # Construct the header tree made up of factors.
         for i in range(len(factors) - 1):
-            result.nodes[i, : 2 ** i] = np.ones(2 ** i)
-            result.cleft[i, : 2 ** i] = np.arange(0, 2 ** (i + 1), 2)
-            result.cright[i, : 2 ** i] = np.arange(1, 2 ** (i + 1) + 1, 2)
+            result.nodes[i, : 2**i] = np.ones(2**i)
+            result.cleft[i, : 2**i] = np.arange(0, 2 ** (i + 1), 2)
+            result.cright[i, : 2**i] = np.arange(1, 2 ** (i + 1) + 1, 2)
         result.nodes[len(factors) - 1, : 2 ** (len(factors) - 1)] = 1
 
         # Route factor leaves to element roots.
