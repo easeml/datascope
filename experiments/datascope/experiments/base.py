@@ -29,7 +29,6 @@ def run(
     slurm_jobmemory: Optional[str] = DEFAULT_SLURM_JOBMEMORY,
     **attributes: Any
 ) -> None:
-    # print("run", output_path, attributes)
 
     # If we should continue the execution of an existing study, then we should load it.
     study: Optional[Study] = None
