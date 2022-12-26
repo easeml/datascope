@@ -5,10 +5,10 @@ name: Main Workflow for "datascope-experiments"
 on:
   push:
     branches: [ "main" ]
-    paths: ["experiments/datascope/*", "experiments/setup.py", "experiments/setup.cfg", "experiments/requirements*.txt", "experiments/MANIFEST.in", "experiments/pyproject.toml"]
+    paths: ["experiments/datascope/**", "experiments/setup.py", "experiments/setup.cfg", "experiments/requirements*.txt", "experiments/MANIFEST.in", "experiments/pyproject.toml"]
   pull_request:
     branches: [ "main" ]
-    paths: ["experiments/datascope/*", "experiments/setup.py", "experiments/setup.cfg", "experiments/requirements*.txt", "experiments/MANIFEST.in", "experiments/pyproject.toml"]
+    paths: ["experiments/datascope/**", "experiments/setup.py", "experiments/setup.cfg", "experiments/requirements*.txt", "experiments/MANIFEST.in", "experiments/pyproject.toml"]
   workflow_dispatch:
 
 jobs:
