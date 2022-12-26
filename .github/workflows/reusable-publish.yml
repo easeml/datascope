@@ -35,10 +35,12 @@ on:
         type: string
         description: Name of the PyPI API token secret.
         required: false
+        default: PYPI_API_TOKEN_DATASCOPE
       pypi-test-api-token-secret:
         type: string
         description: Name of the PyPI Test API token secret.
         required: false
+        default: PYPI_TEST_API_TOKEN_DATASCOPE
   workflow_dispatch:
     inputs:
       package-path:
@@ -177,14 +179,11 @@ jobs:
       env:
         TWINE_PASSWORD: ${{ secrets[inputs.pypi-test-api-token-secret] }}
       run: |
-        echo ${{ inputs.pypi-test-api-token-secret }}
-        echo ${{ secrets[inputs.pypi-test-api-token-secret] }}
-        echo $TWINE_PASSWORD
         make publish-test
     - name: Publish to PyPI
       if: inputs.publish == true
       working-directory: ${{ inputs.package-path }}
       env:
-        TWINE_PASSWORD: secrets[inputs.pypi-api-token-secret] }}
+        TWINE_PASSWORD: ${{ secrets[inputs.pypi-api-token-secret] }}
       run: |
         make publish
