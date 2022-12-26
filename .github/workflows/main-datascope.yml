@@ -68,7 +68,7 @@ jobs:
     name: Packge and Publish
     needs: [test, version]
     uses: easeml/datascope/.github/workflows/reusable-publish.yml@main
-    if: ${{ inputs.publish == true || (github.ref_type == "tag" && github.ref_name == format('v{0}', needs.version.output.version) ) }}
+    if: ${{ inputs.publish == true || (github.ref_type == 'tag' && github.ref_name == format('v{0}', needs.version.output.version) ) }}
     secrets: inherit
     with:
       package-path: "."
