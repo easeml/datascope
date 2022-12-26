@@ -107,6 +107,14 @@ version-minor:
 version-major:
 	$(ROOT_DIR_PATH)/dev/scripts/update-version.py datascope/version.py --major
 
+
+.PHONY: tag
+## Create a new git tag based on the current version.
+tag:
+	@$(eval VERSION=$(shell $(ROOT_DIR_PATH)/dev/scripts/update-version.py datascope/version.py))
+	@echo VERSION=$(VERSION)
+	git tag -a v$(VERSION) -m "Release v$(VERSION)"
+
 .PHONY: package
 ## Package into a source distribution (sdist).
 package:
