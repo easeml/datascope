@@ -5,10 +5,10 @@ name: Main Workflow for "datascope"
 on:
   push:
     branches: [ "main" ]
-    paths: ["datascope/*", "setup.py", "setup.cfg", "requirements*.txt", "MANIFEST.in", "pyproject.toml"]
+    paths: ["datascope/**", "setup.py", "setup.cfg", "requirements*.txt", "MANIFEST.in", "pyproject.toml"]
   pull_request:
     branches: [ "main" ]
-    paths: ["datascope/*", "setup.py", "setup.cfg", "requirements*.txt", "MANIFEST.in", "pyproject.toml"]
+    paths: ["datascope/**", "setup.py", "setup.cfg", "requirements*.txt", "MANIFEST.in", "pyproject.toml"]
   workflow_dispatch:
     inputs:
       publish:
