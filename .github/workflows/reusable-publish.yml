@@ -109,7 +109,7 @@ jobs:
       run: |
         sha_new=$(git rev-parse HEAD)
         echo $sha_new
-        echo "::set-output name=SHA::$sha_new"
+        run: echo "SHA=$sha_new" >> $GITHUB_OUTPUT
   
   package_sdist:
     name: Package Python Source Distribution
