@@ -79,9 +79,6 @@ on:
         required: false
         default: "PYPI_TEST_API_TOKEN_DATASCOPE"
 
-permissions:
-  contents: read
-
 jobs:
   version:
     name: Increment Patch Version Number
