@@ -101,7 +101,7 @@ jobs:
       uses: stefanzweifel/git-auto-commit-action@v4
       with:
         commit_message: Increment Patch Version Number
-        file_pattern: "version.py"
+        file_pattern: "*version.py"
   
   package_sdist:
     name: Package Python Source Distribution
