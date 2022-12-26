@@ -35,12 +35,12 @@ on:
         type: string
         description: Name of the PyPI API token secret.
         required: false
-        default: PYPI_API_TOKEN_DATASCOPE
+        default: "PYPI_API_TOKEN_DATASCOPE"
       pypi-test-api-token-secret:
         type: string
         description: Name of the PyPI Test API token secret.
         required: false
-        default: PYPI_TEST_API_TOKEN_DATASCOPE
+        default: "PYPI_TEST_API_TOKEN_DATASCOPE"
   workflow_dispatch:
     inputs:
       package-path:
@@ -71,11 +71,13 @@ on:
       pypi-api-token-secret:
         type: string
         description: Name of the PyPI API token secret.
-        required: true
+        required: false
+        default: "PYPI_API_TOKEN_DATASCOPE"
       pypi-test-api-token-secret:
         type: string
         description: Name of the PyPI Test API token secret.
-        required: true
+        required: false
+        default: "PYPI_TEST_API_TOKEN_DATASCOPE"
 
 permissions:
   contents: read
