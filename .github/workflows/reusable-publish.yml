@@ -15,6 +15,11 @@ on:
         description: Whether to increment the patch version number.
         required: false
         default: true
+      package-wheels:
+        type: boolean
+        description: Whether to package wheels.
+        required: false
+        default: true
       publish-test:
         type: boolean
         description: Whether to publish to PyPI test.
@@ -35,6 +40,11 @@ on:
       version-increment:
         type: boolean
         description: Whether to increment the patch version number.
+        required: false
+        default: true
+      package-wheels:
+        type: boolean
+        description: Whether to package wheels.
         required: false
         default: true
       publish-test:
@@ -75,7 +85,7 @@ jobs:
   package_sdist:
     name: Package Python Source Distribution
     needs: version
-    if: ${{ always() }}
+    if: ${{ always() && !contains(join(needs.*.result, ','), 'failure') }}
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
@@ -98,6 +108,8 @@ jobs:
   
   package_wheels:
     name: Package wheels on ${{ matrix.os }}
+    needs: version
+    if: ${{ always() && inputs.package-wheels == true && !contains(join(needs.*.result, ','), 'failure') }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -127,7 +139,7 @@ jobs:
     name: Publish to PyPi
     needs: [package_sdist, package_wheels]
     runs-on: ubuntu-latest
-    if: inputs.publish-test == true || inputs.publish == true
+    if: (inputs.publish-test == true || inputs.publish == true) && always() && contains(join(needs.*.result, ','), 'success')
     steps:
     - uses: actions/checkout@v3
     - name: Set up Python ${{ env.python-version }}
