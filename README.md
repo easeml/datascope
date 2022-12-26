@@ -1,5 +1,7 @@
 # Ease.ml/Datascope: Guiding your Data-centric Data Iterations, over End-to-end ML pipelines
 
+[![PyPI version](https://badge.fury.io/py/datascope.svg)](https://badge.fury.io/py/datascope)
+
 Developing ML applications are data-centric --- often *the quality of your model
 is a reflection of the quality of your underlying data*. In the era of data-
 centric AI, the fundamental question becomes
