@@ -74,7 +74,7 @@ jobs:
       package-path: "."
       version-increment: false
       package-wheels: true
-      publish-test: true
+      publish-test: false
       publish: true
       pypi-api-token-secret: "PYPI_API_TOKEN_DATASCOPE"
       pypi-test-api-token-secret: "PYPI_TEST_API_TOKEN_DATASCOPE"
