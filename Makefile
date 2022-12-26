@@ -115,15 +115,13 @@ package:
 .PHONY: publish-test
 ## Publish to pypi (using the API token stored in the PYPI_TEST_API_TOKEN_DATASCOPE environment variable).
 publish-test:
-	$(eval TWINE_PASSWORD := $(PYPI_API_TOKEN_DATASCOPE))
-	$(eval export TWINE_PASSWORD)
+	$(if $(PYPI_TEST_API_TOKEN_DATASCOPE),$(eval export TWINE_PASSWORD := $(PYPI_TEST_API_TOKEN_DATASCOPE)))
 	twine upload --username __token__ --repository-url https://test.pypi.org/legacy/ dist/*
 
 .PHONY: publish
 ## Publish to pypi (using the API token stored in the PYPI_API_TOKEN_DATASCOPE environment variable).
 publish:
-	$(eval TWINE_PASSWORD := $(PYPI_API_TOKEN_DATASCOPE))
-	$(eval export TWINE_PASSWORD)
+	$(if $(PYPI_API_TOKEN_DATASCOPE),$(eval export TWINE_PASSWORD := $(PYPI_API_TOKEN_DATASCOPE)))
 	twine upload --username __token__ dist/*
 
 .PHONY: clean

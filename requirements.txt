@@ -1,5 +1,5 @@
 # Main package dependencies
-numpy >= 1.20
+numpy >= 1.21
 scikit-learn >= 1.0
 scipy >= 1.7
 pandas >= 1.3

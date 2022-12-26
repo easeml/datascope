@@ -16,9 +16,15 @@ VENV_DIR := .venv
 include $(ROOT_DIR_PATH)/dev/makefiles/show-help.mk
 
 .PHONY: setup
-## Install the base bundle of datascope to the current python environment.
+## Install the base bundle of datascope-experiments to the current python environment.
 setup: requirements.txt
 	pip install -e .
+
+.PHONY: setup-dev
+## Install the base and development bundles of datascope-experiments to the current python environment.
+setup-dev: requirements-dev.txt
+	pip install -e .
+	pip install -r requirements-dev.txt
 
 .PHONY: lint
 ## Run linter to automatically test for formatting errors.
@@ -43,15 +49,13 @@ package:
 .PHONY: publish-test
 ## Publish to pypi (using the API token stored in the PYPI_TEST_API_TOKEN_DATASCOPE_EXPERIMENTS environment variable).
 publish-test:
-	$(eval TWINE_PASSWORD := $(PYPI_TEST_API_TOKEN_DATASCOPE_EXPERIMENTS))
-	$(eval export TWINE_PASSWORD)
+	$(if $(PYPI_TEST_API_TOKEN_DATASCOPE_EXPERIMENTSS),$(eval export TWINE_PASSWORD := $(PYPI_TEST_API_TOKEN_DATASCOPE_EXPERIMENTS)))
 	twine upload --username __token__ --repository-url https://test.pypi.org/legacy/ dist/*
 
 .PHONY: publish
 ## Publish to pypi (using the API token stored in the PYPI_API_TOKEN_DATASCOPE_EXPERIMENTS environment variable)
 publish:
-	$(eval TWINE_PASSWORD := $(PYPI_API_TOKEN_DATASCOPE_EXPERIMENTS))
-	$(eval export TWINE_PASSWORD)
+	$(if $(PYPI_API_TOKEN_DATASCOPE_EXPERIMENTS),$(eval export TWINE_PASSWORD := $(PYPI_API_TOKEN_DATASCOPE_EXPERIMENTS)))
 	twine upload --username __token__ dist/*
 
 .PHONY: publish-clean
