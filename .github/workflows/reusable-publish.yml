@@ -113,6 +113,8 @@ jobs:
 
       - name: Build wheels
         uses: pypa/cibuildwheel@v2.11.4
+        env:
+          CIBW_SKIP: cp36-*
         with:
           package-dir: ${{ inputs.package-path }}
           output-dir: ${{ inputs.package-path }}/dist

@@ -109,7 +109,7 @@ version-major:
 
 .PHONY: package
 ## Package into a source distribution (sdist).
-package-sdist:
+package:
 	python setup.py sdist
 
 .PHONY: publish-test
