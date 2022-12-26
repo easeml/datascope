@@ -17,6 +17,9 @@ on:
         required: false
         default: true
 
+env:
+  python-version: "3.8"
+
 jobs:
   test:
     name: Run Full Tests
@@ -43,11 +46,29 @@ jobs:
       run: |
         make test
   
+  version:
+    name: Extract Module Version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.VERSION }}
+    steps:
+    - uses: actions/checkout@v3
+    - name: Set up Python ${{ env.python-version }}
+      uses: actions/setup-python@v3
+      with:
+        python-version: ${{ env.python-version }}
+    - name: Check Version File
+      id: version
+      run: |
+        VERSION=$(./dev/scripts/update-version.py datascope/version.py)
+        echo VERSION=$VERSION
+        echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+  
   publish:
     name: Packge and Publish
-    needs: test
+    needs: [test, version]
     uses: easeml/datascope/.github/workflows/reusable-publish.yml@main
-    if: ${{ inputs.publish == true }}
+    if: ${{ inputs.publish == true || (github.ref_type == "tag" && github.ref_name == format('v{0}', needs.version.output.version) ) }}
     secrets: inherit
     with:
       package-path: "."
