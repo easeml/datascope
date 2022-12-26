@@ -7,54 +7,54 @@ on:
     inputs:
       package-path:
         type: string
-        description: The path to the directory that contains the makefile of the target package.
+        description: Path to the package root directory.
         required: false
         default: "."
       version-increment:
         type: boolean
-        description: Whether to increment the patch version number.
+        description: Increment patch version number.
         required: false
         default: true
       package-wheels:
         type: boolean
-        description: Whether to package wheels.
+        description: Package wheels.
         required: false
         default: true
       publish-test:
         type: boolean
-        description: Whether to publish to PyPI test.
+        description: Publish to PyPI test.
         required: false
         default: true
       publish:
         type: boolean
-        description: Whether to publish to PyPI.
+        description: Publish to PyPI.
         required: false
         default: true
   workflow_dispatch:
     inputs:
       package-path:
         type: string
-        description: The path to the directory that contains the makefile of the target package.
+        description: Path to the package root directory.
         required: false
         default: "."
       version-increment:
         type: boolean
-        description: Whether to increment the patch version number.
+        description: Increment patch version number.
         required: false
         default: true
       package-wheels:
         type: boolean
-        description: Whether to package wheels.
+        description: Package wheels.
         required: false
         default: true
       publish-test:
         type: boolean
-        description: Whether to publish to PyPI test.
+        description: Publish to PyPI test.
         required: false
         default: true
       publish:
         type: boolean
-        description: Whether to publish to PyPI.
+        description: Publish to PyPI.
         required: false
         default: true
 
