@@ -1,4 +1,4 @@
-include README.md LICENSE requirements.txt
+include README.md LICENSE requirements.txt datascope/*.py
 
 global-exclude *.py[co]
 recursive-include cython *
