@@ -306,11 +306,17 @@ class ADD:
         np.concatenate([np.pad(x.cleft, [(0, 0), (0, margins[i])]) for i, x in enumerate(elements)], out=result.cleft)
         np.concatenate([np.pad(x.cright, [(0, 0), (0, margins[i])]) for i, x in enumerate(elements)], out=result.cright)
         np.concatenate(
-            [np.pad(x.aleft, [(0, 0), (0, margins[i])], constant_values=atype(0)) for i, x in enumerate(elements)],
+            [
+                np.pad(x.aleft, [(0, 0), (0, margins[i])], constant_values=atype(0))  # type: ignore
+                for i, x in enumerate(elements)
+            ],
             out=result.aleft,
         )
         np.concatenate(
-            [np.pad(x.aright, [(0, 0), (0, margins[i])], constant_values=atype(0)) for i, x in enumerate(elements)],
+            [
+                np.pad(x.aright, [(0, 0), (0, margins[i])], constant_values=atype(0))  # type: ignore
+                for i, x in enumerate(elements)
+            ],
             out=result.aright,
         )
 
