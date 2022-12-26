@@ -175,8 +175,11 @@ jobs:
       if: inputs.publish-test == true
       working-directory: ${{ inputs.package-path }}
       env:
-        TWINE_PASSWORD: secrets[inputs.pypi-test-api-token-secret] }}
+        TWINE_PASSWORD: ${{ secrets[inputs.pypi-test-api-token-secret] }}
       run: |
+        echo ${{ inputs.pypi-test-api-token-secret }}
+        echo ${{ secrets[inputs.pypi-test-api-token-secret] }}
+        echo $TWINE_PASSWORD
         make publish-test
     - name: Publish to PyPI
       if: inputs.publish == true
