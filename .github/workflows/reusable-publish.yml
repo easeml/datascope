@@ -87,6 +87,8 @@ jobs:
     name: Increment Patch Version Number
     runs-on: ubuntu-latest
     if: inputs.version-increment == true
+    outputs:
+      sha: ${{ steps.sha.outputs.SHA }}
     steps:
     - uses: actions/checkout@v3
     - name: Set up Python ${{ env.python-version }}
@@ -102,6 +104,12 @@ jobs:
       with:
         commit_message: Increment Patch Version Number
         file_pattern: "*version.py"
+    - name: Get SHA of the Latest Commit
+      id: sha
+      run: |
+        sha_new=$(git rev-parse HEAD)
+        echo $sha_new
+        echo "::set-output name=SHA::$sha_new"
   
   package_sdist:
     name: Package Python Source Distribution
@@ -110,6 +118,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
+      with:
+        ref: ${{ needs.version.outputs.sha }}
     - name: Set up Python ${{ env.python-version }}
       uses: actions/setup-python@v3
       with:
@@ -138,23 +148,25 @@ jobs:
         os: [ubuntu-20.04, windows-2019, macos-10.15]
 
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-python@v3
-        name: Install Python
-        with:
-          python-version: ${{ env.python-version }}
+    - uses: actions/checkout@v3
+      with:
+        ref: ${{ needs.version.outputs.sha }}
+    - uses: actions/setup-python@v3
+      name: Install Python
+      with:
+        python-version: ${{ env.python-version }}
 
-      - name: Build wheels
-        uses: pypa/cibuildwheel@v2.11.4
-        env:
-          CIBW_SKIP: cp36-* pp*
-        with:
-          package-dir: ${{ inputs.package-path }}
-          output-dir: ${{ inputs.package-path }}/dist
+    - name: Build wheels
+      uses: pypa/cibuildwheel@v2.11.4
+      env:
+        CIBW_SKIP: cp36-* pp*
+      with:
+        package-dir: ${{ inputs.package-path }}
+        output-dir: ${{ inputs.package-path }}/dist
 
-      - uses: actions/upload-artifact@v3
-        with:
-          path: ${{ inputs.package-path }}/dist/*.whl
+    - uses: actions/upload-artifact@v3
+      with:
+        path: ${{ inputs.package-path }}/dist/*.whl
   
   publish:
     name: Publish to PyPi
