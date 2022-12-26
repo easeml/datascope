@@ -38,7 +38,7 @@ version:
 .PHONY: package
 ## Package into a source distribution (sdist).
 package:
-	python setup.py sdist
+	python -m build --no-isolation --sdist
 
 .PHONY: publish-test
 ## Publish to pypi (using the API token stored in the PYPI_TEST_API_TOKEN_DATASCOPE_EXPERIMENTS environment variable).
