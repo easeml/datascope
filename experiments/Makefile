@@ -39,7 +39,7 @@ format:
 .PHONY: version
 ## Update the version file to increment the patch version of the module.
 version:
-	$(ROOT_DIR_PATH)/dev/scripts/increment-version.py datascope/experiments/version.py --patch
+	$(ROOT_DIR_PATH)/dev/scripts/update-version.py datascope/experiments/version.py --patch
 
 .PHONY: package
 ## Package into a source distribution (sdist).
