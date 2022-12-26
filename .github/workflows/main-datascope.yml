@@ -1,0 +1,60 @@
+# This is the main workflow for the "datascope" module.
+
+name: Main Workflow for "datascope"
+
+on:
+  push:
+    branches: [ "main" ]
+    paths: ["datascope/*", "setup.py", "setup.cfg", "requirements*.txt", "MANIFEST.in", "pyproject.toml"]
+  pull_request:
+    branches: [ "main" ]
+    paths: ["datascope/*", "setup.py", "setup.cfg", "requirements*.txt", "MANIFEST.in", "pyproject.toml"]
+  workflow_dispatch:
+    inputs:
+      publish:
+        type: boolean
+        description: Run the Packaging and Publish Process.
+        required: false
+        default: true
+
+jobs:
+  test:
+    name: Run Full Tests
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.8", "3.9", "3.10"]
+
+    steps:
+    - uses: actions/checkout@v3
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v3
+      with:
+        python-version: ${{ matrix.python-version }}
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        make setup-dev
+    - name: Lint
+      run: |
+        make lint
+    - name: Test
+      run: |
+        make test
+  
+  publish:
+    name: Packge and Publish
+    needs: test
+    uses: easeml/datascope/.github/workflows/reusable-publish.yml@main
+    if: ${{ inputs.publish == true }}
+    secrets: inherit
+    with:
+      package-path: "."
+      version-increment: false
+      package-wheels: true
+      publish-test: true
+      publish: true
+      pypi-api-token-secret: "PYPI_API_TOKEN_DATASCOPE"
+      pypi-test-api-token-secret: "PYPI_TEST_API_TOKEN_DATASCOPE"
+
