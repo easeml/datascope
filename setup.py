@@ -49,9 +49,7 @@ extras_require["complete"] = extras_require_all
 setup(
     name="datascope",
     version=main_ns["__version__"],
-    packages=find_namespace_packages(where="datascope"),
-    namespace_packages=["datascope"],
-    package_dir={"": "datascope"},
+    packages=find_namespace_packages(include=["datascope.*"]),
     ext_modules=ext_modules,
     license="MIT",
     author_email="easeml@ds3lab.com",
