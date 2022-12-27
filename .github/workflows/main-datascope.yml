@@ -64,8 +64,6 @@ jobs:
         VERSION=$(./dev/scripts/update-version.py datascope/version.py)
         echo VERSION=$VERSION
         echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
-        echo github.ref_name=${{ github.ref_name }}
-        echo github.ref_type=${{ github.ref_type }}
   
   publish:
     name: Packge and Publish
@@ -82,3 +80,19 @@ jobs:
       pypi-api-token-secret: "PYPI_API_TOKEN_DATASCOPE"
       pypi-test-api-token-secret: "PYPI_TEST_API_TOKEN_DATASCOPE"
 
+  debug:
+    name: Debug
+    runs-on: ubuntu-latest
+    needs: version
+    steps:
+    - name: Check Version File
+      id: version
+      run: |
+        echo github.ref_name=${{ github.ref_name }}
+        echo github.ref_type=${{ github.ref_type }}
+        echo "(github.ref_type == 'tag') == ${{ github.ref_type == 'tag' }}"
+        echo "format('v{0}', needs.version.output.version) == ${{ format('v{0}', needs.version.output.version) }}"
+        echo "(github.ref_name == format('v{0}', needs.version.output.version)) == ${{ github.ref_name == format('v{0}', needs.version.output.version) }}"
+        echo "(github.ref_type == 'tag' && github.ref_name == format('v{0}', needs.version.output.version) ) == ${{ (github.ref_type == 'tag' && github.ref_name == format('v{0}', needs.version.output.version) ) }}"
+        echo "(inputs.publish == true) == ${{ inputs.publish == true }}"
+        echo "((github.ref_type == 'tag' && github.ref_name == format('v{0}', needs.version.output.version) ) || inputs.publish == true) == ${{ (github.ref_type == 'tag' && github.ref_name == format('v{0}', needs.version.output.version) ) || inputs.publish == true }}"
