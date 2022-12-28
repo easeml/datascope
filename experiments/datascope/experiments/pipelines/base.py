@@ -27,9 +27,13 @@ class Pipeline(sklearn.pipeline.Pipeline):
     def __init_subclass__(
         cls: Type["Pipeline"],
         modalities: Iterable[DatasetModality],
+        abstract: bool = False,
         id: Optional[str] = None,
         summary: Optional[str] = None,
     ) -> None:
+        if abstract:
+            return
+
         cls._pipeline = id if id is not None else cls.__name__
         cls._modalities = modalities
         Pipeline.pipelines[cls._pipeline] = cls

@@ -78,9 +78,12 @@ class Dataset(ABC):
         self._units: Optional[ndarray] = None
 
     def __init_subclass__(
-        cls: Type["Dataset"], modality: Optional[DatasetModality] = None, id: Optional[str] = None
+        cls: Type["Dataset"],
+        abstract: bool = False,
+        modality: Optional[DatasetModality] = None,
+        id: Optional[str] = None,
     ) -> None:
-        if modality is None:
+        if abstract or modality is None:
             return
         cls._dataset = id if id is not None else cls.__name__
         cls._modality = modality
@@ -265,7 +268,7 @@ class RandomDataset(Dataset, modality=DatasetModality.TABULAR, id="random"):
         self._construct_provenance()
 
 
-class DirtyLabelDataset(Dataset):
+class DirtyLabelDataset(Dataset, abstract=True):
     def __init__(
         self,
         trainsize: int = DEFAULT_TRAINSIZE,
@@ -539,7 +542,7 @@ def balance_train_val_and_testsize(
     return trainsize, valsize, testsize, totsize
 
 
-class BiasedDirtyLabelDataset(DirtyLabelDataset, BiasedMixin):
+class BiasedDirtyLabelDataset(DirtyLabelDataset, BiasedMixin, abstract=True):
     def corrupt_labels_with_bias(
         self,
         probabilities: Union[float, Sequence[float]],

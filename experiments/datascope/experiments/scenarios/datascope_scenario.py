@@ -157,7 +157,7 @@ DEFAULT_TRAIN_BIAS = 0.0
 DEFAULT_VAL_BIAS = 0.0
 
 
-class DatascopeScenario(Scenario):
+class DatascopeScenario(Scenario, abstract=True):
     def __init__(
         self,
         dataset: str,
