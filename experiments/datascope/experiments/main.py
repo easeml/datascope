@@ -1,4 +1,5 @@
 import argparse
+import os
 
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Set
@@ -13,6 +14,7 @@ from .scenarios import (
     DEFAULT_RESULTS_SCENARIOS_PATH,
     DEFAULT_STUDY_PATH,
     DEFAULT_BACKEND,
+    DEFAULT_SLURM_JOBTIME,
     DEFAULT_SLURM_JOBMEMORY,
 )
 
@@ -63,6 +65,30 @@ def add_dynamic_arguments(
         )
 
 
+# Courtesy of http://stackoverflow.com/a/10551190 with env-var retrieval fixed
+class EnvDefault(argparse.Action):
+    """An argparse action class that auto-sets missing default values from env
+    vars. Defaults to requiring the argument."""
+
+    def __init__(self, envvar: Optional[str], required: bool = True, default: Optional[Any] = None, **kwargs):
+        if default is not None and envvar is not None:
+            if envvar in os.environ:
+                default = os.environ[envvar]
+        if required and default is not None:
+            required = False
+        super(EnvDefault, self).__init__(default=default, required=required, **kwargs)
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        setattr(namespace, self.dest, values)
+
+
+def env_default(envvar: Optional[str]):
+    def wrapper(**kwargs):
+        return EnvDefault(envvar, **kwargs)
+
+    return wrapper
+
+
 def main():
 
     parser = argparse.ArgumentParser(
@@ -76,6 +102,7 @@ def main():
         "-o",
         "--output-path",
         type=str,
+        action=env_default("EXPERIMENTS_RESULTS_PATH"),
         default=DEFAULT_RESULTS_PATH,
         help="Path where the data is stored. Default: '%s'" % DEFAULT_RESULTS_PATH,
     )
@@ -85,6 +112,7 @@ def main():
         "--backend",
         type=Backend,
         choices=[x.value for x in list(Backend)],
+        action=env_default("EXPERIMENTS_BACKEND"),
         default=DEFAULT_BACKEND,
         help="The backend to run against. Default: '%s'" % str(DEFAULT_BACKEND.value),
     )
@@ -98,6 +126,7 @@ def main():
     parser_run.add_argument(
         "--ray-address",
         type=str,
+        action=env_default("EXPERIMENTS_RAY_ADDRESS"),
         default=None,
         help="Address of the ray server. If omitted, a new server ad-hoc will be created.",
     )
@@ -105,15 +134,33 @@ def main():
     parser_run.add_argument(
         "--ray-numprocs",
         type=int,
+        action=env_default("EXPERIMENTS_RAY_NUMPROCS"),
         default=None,
         help="Number of ray processes to start if running in parallel. Defaults to the number of cores.",
     )
 
     parser_run.add_argument(
+        "--slurm-jobtime",
+        type=str,
+        action=env_default("EXPERIMENTS_SLURM_JOBTIME"),
+        default=DEFAULT_SLURM_JOBTIME,
+        help="Runtime requirement for each slurm job (if slurm is used as backend).",
+    )
+
+    parser_run.add_argument(
         "--slurm-jobmemory",
         type=str,
+        action=env_default("EXPERIMENTS_SLURM_JOBMEMORY"),
         default=DEFAULT_SLURM_JOBMEMORY,
         help="Memory requirements for each slurm job (if slurm is used as backend).",
+    )
+
+    parser_run.add_argument(
+        "--slurm-constraint",
+        type=str,
+        action=env_default("EXPERIMENTS_SLURM_CONSTRAINT"),
+        default=None,
+        help="Constraint to be specified for selecting slurm cluster nodes (if slurm is used as backend).",
     )
 
     # Build arguments from scenario attributes.

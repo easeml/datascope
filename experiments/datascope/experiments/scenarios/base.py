@@ -730,6 +730,7 @@ DEFAULT_STUDY_PATH = max(ALL_STUDY_PATHS, key=lambda x: os.path.getmtime(x)) if 
 DEFAULT_SCENARIO_PATH_FORMAT = "{id}"
 DEFAULT_BACKEND = Backend.LOCAL
 DEFAULT_HOST_PORT = 4242
+DEFAULT_SLURM_JOBTIME = "24:00:00"
 DEFAULT_SLURM_JOBMEMORY = "4G"
 
 
@@ -785,7 +786,9 @@ class Study:
         backend: Backend = DEFAULT_BACKEND,
         ray_address: Optional[str] = None,
         ray_numprocs: Optional[int] = None,
+        slurm_jobtime: Optional[str] = DEFAULT_SLURM_JOBTIME,
         slurm_jobmemory: Optional[str] = DEFAULT_SLURM_JOBMEMORY,
+        slurm_constraint: Optional[str] = None,
         host_ip: Optional[str] = None,
         host_port: int = DEFAULT_HOST_PORT,
         eagersave: bool = True,
@@ -897,8 +900,13 @@ class Study:
                     path = self.save_scenario(scenario)
                     logpath = os.path.join(path, "slurm.log")
                     run_command = "python -m experiments run-scenario -o %s -e %s" % (path, address)
-                    slurm_command_format = 'sbatch --job-name=study --time=24:00:00 --mem-per-cpu=%s -o %s --wrap="%s"'
-                    slurm_command = slurm_command_format % (slurm_jobmemory, logpath, run_command)
+                    slurm_command = "sbatch --job-name=datascope-experiment"
+                    slurm_command += " --time=%s" % slurm_jobtime
+                    slurm_command += " --mem-per-cpu=%s" % slurm_jobmemory
+                    if slurm_constraint is not None:
+                        slurm_command += " --constraint=%s" % slurm_constraint
+                    slurm_command += " --output=%s" % logpath
+                    slurm_command += ' --wrap="%s"' % run_command
                     result = subprocess.run(slurm_command, capture_output=True, shell=True)
                     if result.returncode != 0:
                         raise RuntimeError(
