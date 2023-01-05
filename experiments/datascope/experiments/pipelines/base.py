@@ -121,7 +121,7 @@ class KMeansPipeline(
 
     @classmethod
     def construct(cls: Type["KMeansPipeline"], dataset: Dataset) -> "KMeansPipeline":
-        union = FeatureUnion([("indicator", MissingIndicator()), ("kmeans", KMeans(random_state=0))])
+        union = FeatureUnion([("indicator", MissingIndicator()), ("kmeans", KMeans(random_state=0, n_init=10))])
         ops = [("union", union)]
         return KMeansPipeline(ops)
 
