@@ -513,13 +513,21 @@ class ShapleyImportance(Importance):
             X = self.pipeline.fit_transform(X, y=y)
             X_test = self.pipeline.transform(X_test)
 
-        # Compute the distances between training and text data examples.
+        # Ensure X and X_test are not sparse.
         if issparse(X):
             assert isinstance(X, spmatrix)
             X = X.todense()
         if issparse(X_test):
             assert isinstance(X_test, spmatrix)
             X_test = X_test.todense()
+
+        # Convert matrices to instances of ndarray.
+        if isinstance(X, np.matrix):
+            X = np.asarray(X)
+        if isinstance(X_test, np.matrix):
+            X_test = np.asarray(X_test)
+
+        # Compute the distances between training and text data examples.
         distances = distance(X, X_test)
 
         # Compute the utilitiy values between training and test labels.
