@@ -1,6 +1,6 @@
 import pandas as pd
 
-from datascope.importance.shapley import ImportanceMethod
+from datascope.importance.shapley import ImportanceMethod, DEFAULT_MC_TIMEOUT, DEFAULT_MC_TOLERANCE, DEFAULT_NN_K
 from enum import Enum
 from pandas import DataFrame
 from typing import Any, Optional, Dict
@@ -150,7 +150,6 @@ KEYWORD_REPLACEMENTS.update(DATASET_KEYWORD_REPLACEMENTS)
 DEFAULT_SEED = 1
 DEFAULT_CHECKPOINTS = 100
 DEFAULT_PROVIDERS = 0
-DEFAULT_TIMEOUT = 3600
 DEFAULT_MODEL = ModelType.LogisticRegression
 DEFAULT_REPAIR_GOAL = RepairGoal.ACCURACY
 DEFAULT_TRAIN_BIAS = 0.0
@@ -173,7 +172,9 @@ class DatascopeScenario(Scenario, abstract=True):
         trainsize: int = DEFAULT_TRAINSIZE,
         valsize: int = DEFAULT_VALSIZE,
         testsize: int = DEFAULT_TESTSIZE,
-        timeout: int = DEFAULT_TIMEOUT,
+        mc_timeout: int = DEFAULT_MC_TIMEOUT,
+        mc_tolerance: float = DEFAULT_MC_TOLERANCE,
+        nn_k: int = DEFAULT_NN_K,
         checkpoints: int = DEFAULT_CHECKPOINTS,
         providers: int = DEFAULT_PROVIDERS,
         repairgoal: RepairGoal = DEFAULT_REPAIR_GOAL,
@@ -195,7 +196,9 @@ class DatascopeScenario(Scenario, abstract=True):
         self._trainsize = trainsize
         self._valsize = valsize
         self._testsize = testsize
-        self._timeout = timeout
+        self._mc_timeout = mc_timeout
+        self._mc_tolerance = mc_tolerance
+        self._nn_k = nn_k
         self._checkpoints = checkpoints
         self._providers = providers
         self._repairgoal = repairgoal
@@ -263,9 +266,19 @@ class DatascopeScenario(Scenario, abstract=True):
         return self._testsize
 
     @attribute
-    def timeout(self) -> int:
-        """The maximum time in seconds that a Monte-Carlo importance method is allowed to run."""
-        return self._timeout
+    def mc_timeout(self) -> int:
+        """The maximum time in seconds that a Monte-Carlo importance method is allowed to run. Zero means no timeout."""
+        return self._mc_timeout
+
+    @attribute
+    def mc_tolerance(self) -> float:
+        """The parameter that controls Truncated Monte-Carlo early stopping. Zero means no early stopping."""
+        return self._mc_tolerance
+
+    @attribute
+    def nn_k(self) -> int:
+        """The size of the K-neighborhood of the Shapley KNN model."""
+        return self._nn_k
 
     @attribute
     def checkpoints(self) -> int:

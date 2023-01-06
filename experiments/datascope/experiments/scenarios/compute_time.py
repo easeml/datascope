@@ -14,7 +14,7 @@ from .datascope_scenario import (
     MC_ITERATIONS,
     DEFAULT_SEED,
     DEFAULT_MODEL,
-    DEFAULT_TIMEOUT,
+    DEFAULT_MC_TIMEOUT,
     KEYWORD_REPLACEMENTS,
     UtilityType,
 )
@@ -40,7 +40,7 @@ class ComputeTimeScenario(Scenario, id="compute-time"):
         trainsize: int = DEFAULT_TRAINSIZE,
         valsize: int = DEFAULT_VALSIZE,
         numfeatures: int = DEFAULT_NUMFEATURES,
-        timeout: int = DEFAULT_TIMEOUT,
+        mc_timeout: int = DEFAULT_MC_TIMEOUT,
         importance_cputime: Optional[float] = None,
         **kwargs: Any
     ) -> None:
@@ -54,7 +54,7 @@ class ComputeTimeScenario(Scenario, id="compute-time"):
         self._trainsize = trainsize
         self._valsize = valsize
         self._numfeatures = numfeatures
-        self._timeout = timeout
+        self._mc_timeout = mc_timeout
         self._importance_cputime: Optional[float] = importance_cputime
 
     @classmethod
@@ -107,9 +107,9 @@ class ComputeTimeScenario(Scenario, id="compute-time"):
         return self._numfeatures
 
     @attribute
-    def timeout(self) -> int:
+    def mc_timeout(self) -> int:
         """The maximum time in seconds that a Monte-Carlo importance method is allowed to run."""
-        return self._timeout
+        return self._mc_timeout
 
     @result
     def importance_cputime(self) -> Optional[float]:
@@ -132,7 +132,7 @@ class ComputeTimeScenario(Scenario, id="compute-time"):
                 trainsize=[self.trainsize],
                 valsize=[self.valsize],
                 numfeatures=[self.numfeatures],
-                timeout=[self.timeout],
+                timeout=[self.mc_timeout],
                 importance_cputime=[self.importance_cputime],
             )
         )
@@ -177,7 +177,7 @@ class ComputeTimeScenario(Scenario, id="compute-time"):
                 utility=utility,
                 pipeline=pipeline,
                 mc_iterations=mc_iterations,
-                mc_timeout=self.timeout,
+                mc_timeout=self.mc_timeout,
                 mc_preextract=mc_preextract,
             )
             importance.fit(dataset.X_train, dataset.y_train, provenance=provenance).score(dataset.X_val, dataset.y_val)

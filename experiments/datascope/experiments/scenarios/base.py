@@ -723,6 +723,7 @@ def get_ip() -> str:
 
 
 def get_free_port(port: int, max_port: int = 65535) -> int:
+    # Refernce: https://stackoverflow.com/a/57086072
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     while port <= max_port:
         try:
