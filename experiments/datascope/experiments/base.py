@@ -16,6 +16,7 @@ from .scenarios import (
     DEFAULT_RESULTS_SCENARIOS_PATH,
     DEFAULT_STUDY_PATH,
     DEFAULT_BACKEND,
+    DEFAULT_SLURM_JOBTIME,
     DEFAULT_SLURM_JOBMEMORY,
 )
 
@@ -26,7 +27,11 @@ def run(
     no_save: bool = False,
     ray_address: Optional[str] = None,
     ray_numprocs: Optional[int] = None,
+    slurm_jobtime: Optional[str] = DEFAULT_SLURM_JOBTIME,
     slurm_jobmemory: Optional[str] = DEFAULT_SLURM_JOBMEMORY,
+    slurm_constraint: Optional[str] = None,
+    host_ip: Optional[str] = None,
+    host_port: Optional[int] = None,
     **attributes: Any
 ) -> None:
 
@@ -75,7 +80,11 @@ def run(
         backend=backend,
         ray_address=ray_address,
         ray_numprocs=ray_numprocs,
+        slurm_jobtime=slurm_jobtime,
         slurm_jobmemory=slurm_jobmemory,
+        slurm_constraint=slurm_constraint,
+        host_ip=host_ip,
+        host_port=host_port,
         eagersave=not no_save,
     )
 

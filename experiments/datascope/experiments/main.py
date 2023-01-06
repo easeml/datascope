@@ -166,6 +166,24 @@ def main():
         help="Constraint to be specified for selecting slurm cluster nodes (if slurm is used as backend).",
     )
 
+    parser_run.add_argument(
+        "--eventstream-host-ip",
+        type=str,
+        action=env_default("EVENTSTREAM_HOST_IP"),
+        required=False,
+        default=None,
+        help="The IP address to use for receiving events from distributed jobs (if slurm is used as backend).",
+    )
+
+    parser_run.add_argument(
+        "--eventstream-host-port",
+        type=int,
+        action=env_default("EVENTSTREAM_HOST_PORT"),
+        required=False,
+        default=None,
+        help="The port to use for receiving events from distributed jobs (if slurm is used as backend).",
+    )
+
     # Build arguments from scenario attributes.
     add_dynamic_arguments(
         parser=parser_run,

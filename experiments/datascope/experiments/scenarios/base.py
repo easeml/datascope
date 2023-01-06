@@ -722,6 +722,18 @@ def get_ip() -> str:
     return ip
 
 
+def get_free_port(port: int, max_port: int = 65535) -> int:
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    while port <= max_port:
+        try:
+            sock.bind(("", port))
+            sock.close()
+            return port
+        except OSError:
+            port += 1
+    raise IOError("Cannot find a free port.")
+
+
 DEFAULT_RESULTS_PATH = os.path.join("var", "results")
 DEFAULT_RESULTS_SCENARIOS_PATH = os.path.join("var", "results", "scenarios")
 DEFAULT_REPORTS_PATH = os.path.join("var", "reports")
@@ -729,7 +741,7 @@ ALL_STUDY_PATHS = glob(os.path.join(DEFAULT_RESULTS_PATH, "*"))
 DEFAULT_STUDY_PATH = max(ALL_STUDY_PATHS, key=lambda x: os.path.getmtime(x)) if len(ALL_STUDY_PATHS) > 0 else None
 DEFAULT_SCENARIO_PATH_FORMAT = "{id}"
 DEFAULT_BACKEND = Backend.LOCAL
-DEFAULT_HOST_PORT = 4242
+DEFAULT_EVENTSTREAM_HOST_PORT = 4242
 DEFAULT_SLURM_JOBTIME = "24:00:00"
 DEFAULT_SLURM_JOBMEMORY = "4G"
 
@@ -789,8 +801,8 @@ class Study:
         slurm_jobtime: Optional[str] = DEFAULT_SLURM_JOBTIME,
         slurm_jobmemory: Optional[str] = DEFAULT_SLURM_JOBMEMORY,
         slurm_constraint: Optional[str] = None,
-        host_ip: Optional[str] = None,
-        host_port: int = DEFAULT_HOST_PORT,
+        eventstream_host_ip: Optional[str] = None,
+        eventstream_host_port: Optional[int] = None,
         eagersave: bool = True,
         **kwargs: Any
     ) -> None:
@@ -859,11 +871,16 @@ class Study:
 
             elif backend == Backend.SLURM:
 
+                # If the host port was not specified, we look for the first free port.
+                if eventstream_host_port is None:
+                    eventstream_host_port = get_free_port(DEFAULT_EVENTSTREAM_HOST_PORT)
+
                 # Set up the process that will host the queue RPC server.
                 # Reference: https://stackoverflow.com/a/21146917
                 def serve(queue: Queue) -> None:
                     server = zerorpc.Server(queue, heartbeat=5)
-                    server.bind("tcp://0.0.0.0:%d" % host_port)
+                    assert eventstream_host_port is not None
+                    server.bind("tcp://0.0.0.0:%d" % eventstream_host_port)
 
                     def stop_routine():
                         server.stop()
@@ -885,9 +902,10 @@ class Study:
                 )
                 monitor.start()
 
-                if host_ip is None:
-                    host_ip = get_ip()
-                address = "tcp://%s:%d" % (host_ip, host_port)
+                if eventstream_host_ip is None:
+                    eventstream_host_ip = get_ip()
+                address = "tcp://%s:%d" % (eventstream_host_ip, eventstream_host_port)
+                self.logger.info("Status event monitor listening on " + address)
 
                 # Create a batch job on slurm for every scenario.
                 scenarios_running = len(self.scenarios)
