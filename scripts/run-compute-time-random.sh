@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-CMD="python -m experiments run \
+CMD="python -m datascope.experiments run \
     --scenario compute-time \
     --dataset random \
     --pipeline identity \
@@ -14,7 +14,7 @@ echo "Target Variable: Training Set Size"
 echo $CMD
 eval $CMD
 
-CMD="python -m experiments run \
+CMD="python -m datascope.experiments run \
     --scenario compute-time \
     --dataset random \
     --pipeline identity \

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-CMD="python -m experiments run \
+CMD="python -m datascope.experiments run \
     --scenario label-repair \
     --dataset FolkUCI \
     --repairgoal accuracy \

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-CMD="python -m experiments report \
+CMD="python -m datascope.experiments report \
         --groupby dataset pipeline \
         --index repaired_rel \
         --compare method \

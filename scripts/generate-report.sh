@@ -9,7 +9,7 @@ fi
 
 if [ -z "$1" ]
 then
-    python -m experiments report \
+    python -m datascope.experiments report \
         --groupby dataset pipeline utility \
         --index steps \
         --compare method \
@@ -20,7 +20,7 @@ then
         --labelformat "%(method)s - %(importance_cputime:mean).2f +/- %(importance_cputime:std).2f"
 
 else
-    python -m experiments report \
+    python -m datascope.experiments report \
         --groupby dataset pipeline utility \
         --index steps \
         --compare method \

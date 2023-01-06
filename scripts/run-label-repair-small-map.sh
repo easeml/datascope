@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-CMD="python -m experiments run \
+CMD="python -m datascope.experiments run \
     --scenario label-repair \
     --method random shapley-knn-single shapley-knn-interactive shapley-tmc-pipe-010 shapley-tmc-pipe-100 \
     --repairgoal accuracy \

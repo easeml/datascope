@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-CMD="python -m experiments run \
+CMD="python -m datascope.experiments run \
     --scenario data-discard \
     --dataset FolkUCI \
     --method random shapley-knn-single \

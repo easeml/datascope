@@ -899,7 +899,7 @@ class Study:
                         continue
                     path = self.save_scenario(scenario)
                     logpath = os.path.join(path, "slurm.log")
-                    run_command = "python -m experiments run-scenario -o %s -e %s" % (path, address)
+                    run_command = "python -m datascope.experiments run-scenario -o %s -e %s" % (path, address)
                     slurm_command = "sbatch --job-name=datascope-experiment"
                     slurm_command += " --time=%s" % slurm_jobtime
                     slurm_command += " --mem-per-cpu=%s" % slurm_jobmemory
