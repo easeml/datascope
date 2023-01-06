@@ -66,7 +66,7 @@ def get_model(model_type: ModelType, **kwargs):
             early_stopping=early_stopping,
         )
     elif model_type == ModelType.XGBoost:
-        model = XGBClassifier(nthread=1, use_label_encoder=False, eval_metric="logloss")
+        model = XGBClassifier(nthread=1, eval_metric="logloss")
     else:
         raise ValueError("Unknown model type '%s'." % str(model_type))
     return model
