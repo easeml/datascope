@@ -127,6 +127,7 @@ def main():
         "--ray-address",
         type=str,
         action=env_default("EXPERIMENTS_RAY_ADDRESS"),
+        required=False,
         default=None,
         help="Address of the ray server. If omitted, a new server ad-hoc will be created.",
     )
@@ -135,6 +136,7 @@ def main():
         "--ray-numprocs",
         type=int,
         action=env_default("EXPERIMENTS_RAY_NUMPROCS"),
+        required=False,
         default=None,
         help="Number of ray processes to start if running in parallel. Defaults to the number of cores.",
     )
@@ -159,6 +161,7 @@ def main():
         "--slurm-constraint",
         type=str,
         action=env_default("EXPERIMENTS_SLURM_CONSTRAINT"),
+        required=False,
         default=None,
         help="Constraint to be specified for selecting slurm cluster nodes (if slurm is used as backend).",
     )
