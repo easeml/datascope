@@ -167,6 +167,15 @@ def main():
     )
 
     parser_run.add_argument(
+        "--slurm-maxjobs",
+        type=int,
+        action=env_default("EXPERIMENTS_SLURM_MAXJOBS"),
+        required=False,
+        default=None,
+        help="Maimum number of slurm jobs that will be running at any given time (if slurm is used as backend).",
+    )
+
+    parser_run.add_argument(
         "--eventstream-host-ip",
         type=str,
         action=env_default("EVENTSTREAM_HOST_IP"),

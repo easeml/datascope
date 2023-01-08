@@ -32,6 +32,7 @@ def run(
     slurm_jobtime: Optional[str] = DEFAULT_SLURM_JOBTIME,
     slurm_jobmemory: Optional[str] = DEFAULT_SLURM_JOBMEMORY,
     slurm_constraint: Optional[str] = None,
+    slurm_maxjobs: Optional[int] = None,
     host_ip: Optional[str] = None,
     host_port: Optional[int] = None,
     **attributes: Any
@@ -85,6 +86,7 @@ def run(
         slurm_jobtime=slurm_jobtime,
         slurm_jobmemory=slurm_jobmemory,
         slurm_constraint=slurm_constraint,
+        slurm_maxjobs=slurm_maxjobs,
         host_ip=host_ip,
         host_port=host_port,
         eagersave=not no_save,

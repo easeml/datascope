@@ -802,6 +802,7 @@ class Study:
         slurm_jobtime: Optional[str] = DEFAULT_SLURM_JOBTIME,
         slurm_jobmemory: Optional[str] = DEFAULT_SLURM_JOBMEMORY,
         slurm_constraint: Optional[str] = None,
+        slurm_maxjobs: Optional[int] = None,
         eventstream_host_ip: Optional[str] = None,
         eventstream_host_port: Optional[int] = None,
         eagersave: bool = True,
@@ -879,7 +880,7 @@ class Study:
                 # Set up the process that will host the queue RPC server.
                 # Reference: https://stackoverflow.com/a/21146917
                 def serve(queue: Queue) -> None:
-                    server = zerorpc.Server(queue, heartbeat=5)
+                    server = zerorpc.Server(queue, heartbeat=45)
                     assert eventstream_host_port is not None
                     server.bind("tcp://0.0.0.0:%d" % eventstream_host_port)
 
@@ -908,37 +909,51 @@ class Study:
                 address = "tcp://%s:%d" % (eventstream_host_ip, eventstream_host_port)
                 self.logger.info("Status event monitor listening on " + address)
 
-                # Create a batch job on slurm for every scenario.
-                scenarios_running = len(self.scenarios)
-                for scenario in self.scenarios:
-                    if scenario.completed:
-                        scenarios_running -= 1
-                        if pbar is not None:
-                            pbar.update(1)
-                        continue
-                    path = self.save_scenario(scenario)
-                    logpath = os.path.join(path, "slurm.log")
-                    run_command = "python -m datascope.experiments run-scenario -o %s -e %s" % (path, address)
-                    slurm_command = "sbatch --job-name=datascope-experiment"
-                    slurm_command += " --time=%s" % slurm_jobtime
-                    slurm_command += " --mem-per-cpu=%s" % slurm_jobmemory
-                    if slurm_constraint is not None:
-                        slurm_command += " --constraint=%s" % slurm_constraint
-                    slurm_command += " --output=%s" % logpath
-                    slurm_command += ' --wrap="%s"' % run_command
-                    result = subprocess.run(slurm_command, capture_output=True, shell=True)
-                    if result.returncode != 0:
-                        raise RuntimeError(
-                            "Slurm sbatch command resulted in non-zero return code. \nstdout:\n%r\nstderr:\n%r\n"
-                            % (result.stdout, result.stderr)
-                        )
+                try:
 
-                while scenarios_running > 0:
-                    scenario_event: ScenarioEvent = study_queue.get()
-                    if scenario_event.type == ScenarioEvent.Type.COMPLETED:
-                        scenarios_running -= 1
-                        if pbar is not None:
-                            pbar.update(1)
+                    # Create a batch job on slurm for every scenario.
+                    scenarios_pending = len(self.scenarios)
+                    scenarios_running = 0
+                    for scenario in self.scenarios:
+                        scenarios_pending -= 1
+                        if scenario.completed:
+                            if pbar is not None:
+                                pbar.update(1)
+                            continue
+                        path = self.save_scenario(scenario)
+                        logpath = os.path.join(path, "slurm.log")
+                        run_command = "python -m datascope.experiments run-scenario -o %s -e %s" % (path, address)
+                        slurm_command = "sbatch --job-name=%s" % self.id
+                        slurm_command += " --time=%s" % slurm_jobtime
+                        slurm_command += " --mem-per-cpu=%s" % slurm_jobmemory
+                        if slurm_constraint is not None:
+                            slurm_command += " --constraint=%s" % slurm_constraint
+                        slurm_command += " --output=%s" % logpath
+                        slurm_command += ' --wrap="%s"' % run_command
+                        result = subprocess.run(slurm_command, capture_output=True, shell=True)
+                        if result.returncode != 0:
+                            raise RuntimeError(
+                                "Slurm sbatch command resulted in non-zero return code. \nstdout:\n%r\nstderr:\n%r\n"
+                                % (result.stdout, result.stderr)
+                            )
+                        scenarios_running += 1
+
+                        # Check if we need to wait for jobs to finish. We do that either when
+                        # the maximum number of allowed jobs has been reached
+                        # or if all jobs have been submitted but not all have finished yet.
+                        while (slurm_maxjobs is not None and scenarios_running > slurm_maxjobs) or (
+                            scenarios_pending <= 0 and scenarios_running > 0
+                        ):
+                            scenario_event: ScenarioEvent = study_queue.get()
+                            if scenario_event.type == ScenarioEvent.Type.COMPLETED:
+                                scenarios_running -= 1
+                                if pbar is not None:
+                                    pbar.update(1)
+
+                except Exception as e:
+                    # Make sure to cancel all submitted slurm jobs in case of an exception.
+                    subprocess.run(["scancel", "--name=%s" % self.id])
+                    raise e
 
                 scenarios = Study.load_scenarios(self.path)
 
