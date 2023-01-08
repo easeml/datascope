@@ -762,6 +762,7 @@ class Study:
         self._scenario_path_format = scenario_path_format
         self._logstream = logstream if logstream is not None else StringIO()
         self._logger = logging.getLogger(self._id)
+        self._logger.setLevel(logging.DEBUG)
         self._verify_scenario_path(scenario_path_format, scenarios)
 
     @staticmethod
@@ -950,9 +951,11 @@ class Study:
                                 if pbar is not None:
                                     pbar.update(1)
 
-                except Exception as e:
-                    # Make sure to cancel all submitted slurm jobs in case of an exception.
+                except (Exception, KeyboardInterrupt) as e:
+                    # Make sure to cancel all submitted slurm jobs in case of an exception or keyboard interrupt.
+                    self.logger.info("Running: scancel --name=%s" % self.id)
                     subprocess.run(["scancel", "--name=%s" % self.id])
+                    self.logger.info("Slurm jobs canceled.")
                     raise e
 
                 scenarios = Study.load_scenarios(self.path)
