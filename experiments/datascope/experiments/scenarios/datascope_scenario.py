@@ -15,7 +15,7 @@ from ..datasets import (
     DEFAULT_BIAS_METHOD,
     KEYWORD_REPLACEMENTS as DATASET_KEYWORD_REPLACEMENTS,
 )
-from ..pipelines import Pipeline, ModelType
+from ..pipelines import Pipeline, ModelType, MODEL_KEYWORD_REPLACEMENTS
 
 
 class RepairMethod(str, Enum):
@@ -146,6 +146,7 @@ KEYWORD_REPLACEMENTS = {
     "eqodds-acc": "Accuracy + Equalized Odds Difference",
 }
 KEYWORD_REPLACEMENTS.update(DATASET_KEYWORD_REPLACEMENTS)
+KEYWORD_REPLACEMENTS.update(MODEL_KEYWORD_REPLACEMENTS)
 
 DEFAULT_SEED = 1
 DEFAULT_CHECKPOINTS = 100

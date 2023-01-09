@@ -6,6 +6,7 @@ from sklearn.naive_bayes import MultinomialNB
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.neural_network import MLPClassifier
 from sklearn.svm import SVC, LinearSVC
+from typing import Dict
 from xgboost import XGBClassifier
 
 
@@ -20,6 +21,19 @@ class ModelType(str, Enum):
     NaiveBayes = "nb"
     NeuralNetwork = "nn"
     XGBoost = "xgb"
+
+
+KEYWORD_REPLACEMENTS: Dict[str, str] = {
+    ModelType.LogisticRegression.value: "Logistic Regression",
+    ModelType.RandomForest.value: "Random Forest",
+    ModelType.KNeighbors.value: "K-Nearest Neighbor",
+    ModelType.SVM.value: "Support Vector Machine",
+    ModelType.LinearSVM.value: "Linear Support Vector Machine",
+    ModelType.GaussianProcess.value: "Gaussian Process",
+    ModelType.NaiveBayes.value: "Naive Bayes Classifier",
+    ModelType.NeuralNetwork.value: "Neural Network",
+    ModelType.XGBoost.value: "XGBoost",
+}
 
 
 def get_model(model_type: ModelType, **kwargs):
