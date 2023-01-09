@@ -5,7 +5,8 @@ import zerorpc
 
 # from ray.util.multiprocessing import Pool
 from itertools import repeat
-from multiprocessing import Pool
+from multiprocessing import Pool, Lock
+from multiprocessing.synchronize import Lock as LockType
 from tqdm import tqdm
 from typing import Any, Optional, Sequence, Tuple
 
@@ -152,12 +153,25 @@ def _report_generator(args: Tuple[Report, Optional[str], bool, Optional[Sequence
     result = "Report(%s)" % ", ".join("%s=%s" % (k, str(v)) for (k, v) in report.groupby.items())
     try:
         report.generate()
+        if _generator_lock is not None:
+            _generator_lock.acquire()
         report.save(path=output_path, use_subdirs=use_subdirs, saveonly=saveonly)
         result += ": Generated and saved."
     except Exception:
         result += ": Failed." + "\n"
         result += traceback.format_exc()
+    finally:
+        if _generator_lock is not None:
+            _generator_lock.release()
     return result
+
+
+_generator_lock: Optional[LockType] = None
+
+
+def _init_pool(lock: LockType):
+    global _generator_lock
+    _generator_lock = lock
 
 
 def report(
@@ -178,12 +192,13 @@ def report(
 
     # Get applicable instances of reports.
     reports = list(Report.get_instances(study=study, groupby=groupby, **attributes))
-    item_args = zip(reports, repeat(output_path), repeat(use_subdirs), repeat(saveonly))
 
+    item_args = zip(reports, repeat(output_path), repeat(use_subdirs), repeat(saveonly))
     if no_multiprocessing:
         for result in tqdm((_report_generator(args) for args in item_args), desc="Reports", total=len(reports)):
             tqdm.write(result)
     else:
-        with Pool(processes=None) as pool:
+        lock = None if no_multiprocessing else Lock()
+        with Pool(processes=None, initializer=_init_pool, initargs=(lock,)) as pool:
             for result in tqdm(pool.imap_unordered(_report_generator, item_args), desc="Reports", total=len(reports)):
                 tqdm.write(result)
