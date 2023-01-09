@@ -4,8 +4,10 @@ import traceback
 import zerorpc
 
 # from ray.util.multiprocessing import Pool
+from itertools import repeat
+from multiprocessing import Pool
 from tqdm import tqdm
-from typing import Any, Optional, Sequence
+from typing import Any, Optional, Sequence, Tuple
 
 from .scenarios import (
     Study,
@@ -145,13 +147,17 @@ def run_scenario(
         scenario.save(path)
 
 
-def _report_generator(report: Report) -> Report:
+def _report_generator(args: Tuple[Report, Optional[str], bool, Optional[Sequence[str]]]) -> str:
+    report, output_path, use_subdirs, saveonly = args
+    result = "Report(%s)" % ", ".join("%s=%s" % (k, str(v)) for (k, v) in report.groupby.items())
     try:
         report.generate()
+        report.save(path=output_path, use_subdirs=use_subdirs, saveonly=saveonly)
+        result += ": Generated and saved."
     except Exception:
-        trace_output = traceback.format_exc()
-        print(trace_output)
-    return report
+        result += ": Failed." + "\n"
+        result += traceback.format_exc()
+    return result
 
 
 def report(
@@ -160,8 +166,7 @@ def report(
     output_path: Optional[str] = None,
     saveonly: Optional[Sequence[str]] = None,
     use_subdirs: bool = False,
-    ray_address: Optional[str] = None,
-    ray_numprocs: Optional[int] = None,
+    no_multiprocessing: bool = False,
     **attributes: Any
 ) -> None:
 
@@ -173,11 +178,12 @@ def report(
 
     # Get applicable instances of reports.
     reports = list(Report.get_instances(study=study, groupby=groupby, **attributes))
+    item_args = zip(reports, repeat(output_path), repeat(use_subdirs), repeat(saveonly))
 
-    # Start ray pool for generating reports in parallel.
-    # pool = Pool(processes=ray_numprocs, ray_address=ray_address)
-
-    # for r in tqdm(pool.imap_unordered(_report_generator, reports), desc="Reports", total=len(reports)):
-    for r in tqdm(reports, desc="Reports"):
-        r.generate()
-        r.save(path=output_path, use_subdirs=use_subdirs, saveonly=saveonly)
+    if no_multiprocessing:
+        for result in tqdm((_report_generator(args) for args in item_args), desc="Reports", total=len(reports)):
+            tqdm.write(result)
+    else:
+        with Pool(processes=None) as pool:
+            for result in tqdm(pool.imap_unordered(_report_generator, item_args), desc="Reports", total=len(reports)):
+                tqdm.write(result)

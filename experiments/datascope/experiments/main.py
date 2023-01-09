@@ -277,21 +277,9 @@ def main():
     )
 
     parser_report.add_argument(
-        "--ray-address",
-        type=str,
-        action=env_default("EXPERIMENTS_RAY_ADDRESS"),
-        required=False,
-        default=None,
-        help="Address of the ray server. If omitted, a new server ad-hoc will be created.",
-    )
-
-    parser_report.add_argument(
-        "--ray-numprocs",
-        type=int,
-        action=env_default("EXPERIMENTS_RAY_NUMPROCS"),
-        required=False,
-        default=None,
-        help="Number of ray processes to start if running in parallel. Defaults to the number of cores.",
+        "--no-multiprocessing",
+        action="store_true",
+        help="Do not use multiprocessing for generating reports. Run in single threaded mode.",
     )
 
     # Build arguments from report attributes.
