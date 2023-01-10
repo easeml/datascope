@@ -4,6 +4,7 @@ import traceback
 import zerorpc
 
 # from ray.util.multiprocessing import Pool
+from glob import glob
 from itertools import repeat
 from multiprocessing import Pool, Lock
 from multiprocessing.synchronize import Lock as LockType
@@ -187,8 +188,22 @@ def report(
     if study_path is None:
         raise ValueError("The provided study path cannot be None.")
 
-    # Load the study.
-    study = Study.load(study_path)
+    study: Optional[Study] = None
+    if Study.isstudy(study_path):
+        # The provided path points to a study, load it.
+        study = Study.load(study_path)
+        print("Loaded study: %s" % study_path)
+    else:
+        all_subdirs = glob(os.path.join(study_path, "*"))
+        if len(all_subdirs) > 0:
+            sorted_subdirs = sorted(all_subdirs, key=lambda x: os.path.getmtime(x), reverse=True)
+            for subdir in sorted_subdirs:
+                if Study.isstudy(subdir):
+                    study = Study.load(subdir)
+                    print("Loaded study: %s" % subdir)
+                    break
+    if study is None:
+        raise ValueError("Cannot find any study under the provided study path.")
 
     # Get applicable instances of reports.
     reports = list(Report.get_instances(study=study, groupby=groupby, **attributes))
