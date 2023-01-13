@@ -3,7 +3,7 @@ import re
 import sklearn.pipeline
 
 from abc import abstractmethod
-from scipy.ndimage.filters import gaussian_filter
+from scipy.ndimage.filters import gaussian_filter1d
 from skimage.feature import hog
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA, TruncatedSVD
@@ -134,10 +134,11 @@ class GaussBlurPipeline(Pipeline, id="gauss-blur", summary="Gaussian Blur", moda
     @classmethod
     def construct(cls: Type["GaussBlurPipeline"], dataset: Dataset) -> "GaussBlurPipeline":
         def gaussian_blur(x):
-            def gaussian_blur_single(x):
-                return gaussian_filter(x, sigma=5).flatten()
-
-            return np.array([gaussian_blur_single(img) for img in x])
+            result = x
+            for axis in [1, 2]:
+                result = gaussian_filter1d(result, sigma=2, axis=axis, truncate=2.0)
+            result = np.reshape(result, (result.shape[0], -1))
+            return result
 
         ops = [("blur", FunctionTransformer(gaussian_blur))]
         return GaussBlurPipeline(ops)
