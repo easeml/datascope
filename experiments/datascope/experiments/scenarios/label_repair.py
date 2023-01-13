@@ -34,8 +34,8 @@ from .datascope_scenario import (
 from ..datasets import (
     Dataset,
     BiasMethod,
-    BiasedDirtyLabelDataset,
-    DirtyLabelDataset,
+    BiasedNoisyLabelDataset,
+    NoisyLabelDataset,
     DEFAULT_TRAINSIZE,
     DEFAULT_VALSIZE,
     DEFAULT_TESTSIZE,
@@ -113,12 +113,12 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
         #     result = result and not RepairMethod.is_tmc_nonpipe(attributes["method"])
         if "dataset" in attributes:
             dataset_class = Dataset.datasets[attributes["dataset"]]
-            result = result and issubclass(dataset_class, DirtyLabelDataset)
+            result = result and issubclass(dataset_class, NoisyLabelDataset)
 
         if "repairgoal" not in attributes or attributes["repairgoal"] == RepairGoal.FAIRNESS:
             if "dataset" in attributes:
                 dataset = Dataset.datasets[attributes["dataset"]]()
-                result = result and isinstance(dataset, BiasedDirtyLabelDataset)
+                result = result and isinstance(dataset, BiasedNoisyLabelDataset)
         elif "repairgoal" in attributes and attributes["repairgoal"] == RepairGoal.ACCURACY:
             if "dataset" in attributes:
                 result = result and (attributes["dataset"] != "random")
@@ -148,7 +148,7 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
         dataset = Dataset.datasets[self.dataset](
             trainsize=self.trainsize, valsize=self.valsize, testsize=self.testsize, seed=seed
         )
-        assert isinstance(dataset, DirtyLabelDataset)
+        assert isinstance(dataset, NoisyLabelDataset)
         dataset.load()
         self.logger.debug(
             "Dataset '%s' loaded (trainsize=%d, valsize=%d, testsize=%d).",
@@ -161,7 +161,7 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
         # Compute sensitive feature groupings.
         groupings_val: Optional[np.ndarray] = None
         groupings_test: Optional[np.ndarray] = None
-        if isinstance(dataset, BiasedDirtyLabelDataset):
+        if isinstance(dataset, BiasedNoisyLabelDataset):
             groupings_val = compute_groupings(dataset.X_val, dataset.sensitive_feature)
             groupings_test = compute_groupings(dataset.X_test, dataset.sensitive_feature)
 
@@ -182,7 +182,7 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
             dataset_dirty = dataset.corrupt_labels(probabilities=probabilities)
             units_dirty = deepcopy(dataset_dirty.units_dirty)
         if self.repairgoal == RepairGoal.FAIRNESS:
-            assert isinstance(dataset, BiasedDirtyLabelDataset)
+            assert isinstance(dataset, BiasedNoisyLabelDataset)
             dataset_dirty = dataset.corrupt_labels_with_bias(probabilities=probabilities, groupbias=self.dirtybias)
             units_dirty = deepcopy(dataset_dirty.units_dirty)
 
@@ -226,7 +226,7 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
         accuracy_utility = SklearnModelAccuracy(model)
         eqodds_utility: Optional[SklearnModelEqualizedOddsDifference] = None
         if self.repairgoal == RepairGoal.FAIRNESS:
-            assert isinstance(dataset, BiasedDirtyLabelDataset)
+            assert isinstance(dataset, BiasedNoisyLabelDataset)
             eqodds_utility = SklearnModelEqualizedOddsDifference(
                 model, sensitive_features=dataset.sensitive_feature, groupings=groupings_test
             )
@@ -237,12 +237,12 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
             target_utility = JointUtility(SklearnModelAccuracy(model), weights=[-1.0])
             # target_utility = SklearnModelAccuracy(model)
         elif self.utility == UtilityType.EQODDS:
-            assert self.repairgoal == RepairGoal.FAIRNESS and isinstance(dataset, BiasedDirtyLabelDataset)
+            assert self.repairgoal == RepairGoal.FAIRNESS and isinstance(dataset, BiasedNoisyLabelDataset)
             target_utility = SklearnModelEqualizedOddsDifference(
                 model, sensitive_features=dataset.sensitive_feature, groupings=groupings_val
             )
         elif self.utility == UtilityType.EQODDS_AND_ACCURACY:
-            assert self.repairgoal == RepairGoal.FAIRNESS and isinstance(dataset, BiasedDirtyLabelDataset)
+            assert self.repairgoal == RepairGoal.FAIRNESS and isinstance(dataset, BiasedNoisyLabelDataset)
             target_utility = JointUtility(
                 SklearnModelAccuracy(model),
                 SklearnModelEqualizedOddsDifference(

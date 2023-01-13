@@ -2,23 +2,31 @@ from __future__ import absolute_import
 
 import collections
 import datasets
+import math
 import numpy as np
 import os
 import pandas as pd
-import urllib.request
+import pickle
+import pyarrow
+import requests
+import tarfile
+import torch
 
 from abc import ABC, abstractmethod
 from copy import deepcopy
 from enum import Enum
 from folktables import ACSDataSource, ACSIncome
+from glob import glob
 from math import ceil, floor
 from numpy import ndarray
+from pyarrow import parquet as pq
 from sklearn.datasets import fetch_openml, fetch_20newsgroups, make_classification
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import LabelEncoder
 from tqdm import tqdm
 from typing import Dict, List, Optional, Sequence, Tuple, Type, Union
+from zipfile import ZipFile
 
 from datascope.importance.common import binarize, get_indices
 from datascope.importance.shapley import checknan
@@ -36,7 +44,12 @@ class DatasetModality(str, Enum):
     TEXT = "text"
 
 
-KEYWORD_REPLACEMENTS = {"UCI": "UCI Adult", "FolkUCI": "Folktables Adult", "TwentyNewsGroups": "20NewsGroups"}
+KEYWORD_REPLACEMENTS = {
+    "UCI": "UCI Adult",
+    "FolkUCI": "Folktables Adult",
+    "TwentyNewsGroups": "20NewsGroups",
+    "DataPerfVision": "DataPerf Vision",
+}
 
 
 DEFAULT_TRAINSIZE = 1000
@@ -48,6 +61,37 @@ DEFAULT_NUMFEATURES = 10
 DEFAULT_SEED = 1
 DEFAULT_CLASSES = [0, 6]
 DEFAULT_DATA_DIR = os.path.join("var", "data")
+
+
+def download(url: str, filename: str, chunk_size=1024):
+    resp = requests.get(url, stream=True)
+    total = int(resp.headers.get("content-length", 0))
+    with open(filename, "wb") as file:
+        desc = "Downloading %s" % os.path.basename(filename)
+        with tqdm(desc=desc, total=total, unit="iB", unit_scale=True, unit_divisor=1024) as bar:
+            for data in resp.iter_content(chunk_size=chunk_size):
+                size = file.write(data)
+                bar.update(size)
+
+
+def unzip(source: str, path: str):
+    with ZipFile(source, "r") as zip_ref:
+        desc = "Extracting %s" % os.path.basename(source)
+        for file in tqdm(desc=desc, iterable=zip_ref.namelist(), total=len(zip_ref.namelist())):
+            zip_ref.extract(member=file, path=path)
+
+
+def untar(source: str, path: str, mode: str = "r"):
+    with tarfile.open(source, mode) as tar:
+        desc = "Extracting %s" % os.path.basename(source)
+        for file in tqdm(desc=desc, iterable=tar.getmembers(), total=len(tar.getmembers())):
+            tar.extract(member=file, path=path)
+
+
+def unpickle(file, encoding="latin1"):
+    with open(file, "rb") as fo:
+        dict = pickle.load(fo, encoding=encoding)
+    return dict
 
 
 class Dataset(ABC):
@@ -268,7 +312,7 @@ class RandomDataset(Dataset, modality=DatasetModality.TABULAR, id="random"):
         self._construct_provenance()
 
 
-class DirtyLabelDataset(Dataset, abstract=True):
+class NoisyLabelDataset(Dataset, abstract=True):
     def __init__(
         self,
         trainsize: int = DEFAULT_TRAINSIZE,
@@ -314,7 +358,7 @@ class DirtyLabelDataset(Dataset, abstract=True):
     def y_train(self, value: ndarray):
         self._y_train = value
 
-    def corrupt_labels(self, probabilities: Union[float, Sequence[float]]) -> "DirtyLabelDataset":
+    def corrupt_labels(self, probabilities: Union[float, Sequence[float]]) -> "NoisyLabelDataset":
         if not self.loaded:
             raise ValueError("The dataset is not loaded yet.")
         result = deepcopy(self)
@@ -343,6 +387,66 @@ class DirtyLabelDataset(Dataset, abstract=True):
                 if idx.sum() > 0:
                     units_dirty[i] = True
                 result._y_train_dirty[idx] = 1 - result._y_train[idx]
+        result._construct_provenance(groupings=groupings)
+        result._groupings = groupings
+        result._units_dirty = units_dirty
+        return result
+
+
+class NaturallyNoisyLabelDataset(NoisyLabelDataset, abstract=True):
+    def __init__(
+        self,
+        trainsize: int = DEFAULT_TRAINSIZE,
+        valsize: int = DEFAULT_VALSIZE,
+        testsize: int = DEFAULT_TESTSIZE,
+        seed: int = DEFAULT_SEED,
+        **kwargs
+    ) -> None:
+        super().__init__(trainsize=trainsize, valsize=valsize, testsize=testsize, seed=seed, **kwargs)
+
+    def corrupt_labels(self, probabilities: Union[float, Sequence[float]]) -> "NaturallyNoisyLabelDataset":
+        if not self.loaded:
+            raise ValueError("The dataset is not loaded yet.")
+        result = deepcopy(self)
+        assert result._y_train is not None
+        assert result._y_train_dirty is not None
+
+        n_examples = result.X_train.shape[0]
+        random = np.random.RandomState(seed=self._seed)
+        if not isinstance(probabilities, collections.abc.Sequence):
+            assert isinstance(probabilities, float)
+            dirty_idx = np.not_equal(result._y_train, result._y_train_dirty)
+            empirical_probability = np.mean(dirty_idx)
+
+            # If the empirical probability is more than the given probability,
+            # we repair some of the labels to make the empirical probability match the given one.
+            if empirical_probability > probabilities:
+                ratio = probabilities / empirical_probability
+                flip_idx = random.choice(a=[False, True], size=(n_examples), p=[1 - ratio, ratio])
+                dirty_idx = np.logical_and(dirty_idx, flip_idx)
+
+            units_dirty = dirty_idx
+            groupings = None
+        else:
+            n_groups = len(probabilities)
+            n_examples_per_group = ceil(n_examples / float(n_groups))
+            groupings = np.tile(np.arange(n_groups), n_examples_per_group)[:n_examples]
+            random.shuffle(groupings)
+            dirty_idx = np.not_equal(result._y_train, result._y_train_dirty)
+            units_dirty = np.zeros(n_groups, dtype=bool)
+            for i, p in enumerate(probabilities):
+                idx: ndarray = groupings == i
+                n_elements = np.sum(idx)
+                empirical_probability = np.mean(dirty_idx[idx])
+                if empirical_probability > p:
+                    ratio = p / empirical_probability
+                    flip_idx = random.choice(a=[False, True], size=(n_elements), p=[1 - ratio, ratio])
+                    dirty_idx[idx] = np.logical_and(dirty_idx[idx], flip_idx)
+                if dirty_idx[idx].sum() > 0:
+                    units_dirty[i] = True
+            # Repair the labels that should not be dirty anymore.
+            result._y_train_dirty[~dirty_idx] = result._y_train[~dirty_idx]
+
         result._construct_provenance(groupings=groupings)
         result._groupings = groupings
         result._units_dirty = units_dirty
@@ -542,12 +646,12 @@ def balance_train_val_and_testsize(
     return trainsize, valsize, testsize, totsize
 
 
-class BiasedDirtyLabelDataset(DirtyLabelDataset, BiasedMixin, abstract=True):
+class BiasedNoisyLabelDataset(NoisyLabelDataset, BiasedMixin, abstract=True):
     def corrupt_labels_with_bias(
         self,
         probabilities: Union[float, Sequence[float]],
         groupbias: float = 0.0,
-    ) -> "DirtyLabelDataset":
+    ) -> "NoisyLabelDataset":
         if not self.loaded:
             raise ValueError("The dataset is not loaded yet.")
         result = deepcopy(self)
@@ -618,7 +722,7 @@ def compute_bias(X: ndarray, y: ndarray, sf: int) -> float:
     return bias
 
 
-class UCI(BiasedDirtyLabelDataset, modality=DatasetModality.TABULAR):
+class UCI(BiasedNoisyLabelDataset, modality=DatasetModality.TABULAR):
     def __init__(
         self,
         trainsize: int = DEFAULT_TRAINSIZE,
@@ -796,7 +900,7 @@ def get_states_for_size(n: int) -> List[str]:
     return result
 
 
-class FolkUCI(BiasedDirtyLabelDataset, modality=DatasetModality.TABULAR):
+class FolkUCI(BiasedNoisyLabelDataset, modality=DatasetModality.TABULAR):
     def __init__(
         self,
         trainsize: int = DEFAULT_TRAINSIZE,
@@ -911,7 +1015,10 @@ class FolkUCI(BiasedDirtyLabelDataset, modality=DatasetModality.TABULAR):
         self._construct_provenance()
 
 
-class FashionMNIST(DirtyLabelDataset, modality=DatasetModality.IMAGE):
+class FashionMNIST(NoisyLabelDataset, modality=DatasetModality.IMAGE):
+
+    CLASSES = ["t-shirt/top", "trouser", "pullover", "dress", "coat", "sandal", "shirt", "sneaker", "bag", "ankle boot"]
+
     def __init__(
         self,
         trainsize: int = DEFAULT_TRAINSIZE,
@@ -974,7 +1081,7 @@ class FashionMNIST(DirtyLabelDataset, modality=DatasetModality.IMAGE):
         self._construct_provenance()
 
 
-class TwentyNewsGroups(DirtyLabelDataset, modality=DatasetModality.TEXT):
+class TwentyNewsGroups(NoisyLabelDataset, modality=DatasetModality.TEXT):
     @classmethod
     def preload(cls) -> None:
         categories = ["comp.graphics", "sci.med"]
@@ -1014,7 +1121,7 @@ class TwentyNewsGroups(DirtyLabelDataset, modality=DatasetModality.TEXT):
         self._construct_provenance()
 
 
-class Higgs(DirtyLabelDataset, modality=DatasetModality.TABULAR):
+class Higgs(NoisyLabelDataset, modality=DatasetModality.TABULAR):
 
     TRAINSIZES = [1000, 10000, 100000, 1000000]
     TESTSIZES = [500, 5000, 50000, 500000]
@@ -1027,7 +1134,7 @@ class Higgs(DirtyLabelDataset, modality=DatasetModality.TABULAR):
         filename = os.path.join(filedir, "HIGGS.csv.gz")
         if os.path.exists(filename):
             return
-        urllib.request.urlretrieve(url, filename=filename)
+        download(url=url, filename=filename)
         df = pd.read_csv(filename, compression="gzip", header=None)
         df_tr, df_ts = df[:-500000], df[-500000:]
 
@@ -1083,6 +1190,259 @@ class Higgs(DirtyLabelDataset, modality=DatasetModality.TABULAR):
         self._trainsize = self._X_train.shape[0]
         self._valsize = self._X_val.shape[0]
         self._testsize = self._X_test.shape[0]
+        self._construct_provenance()
+
+
+class DataPerfVision(NaturallyNoisyLabelDataset, modality=DatasetModality.TABULAR):
+
+    DATA_DIR = os.path.join(DEFAULT_DATA_DIR, "dataperf-vision")
+
+    @classmethod
+    def preload(cls: Type["DataPerfVision"]) -> None:
+        # Download and extract the source zip file.
+        url = "https://drive.google.com/uc?export=download&id=1_-WZCGd31XTENCtVjP4GqDLYShP3NzwK&confirm=t"
+        os.makedirs(cls.DATA_DIR, exist_ok=True)
+        filename = os.path.join(cls.DATA_DIR, "dataperf-vision.zip")
+        if not os.path.exists(filename):
+            download(url=url, filename=filename)
+            unzip(source=filename, path=cls.DATA_DIR)
+
+        # If all numpy files already exist, we can return.
+        numpy_files = {
+            "X_train": os.path.join(cls.DATA_DIR, "X_train.npy"),
+            "X_val": os.path.join(cls.DATA_DIR, "X_val.npy"),
+            "X_test": os.path.join(cls.DATA_DIR, "X_test.npy"),
+            "y_train": os.path.join(cls.DATA_DIR, "y_train.npy"),
+            "y_train_dirty": os.path.join(cls.DATA_DIR, "y_train_dirty.npy"),
+            "y_val": os.path.join(cls.DATA_DIR, "y_val.npy"),
+            "y_test": os.path.join(cls.DATA_DIR, "y_test.npy"),
+        }
+        if all(os.path.exists(p) for p in numpy_files.values()):
+            return
+
+        # Collect dataset ID's and find all relevan file paths.
+        dataset_ids = [
+            os.path.basename(x.split("_train")[0])
+            for x in glob(os.path.join(cls.DATA_DIR, "embeddings", "*_train*"))
+            if "flipped" not in x
+        ]
+        X_train_paths = [os.path.join(cls.DATA_DIR, "embeddings", "%s_train_0.3_300.parquet" % x) for x in dataset_ids]
+        X_val_paths = [os.path.join(cls.DATA_DIR, "embeddings", "%s_val_100.parquet" % x) for x in dataset_ids]
+        X_test_paths = [os.path.join(cls.DATA_DIR, "embeddings", "%s_test_500.parquet" % x) for x in dataset_ids]
+        y_train_paths = [os.path.join(cls.DATA_DIR, "data", "dataset_%s_train.csv" % x) for x in dataset_ids]
+        y_val_paths = [os.path.join(cls.DATA_DIR, "data", "dataset_%s_val.csv" % x) for x in dataset_ids]
+        y_test_paths = [os.path.join(cls.DATA_DIR, "data", "dataset_%s_test.csv" % x) for x in dataset_ids]
+
+        # Load feature tables and extract data example indices (keys).
+        X_train_table = pyarrow.concat_tables([pq.read_table(path) for path in X_train_paths])
+        X_val_table = pyarrow.concat_tables([pq.read_table(path) for path in X_val_paths])
+        X_test_table = pyarrow.concat_tables([pq.read_table(path) for path in X_test_paths])
+        idx_train = set(np.vstack(X_train_table.column("filename").to_numpy()).flatten().tolist())
+        idx_val = set(np.vstack(X_val_table.column("filename").to_numpy()).flatten().tolist())
+        idx_test = set(np.vstack(X_test_table.column("filename").to_numpy()).flatten().tolist())
+
+        # Ensure no index appears in more than one set.
+        idx_train = idx_train - idx_val
+        idx_test = idx_test - idx_val
+        idx_test = idx_test - idx_train
+
+        # Transfer 601 examples from the test set into the validation set so it can have 1000 examples.
+        idx_transfer = sorted(idx_test)
+        random = np.random.RandomState(seed=1)
+        random.shuffle(idx_transfer)
+        idx_test = idx_test.difference(idx_transfer[:601])
+        idx_val = idx_val.union(idx_transfer[:601])
+
+        # Convert sets of indices to row selectors.
+        X_table = pyarrow.concat_tables([X_train_table, X_val_table, X_test_table])
+        X_idx = X_table.column("filename").to_pandas()
+        X_idx_dups = X_idx.duplicated(keep="first")
+        X_train_selector = X_idx.isin(idx_train) & ~X_idx_dups
+        X_val_selector = X_idx.isin(idx_val) & ~X_idx_dups
+        X_test_selector = X_idx.isin(idx_test) & ~X_idx_dups
+
+        # Select the train, validation and test features from feature tables.
+        X_train = np.vstack(
+            X_table.filter(mask=X_train_selector.to_list())
+            .select(["filename", "encoding"])
+            .sort_by("filename")
+            .column("encoding")
+            .to_numpy()
+        )
+        X_val = np.vstack(
+            X_table.filter(mask=X_val_selector.to_list())
+            .select(["filename", "encoding"])
+            .sort_by("filename")
+            .column("encoding")
+            .to_numpy()
+        )
+        X_test = np.vstack(
+            X_table.filter(mask=X_test_selector.to_list())
+            .select(["filename", "encoding"])
+            .sort_by("filename")
+            .column("encoding")
+            .to_numpy()
+        )
+
+        # Load the clean and dirty labels from CSV files.
+        y_clean = pd.concat(
+            [pd.read_csv(path, index_col=0)["hv_label"] for path in y_train_paths + y_val_paths + y_test_paths]
+        )
+        y_dirty = pd.concat(
+            [pd.read_csv(path, index_col=0)["mg_label"] for path in y_train_paths + y_val_paths + y_test_paths]
+        )
+        y_table_stacked = pd.concat([y_clean, y_dirty], axis=1)
+        y_table = y_table_stacked[~y_table_stacked.index.duplicated(keep="first")]
+
+        # Select the labels given the training, validation and test set indices.
+        y_train_table = y_table.loc[list(idx_train)].sort_index()
+        y_val_table = y_table.loc[list(idx_val)].sort_index()
+        y_test_table = y_table.loc[list(idx_test)].sort_index()
+
+        y_train_clean = y_train_table["hv_label"].to_numpy()
+        y_train_dirty = y_train_table["mg_label"].to_numpy()
+
+        y_val_clean = y_val_table["hv_label"].to_numpy()
+        y_test_clean = y_test_table["hv_label"].to_numpy()
+
+        # Shuffle the datasets.
+        permutation_train = random.permutation(X_train.shape[0])
+        permutation_val = random.permutation(X_val.shape[0])
+        permutation_test = random.permutation(X_test.shape[0])
+        X_train = X_train[permutation_train, :]
+        X_val = X_val[permutation_val, :]
+        X_test = X_test[permutation_test, :]
+        y_train_clean = y_train_clean[permutation_train]
+        y_train_dirty = y_train_dirty[permutation_train]
+        y_val_clean = y_val_clean[permutation_val]
+        y_test_clean = y_test_clean[permutation_test]
+
+        # Save all the feature and label numpy arrays.
+        np.save(numpy_files["X_train"], X_train)
+        np.save(numpy_files["X_val"], X_val)
+        np.save(numpy_files["X_test"], X_test)
+        np.save(numpy_files["y_train"], y_train_clean)
+        np.save(numpy_files["y_train_dirty"], y_train_dirty)
+        np.save(numpy_files["y_val"], y_val_clean)
+        np.save(numpy_files["y_test"], y_test_clean)
+
+    def load(self) -> None:
+        self._X_train = np.load(os.path.join(self.DATA_DIR, "X_train.npy"))
+        self._X_val = np.load(os.path.join(self.DATA_DIR, "X_val.npy"))
+        self._X_test = np.load(os.path.join(self.DATA_DIR, "X_test.npy"))
+        self._y_train = np.load(os.path.join(self.DATA_DIR, "y_train.npy"))
+        self._y_train_dirty = np.load(os.path.join(self.DATA_DIR, "y_train_dirty.npy"))
+        self._y_val = np.load(os.path.join(self.DATA_DIR, "y_val.npy"))
+        self._y_test = np.load(os.path.join(self.DATA_DIR, "y_test.npy"))
+
+        assert self._X_train is not None
+        assert self._X_val is not None
+        assert self._X_test is not None
+        assert self._y_train is not None
+        assert self._y_train_dirty is not None
+        assert self._y_val is not None
+        assert self._y_test is not None
+
+        if self.trainsize > 0:
+            self._X_train = self._X_train[: self.trainsize, :]
+            self._y_train = self._y_train[: self.trainsize]
+            self._y_train_dirty = self._y_train_dirty[: self.trainsize]
+        if self.valsize > 0:
+            self._X_val = self._X_val[: self.valsize, :]
+            self._y_val = self._y_val[: self.valsize]
+        if self.testsize > 0:
+            self._X_test = self._X_val[: self.testsize, :]
+            self._y_test = self._y_val[: self.testsize]
+
+        self._loaded = True
+        assert self._X_train is not None and self._X_val is not None
+        self._trainsize = self._X_train.shape[0]
+        self._valsize = self._X_val.shape[0]
+        self._testsize = self._X_test.shape[0]
+        self._construct_provenance()
+
+
+class CifarN(NaturallyNoisyLabelDataset, modality=DatasetModality.IMAGE):
+
+    DATA_DIR = os.path.join(DEFAULT_DATA_DIR, "cifar-n")
+    CIFAR_10_DATA_DIR = os.path.join(DATA_DIR, "cifar-10-batches-py")
+    CIFAR_10_TRAIN_FILES = ["data_batch_%d" % i for i in [1, 2, 3, 4, 5]]
+    CIFAR_10_TEST_FILE = "test_batch"
+    CIFAR_N_DATA_DIR = os.path.join(DATA_DIR, "CIFAR-N")
+    CIFAR_10N_FILE = "CIFAR-10_human.pt"
+    CLASSES = ["airplane", "automobile", "bird", "cat", "deer", "dog", "frog", "horse", "ship", "truck"]
+
+    @classmethod
+    def preload(cls: Type["CifarN"]) -> None:
+        # If all files exist, we can skip.
+        filelist = [os.path.join(cls.CIFAR_10_DATA_DIR, batch) for batch in cls.CIFAR_10_TRAIN_FILES]
+        filelist += [os.path.join(cls.CIFAR_10_DATA_DIR, cls.CIFAR_10_TEST_FILE)]
+        filelist += [os.path.join(cls.CIFAR_N_DATA_DIR, cls.CIFAR_10N_FILE)]
+        if all(os.path.exists(p) for p in filelist):
+            return
+
+        # Download the CIFAR-10 dataset.
+        cifar_url = "https://www.cs.toronto.edu/~kriz/cifar-10-python.tar.gz"
+        os.makedirs(cls.DATA_DIR, exist_ok=True)
+        filename = os.path.join(cls.DATA_DIR, "cifar-10-python.tar.gz")
+        if not os.path.exists(filename):
+            download(url=cifar_url, filename=filename)
+            untar(source=filename, path=cls.DATA_DIR, mode="r:gz")
+
+        # Download the CIFAR-N noisy labels.
+        labels_url = "http://www.yliuu.com/web-cifarN/files/CIFAR-N.zip"
+        filename = os.path.join(cls.DATA_DIR, "CIFAR-N.zip")
+        if not os.path.exists(filename):
+            download(url=labels_url, filename=filename)
+            unzip(source=filename, path=cls.DATA_DIR)
+
+    def load(self) -> None:
+
+        # Load the CIFAR-10 dataset. We load the minimal number of batches needed.
+        num_batches = math.ceil((self.trainsize + self.valsize) / 10000)
+        if num_batches == 0:
+            num_batches = len(self.CIFAR_10_TRAIN_FILES)
+        train_filepaths = [
+            os.path.join(self.CIFAR_10_DATA_DIR, batch) for batch in self.CIFAR_10_TRAIN_FILES[:num_batches]
+        ]
+        train_batches = [unpickle(filepath) for filepath in train_filepaths]
+        test_batch = unpickle(os.path.join(self.CIFAR_10_DATA_DIR, self.CIFAR_10_TEST_FILE))
+        X_train = np.concatenate(
+            [batch["data"].reshape((-1, 3, 32, 32)).transpose((0, 2, 3, 1)) for batch in train_batches]
+        )
+        y_train = np.concatenate([batch["labels"] for batch in train_batches])
+        X_test = test_batch["data"].reshape((-1, 3, 32, 32)).transpose((0, 2, 3, 1))
+        y_test = test_batch["labels"]
+
+        # Load the CIFAR-N noisy labels.
+        noisylabels = torch.load(os.path.join(self.CIFAR_N_DATA_DIR, self.CIFAR_10N_FILE))
+        y_train_dirty = noisylabels["worse_label"]
+
+        # Perform the train-test split.
+        trainsize = self.trainsize if self.trainsize > 0 else None
+        valsize = self.valsize if self.valsize > 0 else None
+        totsize = X_train.shape[0]
+        self._X_train, self._X_val, idx_train, idx_val = train_test_split(
+            X_train,
+            np.arange(totsize),
+            train_size=trainsize,
+            test_size=valsize,
+            random_state=self._seed,
+            stratify=y_train,
+        )
+        self._y_train = y_train[idx_train]
+        self._y_train_dirty = y_train_dirty[idx_train]
+
+        # Select the test dataset.
+        self._X_test, self._y_test = X_test, y_test
+        if self.testsize > 0:
+            self._X_test, self._y_test = self._X_test[: self.testsize], self._y_test[: self.testsize]
+
+        assert self._X_train is not None and self._X_val is not None
+        self._trainsize = self._X_train.shape[0]
+        self._valsize = self._X_val.shape[0]
+        self._testsize = self._X_test.shape[0]
+        self._loaded = True
         self._construct_provenance()
 
 
