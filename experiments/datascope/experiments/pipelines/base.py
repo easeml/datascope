@@ -1,9 +1,11 @@
 import numpy as np
 import re
 import sklearn.pipeline
+import torch
 
 from abc import abstractmethod
 from scipy.ndimage.filters import gaussian_filter1d
+from sentence_transformers import SentenceTransformer
 from skimage.feature import hog
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA, TruncatedSVD
@@ -11,7 +13,15 @@ from sklearn.feature_extraction.text import CountVectorizer, TfidfTransformer
 from sklearn.impute import MissingIndicator
 from sklearn.pipeline import FeatureUnion
 from sklearn.preprocessing import StandardScaler, FunctionTransformer
+from transformers import AutoImageProcessor, ResNetModel
+from transformers.image_processing_utils import BatchFeature
+from transformers.modeling_outputs import BaseModelOutputWithPoolingAndNoAttention
 from typing import Dict, Iterable, Type, Optional
+
+# import torch.nn.functional as F
+# from transformers import MobileBertTokenizer, MobileBertModel
+# from transformers.tokenization_utils import BatchEncoding
+# from transformers.modeling_outputs import BaseModelOutputWithPooling
 
 from ..datasets import DatasetModality, Dataset
 
@@ -182,6 +192,43 @@ class HogTransformPipeline(
         return HogTransformPipeline(ops)
 
 
+class ResNet18EmbeddingPipeline(
+    Pipeline, id="resnet-18", summary="ResNet-18 Embedding", modalities=[DatasetModality.IMAGE]
+):  # type: ignore
+    """
+    A pipeline that extracts embeddings using a ResNet50 model pre-trained on the ImageNet dataset.
+    """
+
+    @classmethod
+    def construct(cls: Type["ResNet18EmbeddingPipeline"], dataset: Dataset) -> "ResNet18EmbeddingPipeline":
+
+        if dataset.X_train.ndim not in [3, 4]:
+            raise ValueError("The provided dataset features must have either 3 or 4 dimensions.")
+        if dataset.X_train.ndim == 4 and dataset.X_train.shape[-1] not in [1, 3]:
+            raise ValueError("The provided dataset features must be either grayscale or with 3 channels.")
+
+        feature_extractor = AutoImageProcessor.from_pretrained("microsoft/resnet-18")
+        model = ResNetModel.from_pretrained("microsoft/resnet-18")
+
+        def embedding_transform(X: np.ndarray) -> np.ndarray:
+
+            if X.ndim == 3:
+                X = np.expand_dims(X, axis=X.ndim)
+            if X.shape[-1] == 1:
+                X = np.tile(X, (1, 1, 1, 3))
+
+            inputs: BatchFeature = feature_extractor(list(X), return_tensors="pt")
+
+            with torch.no_grad():
+                outputs: BaseModelOutputWithPoolingAndNoAttention = model(**inputs)
+
+            result: np.ndarray = np.squeeze(outputs.pooler_output.numpy())
+            return result
+
+        ops = [("embedding", FunctionTransformer(embedding_transform))]
+        return cls(ops)
+
+
 class TfidfPipeline(Pipeline, id="tf-idf", summary="TF-IDF", modalities=[DatasetModality.TEXT]):
     """
     A pipeline that applies a count vectorizer and a TF-IDF transform.
@@ -218,3 +265,66 @@ class ToLowerUrlRemovePipeline(
             ("tfidf", TfidfTransformer()),
         ]
         return ToLowerUrlRemovePipeline(ops)
+
+
+# class MobileBertEmbeddingPipeline(
+#     Pipeline, id="mobile-bert", summary="Mobile-BERT Embedding", modalities=[DatasetModality.IMAGE]
+# ):
+#     """
+#     A pipeline that extracts embeddings using a ResNet50 model pre-trained on the ImageNet dataset.
+#     """
+
+#     @classmethod
+#     def construct(cls: Type["MobileBertEmbeddingPipeline"], dataset: Dataset) -> "MobileBertEmbeddingPipeline":
+
+#         if dataset.X_train.ndim > 1:
+#             raise ValueError("The provided dataset features must have either 0 or 1 dimensions.")
+
+#         tokenizer = MobileBertTokenizer.from_pretrained("google/mobilebert-uncased")
+#         model = MobileBertModel.from_pretrained("google/mobilebert-uncased")
+
+#         def mean_pooling(model_output, attention_mask):
+#             token_embeddings = model_output[0]  # First element of model_output contains all token embeddings
+#             input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
+#             return torch.sum(token_embeddings * input_mask_expanded, 1) / torch.clamp(
+#                 input_mask_expanded.sum(1), min=1e-9
+#             )
+
+#         def embedding_transform(X: np.ndarray) -> np.ndarray:
+
+#             inputs: BatchEncoding = tokenizer(
+#                 list(X), return_tensors="pt", max_length=128, padding=True, truncation=True, add_special_tokens=True
+#             )
+
+#             with torch.no_grad():
+#                 outputs: BaseModelOutputWithPooling = model(**inputs)
+
+#             sentence_embeddings = mean_pooling(outputs, inputs["attention_mask"])
+
+#             result = F.normalize(sentence_embeddings, p=2, dim=1)
+
+#             return result.numpy()
+
+#         ops = [("embedding", FunctionTransformer(embedding_transform))]
+#         return cls(ops)
+
+# Source: https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2
+class MiniLMEmbeddingPipeline(Pipeline, id="mini-lm", summary="MiniLM Embedding", modalities=[DatasetModality.IMAGE]):
+    """
+    A pipeline that extracts sentence embeddings using a MiniLM model pre-trained on the 1B sentences.
+    """
+
+    @classmethod
+    def construct(cls: Type["MiniLMEmbeddingPipeline"], dataset: Dataset) -> "MiniLMEmbeddingPipeline":
+
+        if dataset.X_train.ndim > 1:
+            raise ValueError("The provided dataset features must have either 0 or 1 dimensions.")
+
+        model = SentenceTransformer("all-MiniLM-L6-v2")
+
+        def embedding_transform(X: np.ndarray) -> np.ndarray:
+            embeddings = model.encode(list(X))
+            return np.array(embeddings)
+
+        ops = [("embedding", FunctionTransformer(embedding_transform))]
+        return cls(ops)
