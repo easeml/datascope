@@ -2,6 +2,7 @@ import numpy as np
 import re
 import sklearn.pipeline
 import torch
+import transformers
 
 from abc import abstractmethod
 from scipy.ndimage.filters import gaussian_filter1d
@@ -24,6 +25,9 @@ from typing import Dict, Iterable, Type, Optional
 # from transformers.modeling_outputs import BaseModelOutputWithPooling
 
 from ..datasets import DatasetModality, Dataset
+
+
+transformers.utils.logging.set_verbosity_error()
 
 
 class Pipeline(sklearn.pipeline.Pipeline):
@@ -202,10 +206,10 @@ class ResNet18EmbeddingPipeline(
     @classmethod
     def construct(cls: Type["ResNet18EmbeddingPipeline"], dataset: Dataset) -> "ResNet18EmbeddingPipeline":
 
-        if dataset.X_train.ndim not in [3, 4]:
-            raise ValueError("The provided dataset features must have either 3 or 4 dimensions.")
-        if dataset.X_train.ndim == 4 and dataset.X_train.shape[-1] not in [1, 3]:
-            raise ValueError("The provided dataset features must be either grayscale or with 3 channels.")
+        # if dataset.X_train.ndim not in [3, 4]:
+        #     raise ValueError("The provided dataset features must have either 3 or 4 dimensions.")
+        # if dataset.X_train.ndim == 4 and dataset.X_train.shape[-1] not in [1, 3]:
+        #     raise ValueError("The provided dataset features must be either grayscale or with 3 channels.")
 
         feature_extractor = AutoImageProcessor.from_pretrained("microsoft/resnet-18")
         model = ResNetModel.from_pretrained("microsoft/resnet-18")
@@ -317,8 +321,8 @@ class MiniLMEmbeddingPipeline(Pipeline, id="mini-lm", summary="MiniLM Embedding"
     @classmethod
     def construct(cls: Type["MiniLMEmbeddingPipeline"], dataset: Dataset) -> "MiniLMEmbeddingPipeline":
 
-        if dataset.X_train.ndim > 1:
-            raise ValueError("The provided dataset features must have either 0 or 1 dimensions.")
+        # if dataset.X_train.ndim > 1:
+        #     raise ValueError("The provided dataset features must have either 0 or 1 dimensions.")
 
         model = SentenceTransformer("all-MiniLM-L6-v2")
 

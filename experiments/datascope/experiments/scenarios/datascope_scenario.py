@@ -3,6 +3,7 @@ import pandas as pd
 from datascope.importance.shapley import ImportanceMethod, DEFAULT_MC_TIMEOUT, DEFAULT_MC_TOLERANCE, DEFAULT_NN_K
 from enum import Enum
 from pandas import DataFrame
+from sklearn.preprocessing import FunctionTransformer
 from typing import Any, Optional, Dict
 
 from .base import Scenario, attribute, result
@@ -339,6 +340,6 @@ class DatascopeScenario(Scenario, abstract=True):
         result = True
         if "pipeline" in attributes and "dataset" in attributes:
             dataset = Dataset.datasets[attributes["dataset"]]()
-            pipeline = Pipeline.pipelines[attributes["pipeline"]].construct(dataset)
+            pipeline = Pipeline.pipelines[attributes["pipeline"]](steps=[("hack", FunctionTransformer())])
             result = result and dataset.modality in pipeline.modalities
         return result and super().is_valid_config(**attributes)
