@@ -11,7 +11,12 @@ from logging import Logger, getLogger
 from numpy import ndarray
 from scipy.sparse import csr_matrix, issparse, spmatrix
 from scipy.sparse.csgraph import connected_components
-from sklearn.metrics import DistanceMetric
+
+try:
+    from sklearn.metrics import DistanceMetric
+except ImportError:
+    from sklearn.neighbors import DistanceMetric
+
 from sklearn.pipeline import Pipeline
 
 from typing_extensions import Literal

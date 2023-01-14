@@ -759,12 +759,12 @@ class UCI(BiasedNoisyLabelDataset, modality=DatasetModality.TABULAR):
 
     @classmethod
     def preload(cls) -> None:
-        fetch_openml(data_id=1590, as_frame=False, data_home=DEFAULT_DATA_DIR, parser="pandas")
+        fetch_openml(data_id=1590, as_frame=False, data_home=DEFAULT_DATA_DIR, return_X_y=True)
 
     def load(self) -> None:
-        data = fetch_openml(data_id=1590, as_frame=False, data_home=DEFAULT_DATA_DIR, parser="liac-arff")
-        X = np.nan_to_num(data.data)  # TODO: Maybe leave nan values.
-        y = np.array(data.target == ">50K", dtype=int)
+        X, y = fetch_openml(data_id=1590, as_frame=False, data_home=DEFAULT_DATA_DIR, return_X_y=True)
+        X = np.nan_to_num(X)  # TODO: Maybe leave nan values.
+        y = np.array(y == ">50K", dtype=int)
 
         # # Make dataset labels balanced.
         # idx_l0 = np.nonzero(y == 0)[0]
@@ -804,9 +804,9 @@ class UCI(BiasedNoisyLabelDataset, modality=DatasetModality.TABULAR):
     ) -> None:
         assert train_bias > -1.0 and train_bias < 1.0
         assert val_bias > -1.0 and val_bias < 1.0
-        data = fetch_openml(data_id=1590, as_frame=False, data_home=DEFAULT_DATA_DIR, parser="pandas")
-        X = np.nan_to_num(data.data)  # TODO: Maybe leave nan values.
-        y = np.array(data.target == ">50K", dtype=int)
+        X, y = fetch_openml(data_id=1590, as_frame=False, data_home=DEFAULT_DATA_DIR, return_X_y=True)
+        X = np.nan_to_num(X)  # TODO: Maybe leave nan values.
+        y = np.array(y == ">50K", dtype=int)
 
         idx_train, idx_val, idx_test = BiasedMixin._get_biased_indices(
             X=X,
