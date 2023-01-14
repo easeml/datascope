@@ -1432,6 +1432,7 @@ class CifarN(NaturallyNoisyLabelDataset, modality=DatasetModality.IMAGE):
         )
         self._y_train = y_train[idx_train]
         self._y_train_dirty = y_train_dirty[idx_train]
+        self._y_val = y_train[idx_val]
 
         # Select the test dataset.
         self._X_test, self._y_test = X_test, y_test
