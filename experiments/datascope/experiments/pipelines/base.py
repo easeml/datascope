@@ -181,6 +181,8 @@ class HogTransformPipeline(
         block_norm: str = DEFAULT_HOG_BLOCK_NORM,
     ) -> "HogTransformPipeline":
         def hog_transform(X: np.ndarray) -> np.ndarray:
+            channel_axis = None if X.ndim == 2 else X.ndim - 1
+
             def hog_single(image):
                 return hog(
                     image=image,
@@ -188,6 +190,7 @@ class HogTransformPipeline(
                     pixels_per_cell=(pixels_per_cell, pixels_per_cell),
                     cells_per_block=(cells_per_block, cells_per_block),
                     block_norm=block_norm,
+                    channel_axis=channel_axis,
                 )
 
             return np.array([hog_single(img) for img in X])
