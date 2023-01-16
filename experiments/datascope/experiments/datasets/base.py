@@ -1356,8 +1356,8 @@ class DataPerfVision(NaturallyNoisyLabelDataset, modality=DatasetModality.TABULA
             self._y_val = self._y_val[idx]
         if self.testsize > 0:
             idx = random.permutation(self.testsize)
-            self._X_test = self._X_val[idx, :]
-            self._y_test = self._y_val[idx]
+            self._X_test = self._X_test[idx, :]
+            self._y_test = self._y_test[idx]
 
         self._loaded = True
         assert self._X_train is not None and self._X_val is not None
