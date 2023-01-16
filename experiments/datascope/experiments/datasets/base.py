@@ -1343,16 +1343,21 @@ class DataPerfVision(NaturallyNoisyLabelDataset, modality=DatasetModality.TABULA
         assert self._y_val is not None
         assert self._y_test is not None
 
+        random = np.random.RandomState(seed=self._seed)
+
         if self.trainsize > 0:
-            self._X_train = self._X_train[: self.trainsize, :]
-            self._y_train = self._y_train[: self.trainsize]
-            self._y_train_dirty = self._y_train_dirty[: self.trainsize]
+            idx = random.permutation(self.trainsize)
+            self._X_train = self._X_train[idx, :]
+            self._y_train = self._y_train[idx]
+            self._y_train_dirty = self._y_train_dirty[idx]
         if self.valsize > 0:
-            self._X_val = self._X_val[: self.valsize, :]
-            self._y_val = self._y_val[: self.valsize]
+            idx = random.permutation(self.valsize)
+            self._X_val = self._X_val[idx, :]
+            self._y_val = self._y_val[idx]
         if self.testsize > 0:
-            self._X_test = self._X_val[: self.testsize, :]
-            self._y_test = self._y_val[: self.testsize]
+            idx = random.permutation(self.testsize)
+            self._X_test = self._X_val[idx, :]
+            self._y_test = self._y_val[idx]
 
         self._loaded = True
         assert self._X_train is not None and self._X_val is not None
