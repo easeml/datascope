@@ -1,8 +1,7 @@
 import argparse
 import os
 
-from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Set
+from typing import Any, Optional
 
 from .base import run, run_scenario, report
 from .datasets import preload_datasets
@@ -10,6 +9,7 @@ from .scenarios import (
     Scenario,
     Report,
     Backend,
+    add_dynamic_arguments,
     DEFAULT_RESULTS_PATH,
     DEFAULT_RESULTS_SCENARIOS_PATH,
     DEFAULT_STUDY_PATH,
@@ -18,51 +18,12 @@ from .scenarios import (
     DEFAULT_SLURM_JOBMEMORY,
 )
 
-
-def make_type_parser(target: Optional[type]) -> Callable[[str], Any]:
-    def parser(source: str) -> Any:
-        if target is None:
-            return source
-        result: Any = source
-        if issubclass(target, bool):
-            result = result in ["True", "true", "T", "t", "Yes", "yes", "y"]
-        elif issubclass(target, int):
-            result = int(result)
-        elif issubclass(target, float):
-            result = float(result)
-        elif issubclass(target, Enum):
-            result = target(result)
-        return result
-
-    return parser
-
-
-def add_dynamic_arguments(
-    parser: argparse.ArgumentParser,
-    attribute_domains: Dict[str, Set],
-    attribute_types: Dict[str, Optional[type]],
-    attribute_defaults: Dict[str, Optional[Any]],
-    attribute_helpstrings: Dict[str, Optional[str]],
-    attribute_isiterable: Dict[str, bool],
-    single_instance: bool = False,
-) -> None:
-    for name in attribute_domains:
-        default = attribute_defaults[name]
-        domain: Optional[List] = [x.value if isinstance(x, Enum) else x for x in attribute_domains[name]]
-        if domain == [None]:
-            domain = None
-        helpstring = attribute_helpstrings[name] or ("Scenario " + name + ".")
-        if default is None:
-            helpstring += " Default: [all]" if not single_instance else ""
-        else:
-            helpstring += " Default: %s" % str(default)
-        parser.add_argument(
-            "--%s" % name.replace("_", "-"),
-            help=helpstring,
-            type=make_type_parser(attribute_types[name]),
-            choices=domain,
-            nargs=(1 if single_instance else "+") if attribute_isiterable[name] else None,  # type: ignore
-        )
+MODULES_INCLUDE_VARNAME = "DATASCOPE_EXPERIMENTS_MODULES_INCLUDE"
+MODULES_INCLUDE = (
+    [__import__(m.strip()) for m in os.environ[MODULES_INCLUDE_VARNAME].split(",")]
+    if MODULES_INCLUDE_VARNAME in os.environ
+    else []
+)
 
 
 # Courtesy of http://stackoverflow.com/a/10551190 with env-var retrieval fixed
@@ -196,11 +157,8 @@ def main():
     # Build arguments from scenario attributes.
     add_dynamic_arguments(
         parser=parser_run,
-        attribute_domains=Scenario.attribute_domains,
-        attribute_types=Scenario.attribute_types,
-        attribute_defaults=Scenario.attribute_defaults,
-        attribute_helpstrings=Scenario.attribute_helpstrings,
-        attribute_isiterable=Scenario.attribute_isiterable,
+        targets=Scenario.scenarios.values(),
+        all_iterable=True,
         single_instance=False,
     )
 
@@ -230,11 +188,8 @@ def main():
 
     add_dynamic_arguments(
         parser=parser_run_scenario,
-        attribute_domains=Scenario.attribute_domains,
-        attribute_types=Scenario.attribute_types,
-        attribute_defaults=Scenario.attribute_defaults,
-        attribute_helpstrings=Scenario.attribute_helpstrings,
-        attribute_isiterable=Scenario.attribute_isiterable,
+        targets=Scenario.scenarios.values(),
+        all_iterable=True,
         single_instance=True,
     )
 
@@ -285,15 +240,10 @@ def main():
     # Build arguments from report attributes.
     add_dynamic_arguments(
         parser=parser_report,
-        attribute_domains=Report.attribute_domains,
-        attribute_types=Report.attribute_types,
-        attribute_defaults=Report.attribute_defaults,
-        attribute_helpstrings=Report.attribute_helpstrings,
-        attribute_isiterable=Report.attribute_isiterable,
+        targets=Report.reports.values(),
+        all_iterable=False,
         single_instance=False,
     )
-
-    # print(Report.attribute_domains)
 
     subparsers.add_parser("dataload")
 

@@ -207,12 +207,12 @@ class DatascopeScenario(Scenario, abstract=True):
         self._evolution = pd.DataFrame() if evolution is None else evolution
         self._importance_cputime: Optional[float] = importance_cputime
 
-    @attribute(domain=Dataset.datasets.keys())
+    @attribute(domain=Dataset.datasets)
     def dataset(self) -> str:
         """Dataset to use for training and validation."""
         return self._dataset
 
-    @attribute(domain=Pipeline.pipelines.keys())
+    @attribute(domain=Pipeline.pipelines)
     def pipeline(self) -> str:
         """Pipeline to use for feature extraction."""
         return self._pipeline

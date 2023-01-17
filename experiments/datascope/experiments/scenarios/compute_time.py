@@ -71,7 +71,7 @@ class ComputeTimeScenario(Scenario, id="compute-time"):
         """Dataset to use for training and validation."""
         return self._dataset
 
-    @attribute(domain=Pipeline.pipelines.keys())
+    @attribute(domain=Pipeline.pipelines)
     def pipeline(self) -> str:
         """Pipeline to use for feature extraction."""
         return self._pipeline

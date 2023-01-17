@@ -1,3 +1,4 @@
+import argparse
 import collections.abc
 import datetime
 import gevent
@@ -88,7 +89,7 @@ class attribute(PropertyTag):
         fset: Optional[Callable[[Any, Any], None]] = None,
         fdel: Optional[Callable[[Any], None]] = None,
         doc: Optional[str] = None,
-        domain: Optional[Iterable] = None,
+        domain: Optional[Union[Iterable, Dict]] = None,
     ) -> None:
         super().__init__(fget, fset, fdel, doc)
         self.domain = domain
@@ -115,10 +116,6 @@ class attribute(PropertyTag):
 
 class result(PropertyTag):
     __isresult__ = True
-
-
-# def extract_simpletype(target: object) -> type:
-#     pass
 
 
 def extract_enumtype(target: object) -> Optional[Type[Enum]]:
@@ -159,7 +156,7 @@ def get_property_domain(target: object, name: str) -> List[Any]:
     sign = signature(getter)
     enum = extract_enumtype(sign.return_annotation)
     if isinstance(prop, PropertyTag) and prop.domain is not None:
-        return list(prop.domain)
+        return list(prop.domain.keys()) if isinstance(prop.domain, dict) else list(prop.domain)
     elif sign.return_annotation is bool:
         return [False, True]
     elif enum is None:
@@ -209,6 +206,81 @@ def has_attribute_value(target: object, name: str, value: Any, ignore_none: bool
         return target_value is None or value == [None] or target_value in value
     else:
         return target_value in value
+
+
+def make_type_parser(target: Optional[type]) -> Callable[[str], Any]:
+    def parser(source: str) -> Any:
+        if target is None:
+            return source
+        result: Any = source
+        if issubclass(target, bool):
+            result = result in ["True", "true", "T", "t", "Yes", "yes", "y"]
+        elif issubclass(target, int):
+            result = int(result)
+        elif issubclass(target, float):
+            result = float(result)
+        elif issubclass(target, Enum):
+            result = target(result)
+        return result
+
+    return parser
+
+
+def add_dynamic_arguments(
+    parser: argparse.ArgumentParser,
+    targets: Iterable[type],
+    all_iterable: bool = False,
+    single_instance: bool = False,
+) -> None:
+
+    attribute_domains: Dict[str, Set[Any]] = {}
+    attribute_helpstrings: Dict[str, Optional[str]] = {}
+    attribute_types: Dict[str, Optional[type]] = {}
+    attribute_defaults: Dict[str, Optional[Any]] = {}
+    attribute_isiterable: Dict[str, bool] = {}
+
+    for cls in targets:
+        # Extract domain of scenario.
+        props = attribute.get_properties(cls)
+        domain = dict((name, set(get_property_domain(cls, name))) for name in props.keys())
+
+        # Include the new domain into the total domain.
+        for name, values in domain.items():
+            attribute_domains.setdefault(name, set()).update(values)
+
+        # Extract types of the scenario attributes.
+        types = dict((name, get_property_type(cls, name)) for name in props.keys())
+        attribute_types.update(types)
+
+        # Extract helpstrings of the scenario attributes.
+        helpstrings = dict((name, get_property_helpstring(cls, name)) for name in props.keys())
+        attribute_helpstrings.update(helpstrings)
+
+        # Extract types of the scenario attributes.
+        defaults = dict((name, get_property_default(cls, name)) for name in props.keys())
+        attribute_defaults.update(defaults)
+
+        # Set all attributes to be iterable when passed to get_instances.
+        isiterable = dict((name, True if all_iterable else get_property_isiterable(cls, name)) for name in props.keys())
+        attribute_isiterable.update(isiterable)
+
+    for name in attribute_domains:
+        default = attribute_defaults[name]
+        attribute_domain: Optional[List] = [x.value if isinstance(x, Enum) else x for x in attribute_domains[name]]
+        if attribute_domain == [None]:
+            attribute_domain = None
+        helpstring = attribute_helpstrings[name] or ("Scenario " + name + ".")
+        if default is None:
+            helpstring += " Default: [all]" if not single_instance else ""
+        else:
+            helpstring += " Default: %s" % str(default)
+        parser.add_argument(
+            "--%s" % name.replace("_", "-"),
+            help=helpstring,
+            type=make_type_parser(attribute_types[name]),
+            choices=attribute_domain,
+            nargs=(1 if single_instance else "+") if attribute_isiterable[name] else None,  # type: ignore
+        )
 
 
 def save_dict(source: Dict[str, Any], dirpath: str, basename: str, saveonly: Optional[Sequence[str]] = None) -> None:
@@ -360,12 +432,7 @@ class Progress:
 class Scenario(ABC):
 
     scenarios: Dict[str, Type["Scenario"]] = {}
-    scenario_domains: Dict[str, Dict[str, Set[Any]]] = {}
-    attribute_domains: Dict[str, Set[Any]] = {}
-    attribute_helpstrings: Dict[str, Optional[str]] = {}
-    attribute_types: Dict[str, Optional[type]] = {}
-    attribute_defaults: Dict[str, Optional[Any]] = {}
-    attribute_isiterable: Dict[str, bool] = {}
+    attribute_names: Set[str] = set()
     _scenario: Optional[str] = None
 
     def __init__(self, id: Optional[str] = None, logstream: Optional[TextIOBase] = None, **kwargs: Any) -> None:
@@ -386,30 +453,9 @@ class Scenario(ABC):
         assert isinstance(Scenario.scenario.domain, set)
         Scenario.scenario.domain.add(id)
 
-        # Extract domain of scenario.
+        # Extract scenario attribute names.
         props = attribute.get_properties(cls)
-        domain = dict((name, set(get_property_domain(cls, name))) for name in props.keys())
-        Scenario.scenario_domains[id] = domain
-
-        # Include the new domain into the total domain.
-        for name, values in domain.items():
-            Scenario.attribute_domains.setdefault(name, set()).update(values)
-
-        # Extract types of the scenario attributes.
-        types = dict((name, get_property_type(cls, name)) for name in props.keys())
-        Scenario.attribute_types.update(types)
-
-        # Extract helpstrings of the scenario attributes.
-        helpstrings = dict((name, get_property_helpstring(cls, name)) for name in props.keys())
-        Scenario.attribute_helpstrings.update(helpstrings)
-
-        # Extract types of the scenario attributes.
-        defaults = dict((name, get_property_default(cls, name)) for name in props.keys())
-        Scenario.attribute_defaults.update(defaults)
-
-        # Set all attributes to be iterable when passed to get_instances.
-        isiterable = dict((k, True) for k in props.keys())
-        Scenario.attribute_isiterable.update(isiterable)
+        cls.attribute_names = set(props.keys())
 
     def run(self, progress_bar: bool = True, console_log: bool = True) -> None:
         # Set up logging.
@@ -503,7 +549,7 @@ class Scenario(ABC):
                         yield instance
         else:
             domains = []
-            names = Scenario.attribute_domains.keys()
+            names = cls.attribute_names
             for name in names:
                 if name in kwargs and kwargs[name] is not None:
                     domain = kwargs[name]
@@ -511,7 +557,7 @@ class Scenario(ABC):
                         domain = [domain]
                     domains.append(list(domain))
                 else:
-                    domains.append(list(Scenario.attribute_domains[name]))
+                    domains.append(get_property_domain(cls, name))
             for values in product(*domains):
                 attributes = dict((name, value) for (name, value) in zip(names, values) if value is not None)
                 if cls.is_valid_config(**attributes):
@@ -1026,16 +1072,6 @@ class Study:
         if save_scenarios:
             for scenario in self.scenarios:
                 self.save_scenario(scenario)
-                # replacements = dict((name, get_property_value(scenario, name)) for name in attributes)
-                # exppath = scenario_path.format_map(replacements)
-                # if exppath in scenario_paths:
-                #     raise ValueError(
-                #         "Provided scenario_path does not produce unique paths. The path '%s' caused a conflict."
-                #         % exppath
-                #     )
-                # scenario_paths.add(exppath)
-                # full_exppath = os.path.join(self.path, "scenarios", exppath)
-                # scenario.save(full_exppath)
 
     @classmethod
     def load_scenarios(cls, path: str) -> List[Scenario]:
@@ -1123,7 +1159,7 @@ class Study:
 
     @property
     def scenarios(self) -> Table[Scenario]:
-        attributes = list(Scenario.attribute_domains.keys())
+        attributes = sorted(Scenario.attribute_names)
         return Table[Scenario](self._scenarios, attributes, "id")
 
     @property
@@ -1157,12 +1193,6 @@ def stringify(x: Any):
 class Report(ABC):
 
     reports: Dict[str, Type["Report"]] = {}
-    report_domains: Dict[str, Dict[str, Set[Any]]] = {}
-    attribute_domains: Dict[str, Set[Any]] = {}
-    attribute_helpstrings: Dict[str, Optional[str]] = {}
-    attribute_types: Dict[str, Optional[type]] = {}
-    attribute_defaults: Dict[str, Optional[Any]] = {}
-    attribute_isiterable: Dict[str, bool] = {}
     _report: Optional[str] = None
 
     def __init__(
@@ -1176,31 +1206,6 @@ class Report(ABC):
     def __init_subclass__(cls: Type["Report"], id: str) -> None:
         cls._report = id
         cls.reports[id] = cls
-
-        # Extract domain of scenario.
-        props = attribute.get_properties(cls)
-        domain = dict((name, set(get_property_domain(cls, name))) for name in props.keys())
-        Report.report_domains[id] = domain
-
-        # Include the new domain into the total domain.
-        for name, values in domain.items():
-            Report.attribute_domains.setdefault(name, set()).update(values)
-
-        # Extract types of the scenario attributes.
-        types = dict((name, get_property_type(cls, name)) for name in props.keys())
-        Report.attribute_types.update(types)
-
-        # Extract helpstrings of the scenario attributes.
-        helpstrings = dict((name, get_property_helpstring(cls, name)) for name in props.keys())
-        Report.attribute_helpstrings.update(helpstrings)
-
-        # Extract types of the scenario attributes.
-        defaults = dict((name, get_property_default(cls, name)) for name in props.keys())
-        Report.attribute_defaults.update(defaults)
-
-        # Specify if attributes should be iterable when passed to get_instances.
-        Report.attribute_isiterable = dict((name, get_property_isiterable(cls, name)) for name in props.keys())
-        Report.attribute_isiterable["report"] = True  # We hard code that we allow multiple report argument values.
 
     @attribute
     def report(self) -> str:
