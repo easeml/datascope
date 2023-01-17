@@ -1,5 +1,7 @@
 import argparse
+import importlib
 import os
+import sys
 
 from typing import Any, Optional
 
@@ -18,9 +20,10 @@ from .scenarios import (
     DEFAULT_SLURM_JOBMEMORY,
 )
 
+sys.path.append(os.getcwd())
 MODULES_INCLUDE_VARNAME = "DATASCOPE_EXPERIMENTS_MODULES_INCLUDE"
 MODULES_INCLUDE = (
-    [__import__(m.strip()) for m in os.environ[MODULES_INCLUDE_VARNAME].split(",")]
+    [importlib.import_module(m.strip()) for m in os.environ[MODULES_INCLUDE_VARNAME].split(",")]
     if MODULES_INCLUDE_VARNAME in os.environ
     else []
 )
