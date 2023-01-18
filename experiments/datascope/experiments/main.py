@@ -131,6 +131,15 @@ def main():
     )
 
     parser_run.add_argument(
+        "--slurm-partition",
+        type=str,
+        action=env_default("EXPERIMENTS_SLURM_PARTITION"),
+        required=False,
+        default=None,
+        help="The slurm partition to target (if slurm is used as backend).",
+    )
+
+    parser_run.add_argument(
         "--slurm-maxjobs",
         type=int,
         action=env_default("EXPERIMENTS_SLURM_MAXJOBS"),

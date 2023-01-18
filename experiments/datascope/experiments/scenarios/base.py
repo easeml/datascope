@@ -849,6 +849,7 @@ class Study:
         slurm_jobtime: Optional[str] = DEFAULT_SLURM_JOBTIME,
         slurm_jobmemory: Optional[str] = DEFAULT_SLURM_JOBMEMORY,
         slurm_constraint: Optional[str] = None,
+        slurm_partition: Optional[str] = None,
         slurm_maxjobs: Optional[int] = None,
         eventstream_host_ip: Optional[str] = None,
         eventstream_host_port: Optional[int] = None,
@@ -975,6 +976,8 @@ class Study:
                         slurm_command += " --mem-per-cpu=%s" % slurm_jobmemory
                         if slurm_constraint is not None:
                             slurm_command += " --constraint=%s" % slurm_constraint
+                        if slurm_partition is not None:
+                            slurm_command += " --partition=%s" % slurm_partition
                         slurm_command += " --output=%s" % logpath
                         slurm_command += ' --wrap="%s"' % run_command
                         result = subprocess.run(slurm_command, capture_output=True, shell=True)
