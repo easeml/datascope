@@ -38,8 +38,8 @@ def run(
     slurm_constraint: Optional[str] = None,
     slurm_partition: Optional[str] = None,
     slurm_maxjobs: Optional[int] = None,
-    host_ip: Optional[str] = None,
-    host_port: Optional[int] = None,
+    eventstream_host_ip: Optional[str] = None,
+    eventstream_host_port: Optional[int] = None,
     **attributes: Any
 ) -> None:
 
@@ -93,8 +93,8 @@ def run(
         slurm_constraint=slurm_constraint,
         slurm_partition=slurm_partition,
         slurm_maxjobs=slurm_maxjobs,
-        host_ip=host_ip,
-        host_port=host_port,
+        host_ip=eventstream_host_ip,
+        host_port=eventstream_host_port,
         eagersave=not no_save,
     )
 
