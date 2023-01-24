@@ -456,6 +456,7 @@ class Scenario(ABC):
         # Extract scenario attribute names.
         props = attribute.get_properties(cls)
         cls.attribute_names = set(props.keys())
+        Scenario.attribute_names.update(cls.attribute_names)
 
     def run(self, progress_bar: bool = True, console_log: bool = True) -> None:
         # Set up logging.
