@@ -253,8 +253,6 @@ def lineplot(
 
     labels: List[str] = []
     for i, comp in enumerate(comparison):
-        if ",".join(str(c) for c in comp) in dontcompare:
-            continue
         formatdict = dict(zip(compare, comp))
         if summary is not None:
             comp_summary = summary
@@ -303,7 +301,6 @@ def lineplot(
         axes.plot(dataframe[comp][targetval][centercol], color=c, label=l, linewidth=DEFAULT_LINEWIDTH)
 
     # Plot a dashed line over the current lines to improve visibility of overlapping lines.
-    linedesc = list(zip(comparison, comp_colors, labels))
     for comp, c, l in reversed(linedesc):
         if ",".join(str(c) for c in comp) in dontcompare:
             continue
