@@ -15,7 +15,7 @@ from pandas.core.groupby.groupby import GroupBy
 from ..scenarios import Report, Study, result, attribute
 
 COLOR_NAMES = ["blue", "red", "yellow", "green", "purple", "brown", "cyan", "pink"]
-COLORS = ["#2BBFD9", "#DF362A", "#FAC802", "#8AB365", "#C670D2", "#C58F21", "#00AC9B", "#DB006A"]
+COLORS = ["#2BBFD9", "#DF362A", "#FAC802", "#8AB365", "#C670D2", "#AE7E1E", "#008F6B", "#6839CC"]
 LABELS = {
     "random": "Random",
     "shapley-tmc": "Shapley TMC",
@@ -109,6 +109,7 @@ SLICE_OPS: Dict[SliceOp, Callable[[GroupBy], Any]] = {
 
 DEFAULT_LABEL_FORMAT = "{compare}"
 DEFAULT_FONTSIZE = 16
+DEFAULT_LINEWIDTH = 2.5
 
 
 def represent(x: Any):
@@ -295,10 +296,18 @@ def lineplot(
                         verticalalignment="center",
                     )
 
-    for i, comp in enumerate(comparison):
+    linedesc = list(zip(comparison, comp_colors, labels))
+    for comp, c, l in linedesc:
         if ",".join(str(c) for c in comp) in dontcompare:
             continue
-        axes.plot(dataframe[comp][targetval][centercol], color=comp_colors[i], label=labels[i])
+        axes.plot(dataframe[comp][targetval][centercol], color=c, label=l, linewidth=DEFAULT_LINEWIDTH)
+
+    # Plot a dashed line over the current lines to improve visibility of overlapping lines.
+    linedesc = list(zip(comparison, comp_colors, labels))
+    for comp, c, l in reversed(linedesc):
+        if ",".join(str(c) for c in comp) in dontcompare:
+            continue
+        axes.plot(dataframe[comp][targetval][centercol], color=c, linestyle=(0, (3, 3)), linewidth=DEFAULT_LINEWIDTH)
 
     # axes.set_xlim([dataframe.index.values[0], (dataframe.index.values[-1] - dataframe.index.values[0]) * 1.2])
     # axes.set_ylim([-0.2, 1])
@@ -369,17 +378,19 @@ def barplot(
     summary = dictpivot(summary, compare=compare)
     summary_items = list(summary.items())
 
-    comparison = [item[0] for item in summary_items]
-    split_colors = dict((tuple(k.split(",")), v) for (k, v) in colors.items()) if colors is not None else None
-    comp_colors = get_colors(comparison, colors=split_colors)
     compareorder_unpacked = [tuple(x.split(",")) for x in compareorder]
     if len(compareorder_unpacked) > 0:
         summary_items = sorted(
             summary_items,
             key=lambda x: compareorder_unpacked.index(x[0])
             if compareorder_unpacked is not None and x[0] in compareorder_unpacked
-            else len(comparison),
+            else len(summary_items),
         )
+
+    comparison = [item[0] for item in summary_items]
+    split_colors = dict((tuple(k.split(",")), v) for (k, v) in colors.items()) if colors is not None else None
+    comp_colors = get_colors(comparison, colors=split_colors)
+
     for i, (comp, values) in enumerate(summary_items):
         if ",".join(str(c) for c in comp) in dontcompare:
             continue
@@ -394,7 +405,16 @@ def barplot(
         uppercol = next(c for c in values.keys() if c.endswith("-h"))
         lowercol = next(c for c in values.keys() if c.endswith("-l"))
         yerr = np.abs(np.array([[values[col] - values[lowercol]], [values[col] - values[uppercol]]]))
-        axes.errorbar([xval], [yval], yerr=yerr, fmt="o", linewidth=2, capsize=6, color=comp_colors[i], label=label)
+        axes.errorbar(
+            [xval],
+            [yval],
+            yerr=yerr,
+            fmt="o",
+            linewidth=DEFAULT_LINEWIDTH,
+            capsize=6,
+            color=comp_colors[i],
+            label=label,
+        )
 
         if annotations:
             axes.annotate(
@@ -460,17 +480,19 @@ def dotplot(
     summary = dictpivot(summary, compare=compare)
     summary_items = list(summary.items())
 
-    comparison = [item[0] for item in summary_items]
-    split_colors = dict((tuple(k.split(",")), v) for (k, v) in colors.items()) if colors is not None else None
-    comp_colors = get_colors(comparison, colors=split_colors)
     compareorder_unpacked = [tuple(x.split(",")) for x in compareorder]
     if len(compareorder_unpacked) > 0:
         summary_items = sorted(
             summary_items,
             key=lambda x: compareorder_unpacked.index(x[0])
             if compareorder_unpacked is not None and x[0] in compareorder_unpacked
-            else len(comparison),
+            else len(summary_items),
         )
+
+    comparison = [item[0] for item in summary_items]
+    split_colors = dict((tuple(k.split(",")), v) for (k, v) in colors.items()) if colors is not None else None
+    comp_colors = get_colors(comparison, colors=split_colors)
+
     for i, (comp, values) in enumerate(summary_items):
         if ",".join(str(c) for c in comp) in dontcompare:
             continue
@@ -492,7 +514,15 @@ def dotplot(
         ylowercol = next(c for c in values.keys() if c.startswith(ytargetval) and c.endswith("-l"))
         yerr = np.abs(np.array([[values[ycol] - values[ylowercol]], [values[ycol] - values[yuppercol]]]))
         axes.errorbar(
-            [xval], [yval], xerr=xerr, yerr=yerr, fmt="o", linewidth=2, capsize=6, color=comp_colors[i], label=label
+            [xval],
+            [yval],
+            xerr=xerr,
+            yerr=yerr,
+            fmt="o",
+            linewidth=DEFAULT_LINEWIDTH,
+            capsize=6,
+            color=comp_colors[i],
+            label=label,
         )
 
         if annotations:
