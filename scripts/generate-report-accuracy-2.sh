@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 
 CMD="python -m datascope.experiments report \
-        --groupby dataset pipeline \
+        --groupby model dataset pipeline \
         --index repaired_rel \
+        --xtickfmt percent \
         --compare method \
-        --compareorder random shapley-knn-single shapley-tmc-pipe-010 shapley-tmc-pipe-100 shapley-tmc-010 shapley-tmc-100 \
+        --compareorder random shapley-knn-single shapley-knn-interactive shapley-tmc-pipe-010 shapley-tmc-pipe-100 shapley-tmc-010 shapley-tmc-100 \
+        --colors random:blue shapley-knn-single:red shapley-knn-interactive:yellow shapley-tmc-pipe-010:green shapley-tmc-pipe-100:brown shapley-tmc-010:purple shapley-tmc-100:cyan \
         --targetval accuracy \
         --sliceby iteration \
         --sliceop max \
@@ -14,12 +16,11 @@ CMD="python -m datascope.experiments report \
         --aggmode median-perc-90 \
         --summode median-perc-90 \
         --labelformat \"%(method)s\" \
-        --plotsize 6 5 \
-        --legend true \
+        --plotsize 5 4 \
         --annotation true \
         --fontsize 22 \
         --dontcompare shapley-knn-interactive random,shapley-knn-interactive \
-        --titleformat \"Dataset: %(dataset)s; Pipeline: %(pipeline)s\" "
+        --titleformat \"Dataset: %(dataset)s; Pipeline: %(pipeline)s; Model: %(model)s\" "
 
 CMD+=" ${@}"
 
