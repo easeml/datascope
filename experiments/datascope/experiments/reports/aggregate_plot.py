@@ -146,6 +146,7 @@ def aggregate(
     value_measures = VALUE_MEASURES[aggmode]
 
     groupbycols = [index] + list(compare)
+    dataframe = dataframe[[index] + targetval + compare].dropna()
     values = [dataframe.groupby(groupbycols)[targetval].agg(f).add_suffix(":" + k) for (k, f) in value_measures.items()]
     dataframe = pd.concat(values, axis=1)
     dataframe.sort_index(inplace=True)
@@ -166,6 +167,7 @@ def summarize(
     if compare is None:
         compare = []
     value_measures = VALUE_MEASURES[summode]
+    dataframe = dataframe[summarize + compare].dropna()
     groups = dataframe.groupby(compare) if len(compare) > 0 else dataframe
     values = [groups[summarize].agg(f).add_suffix(":" + k) for (k, f) in value_measures.items()]
     axis = 0 if len(compare) == 0 else 1
@@ -595,7 +597,7 @@ def unpackdict(target: Dict[str, Union[Dict, Any]], prefix: str = "") -> Dict[st
     result: Dict[str, Any] = {}
     for k, v in target.items():
         if isinstance(v, dict):
-            for kk, vv in unpackdict(v, prefix=k).items():
+            for kk, vv in unpackdict(v, prefix=str(k)).items():
                 key = ".".join(([] if prefix == "" else [prefix]) + [kk])
                 result[key] = vv
         else:
