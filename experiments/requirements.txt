@@ -11,6 +11,7 @@ torch >= 1.13
 datasets >= 2.8
 transformers >= 2.8
 sentence-transformers >= 2.2
+joblib >= 1.2
 
 # Pipelines dependencies
 # torchvision >= 0.11

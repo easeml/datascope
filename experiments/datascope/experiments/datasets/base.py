@@ -17,6 +17,7 @@ from copy import deepcopy
 from enum import Enum
 from folktables import ACSDataSource, ACSIncome
 from glob import glob
+from joblib import Memory
 from math import ceil, floor
 from numpy import ndarray
 from pyarrow import parquet as pq
@@ -61,6 +62,7 @@ DEFAULT_NUMFEATURES = 10
 DEFAULT_SEED = 1
 DEFAULT_CLASSES = [0, 6]
 DEFAULT_DATA_DIR = os.path.join("var", "data")
+DEFAULT_CACHE_DIR = os.path.join(DEFAULT_DATA_DIR, "applycache")
 
 
 def download(url: str, filename: str, chunk_size=1024):
@@ -94,6 +96,19 @@ def unpickle(file, encoding="latin1"):
     return dict
 
 
+memory = Memory(DEFAULT_CACHE_DIR, verbose=0)
+
+
+@memory.cache
+def _apply_pipeline(dataset: "Dataset", pipeline: Pipeline) -> "Dataset":
+    dataset = deepcopy(dataset)
+    pipeline = deepcopy(pipeline)
+    dataset._X_train = pipeline.fit_transform(dataset.X_train, dataset.y_train)
+    dataset._X_val = pipeline.transform(dataset.X_val)
+    dataset._X_test = pipeline.transform(dataset.X_test)
+    return dataset
+
+
 class Dataset(ABC):
 
     datasets: Dict[str, Type["Dataset"]] = {}
@@ -117,6 +132,8 @@ class Dataset(ABC):
         self._y_train: Optional[ndarray] = None
         self._X_val: Optional[ndarray] = None
         self._y_val: Optional[ndarray] = None
+        self._X_test: Optional[ndarray] = None
+        self._y_test: Optional[ndarray] = None
         self._provenance: Optional[ndarray] = None
         self._bin_provenance: Optional[ndarray] = None
         self._units: Optional[ndarray] = None
@@ -243,12 +260,7 @@ class Dataset(ABC):
             self._units = np.sort(np.unique(groupings))
 
     def apply(self, pipeline: Pipeline) -> "Dataset":
-        result = deepcopy(self)
-        pipeline = deepcopy(pipeline)
-        result._X_train = pipeline.fit_transform(result._X_train, result._y_train)
-        result._X_val = pipeline.transform(result._X_val)
-        result._X_test = pipeline.transform(result._X_test)
-        return result
+        return _apply_pipeline(dataset=self, pipeline=pipeline)
 
     # def corrupt_labels(self, probabilities: Union[float, Sequence[float]]) -> "Dataset":
     #     if not isinstance(probabilities, collections.Sequence):
@@ -305,7 +317,7 @@ class RandomDataset(Dataset, modality=DatasetModality.TABULAR, id="random"):
             self._X_val, self._y_val, train_size=self.valsize, test_size=self.testsize, random_state=self._seed
         )
         self._loaded = True
-        assert self._X_train is not None and self._X_val is not None
+        assert self._X_train is not None and self._X_val is not None and self._X_test is not None
         self._trainsize = self._X_train.shape[0]
         self._valsize = self._X_val.shape[0]
         self._testsize = self._X_test.shape[0]
@@ -789,7 +801,7 @@ class UCI(BiasedNoisyLabelDataset, modality=DatasetModality.TABULAR):
         )
 
         self._loaded = True
-        assert self._X_train is not None and self._X_val is not None
+        assert self._X_train is not None and self._X_val is not None and self._X_test is not None
         self._trainsize = self._X_train.shape[0]
         self._valsize = self._X_val.shape[0]
         self._testsize = self._X_test.shape[0]
@@ -965,7 +977,7 @@ class FolkUCI(BiasedNoisyLabelDataset, modality=DatasetModality.TABULAR):
         del X, y
 
         self._loaded = True
-        assert self._X_train is not None and self._X_val is not None
+        assert self._X_train is not None and self._X_val is not None and self._X_test is not None
         self._trainsize = self._X_train.shape[0]
         self._valsize = self._X_val.shape[0]
         self._testsize = self._X_test.shape[0]
@@ -1185,7 +1197,7 @@ class Higgs(NoisyLabelDataset, modality=DatasetModality.TABULAR):
             df_ts = df_ts.sample(n=self.testsize, random_state=self._seed)
         self._y_test, self._X_test = df_ts.iloc[:, 0].to_numpy(dtype=int), df_ts.iloc[:, 1:].to_numpy()
 
-        assert self._X_train is not None and self._X_val is not None
+        assert self._X_train is not None and self._X_val is not None and self._X_test is not None
         self._loaded = True
         self._trainsize = self._X_train.shape[0]
         self._valsize = self._X_val.shape[0]
@@ -1442,9 +1454,10 @@ class CifarN(NaturallyNoisyLabelDataset, modality=DatasetModality.IMAGE):
         # Select the test dataset.
         self._X_test, self._y_test = X_test, y_test
         if self.testsize > 0:
+            assert self._X_test is not None and self._y_test is not None
             self._X_test, self._y_test = self._X_test[: self.testsize], self._y_test[: self.testsize]
 
-        assert self._X_train is not None and self._X_val is not None
+        assert self._X_train is not None and self._X_val is not None and self._X_test is not None
         self._trainsize = self._X_train.shape[0]
         self._valsize = self._X_val.shape[0]
         self._testsize = self._X_test.shape[0]
