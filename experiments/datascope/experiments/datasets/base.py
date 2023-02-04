@@ -2,6 +2,8 @@ from __future__ import absolute_import
 
 import collections
 import datasets
+import functools
+import inspect
 import math
 import numpy as np
 import os
@@ -17,7 +19,9 @@ from copy import deepcopy
 from enum import Enum
 from folktables import ACSDataSource, ACSIncome
 from glob import glob
+from hashlib import md5
 from joblib import Memory
+from joblib.hashing import NumpyHasher
 from math import ceil, floor
 from numpy import ndarray
 from pyarrow import parquet as pq
@@ -26,7 +30,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import LabelEncoder
 from tqdm import tqdm
-from typing import Dict, List, Optional, Sequence, Tuple, Type, Union
+from typing import Dict, List, Optional, Sequence, Tuple, Type, Union, Callable
 from zipfile import ZipFile
 
 from datascope.importance.common import binarize, get_indices
@@ -99,13 +103,68 @@ def unpickle(file, encoding="latin1"):
 memory = Memory(DEFAULT_CACHE_DIR, verbose=0)
 
 
-@memory.cache
-def _apply_pipeline(dataset: "Dataset", pipeline: Pipeline) -> "Dataset":
+def cache(
+    func: Optional[Callable] = None,
+    memory: Optional[Memory] = None,
+    prehash: Optional[List[str]] = None,
+    ignore: Optional[List[str]] = None,
+) -> Callable:
+
+    # If the function was called as a decorator, we return a partial decorating function.
+    if func is None:
+        return functools.partial(cache, memory=memory, prehash=prehash, ignore=ignore)
+
+    # By default we instantiate a default memory object.
+    if memory is None:
+        memory = Memory()
+
+    # We combine the ignore list with the list of arguments to prehash.
+    prehash = [] if prehash is None else prehash
+    ignore = ([] if ignore is None else ignore) + prehash
+    cached_func = memory.cache(func=func, ignore=ignore)
+
+    # Extract arguments and default values.
+    arg_sig = inspect.signature(func)
+    arg_names = []
+    arg_defaults = []
+    for param in arg_sig.parameters.values():
+        if param.kind is param.POSITIONAL_OR_KEYWORD or param.kind is param.KEYWORD_ONLY:
+            arg_names.append(param.name)
+            default = param.default if param.default is not param.empty else None
+            arg_defaults.append(default)
+
+    def wrapper(*args, **kwargs):
+
+        # Handle arguments that we need to prehash.
+        args = list(args)
+        targets = {}
+        for arg_position, arg_name in enumerate(arg_names):
+            if arg_name in prehash:
+                if arg_position < len(args):
+                    targets[arg_name] = args[arg_position]
+                elif arg_name in kwargs:
+                    targets[arg_name] = kwargs[arg_name]
+                elif arg_defaults[arg_position] is not None:
+                    targets[arg_name] = arg_defaults[arg_position]
+        for name, value in targets.items():
+            prehash_op = getattr(value, "__hash_string__", None)
+            if callable(prehash_op):
+                key = "_%s_hash" % name
+                kwargs[key] = prehash_op()
+
+        return cached_func(*args, **kwargs)
+
+    return wrapper
+
+
+@cache(memory=memory, prehash=["dataset", "pipeline"])
+def _apply_pipeline(dataset: "Dataset", pipeline: Pipeline, **kwargs) -> "Dataset":
     dataset = deepcopy(dataset)
     pipeline = deepcopy(pipeline)
     dataset._X_train = pipeline.fit_transform(dataset.X_train, dataset.y_train)
     dataset._X_val = pipeline.transform(dataset.X_val)
     dataset._X_test = pipeline.transform(dataset.X_test)
+    dataset._fresh = False
     return dataset
 
 
@@ -137,6 +196,7 @@ class Dataset(ABC):
         self._provenance: Optional[ndarray] = None
         self._bin_provenance: Optional[ndarray] = None
         self._units: Optional[ndarray] = None
+        self._fresh = True
 
     def __init_subclass__(
         cls: Type["Dataset"],
@@ -187,6 +247,7 @@ class Dataset(ABC):
     @X_train.setter
     def X_train(self, value: ndarray):
         self._X_train = value
+        self._fresh = False
 
     @property
     def y_train(self) -> ndarray:
@@ -197,6 +258,7 @@ class Dataset(ABC):
     @y_train.setter
     def y_train(self, value: ndarray):
         self._y_train = value
+        self._fresh = False
 
     @property
     def X_val(self) -> ndarray:
@@ -207,6 +269,7 @@ class Dataset(ABC):
     @X_val.setter
     def X_val(self, value: ndarray):
         self._X_val = value
+        self._fresh = False
 
     @property
     def y_val(self) -> ndarray:
@@ -217,6 +280,7 @@ class Dataset(ABC):
     @y_val.setter
     def y_val(self, value: ndarray):
         self._y_val = value
+        self._fresh = False
 
     @property
     def X_test(self) -> ndarray:
@@ -227,6 +291,7 @@ class Dataset(ABC):
     @X_test.setter
     def X_test(self, value: ndarray):
         self._X_test = value
+        self._fresh = False
 
     @property
     def y_test(self) -> ndarray:
@@ -237,6 +302,7 @@ class Dataset(ABC):
     @y_test.setter
     def y_test(self, value: ndarray):
         self._y_test = value
+        self._fresh = False
 
     @property
     def provenance(self) -> ndarray:
@@ -261,6 +327,42 @@ class Dataset(ABC):
 
     def apply(self, pipeline: Pipeline) -> "Dataset":
         return _apply_pipeline(dataset=self, pipeline=pipeline)
+
+    def __hash_string__(self) -> str:
+        myclass: Type[Dataset] = type(self)
+        hash = md5()
+        for cls in inspect.getmro(myclass):
+            if cls != object:
+                hash.update(inspect.getsource(cls).encode("utf-8"))
+        if not self._fresh:
+            hasher = NumpyHasher()
+            hasher.dump(self._X_train)
+            hasher.dump(self._y_train)
+            hasher.dump(self._X_val)
+            hasher.dump(self._y_val)
+            hasher.dump(self._X_test)
+            hasher.dump(self._y_test)
+            hash.update(hasher.stream.getvalue())
+
+        return "%s.%s(trainsize=%d, valsize=%d, testsize=%d, seed=%d, hash=%s)" % (
+            type(self).__module__,
+            type(self).__name__,
+            self.trainsize,
+            self.valsize,
+            self.testsize,
+            self._seed,
+            hash.hexdigest(),
+        )
+
+    def __repr__(self, N_CHAR_MAX=700):
+        return "%s.%s(trainsize=%d, valsize=%d, testsize=%d, seed=%d)" % (
+            type(self).__module__,
+            type(self).__name__,
+            self.trainsize,
+            self.valsize,
+            self.testsize,
+            self._seed,
+        )
 
     # def corrupt_labels(self, probabilities: Union[float, Sequence[float]]) -> "Dataset":
     #     if not isinstance(probabilities, collections.Sequence):
@@ -369,6 +471,7 @@ class NoisyLabelDataset(Dataset, abstract=True):
     @y_train.setter
     def y_train(self, value: ndarray):
         self._y_train = value
+        self._fresh = False
 
     def corrupt_labels(self, probabilities: Union[float, Sequence[float]]) -> "NoisyLabelDataset":
         if not self.loaded:
@@ -402,6 +505,7 @@ class NoisyLabelDataset(Dataset, abstract=True):
         result._construct_provenance(groupings=groupings)
         result._groupings = groupings
         result._units_dirty = units_dirty
+        result._fresh = False
         return result
 
 

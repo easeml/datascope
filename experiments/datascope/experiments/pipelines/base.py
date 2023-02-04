@@ -1,3 +1,5 @@
+import functools
+import inspect
 import numpy as np
 import re
 import sklearn.pipeline
@@ -5,6 +7,7 @@ import torch
 import transformers
 
 from abc import abstractmethod
+from hashlib import md5
 from scipy.ndimage.filters import gaussian_filter1d
 from sentence_transformers import SentenceTransformer
 from skimage.feature import hog
@@ -15,8 +18,9 @@ from sklearn.impute import MissingIndicator
 from sklearn.pipeline import FeatureUnion
 from sklearn.preprocessing import StandardScaler, FunctionTransformer
 from transformers import AutoImageProcessor, ResNetModel
-from transformers.image_processing_utils import BatchFeature
+from transformers.image_processing_utils import BatchFeature, BaseImageProcessor
 from transformers.modeling_outputs import BaseModelOutputWithPoolingAndNoAttention
+from transformers.modeling_utils import PreTrainedModel
 from typing import Dict, Iterable, Type, Optional
 
 # import torch.nn.functional as F
@@ -53,6 +57,17 @@ class Pipeline(sklearn.pipeline.Pipeline):
         Pipeline.pipelines[cls._pipeline] = cls
         if summary is not None:
             Pipeline.summaries[cls._pipeline] = summary
+
+    def __hash_string__(self) -> str:
+        myclass: Type[Pipeline] = type(self)
+        hash = md5()
+        for cls in inspect.getmro(myclass):
+            if cls != object:
+                hash.update(inspect.getsource(cls).encode("utf-8"))
+        return "%s.%s(hash=%s)" % (type(self).__module__, myclass.__name__, hash.hexdigest())
+
+    def __repr__(self, N_CHAR_MAX=700):
+        return "%s.%s()" % (type(self).__module__, type(self).__name__)
 
     @property
     def modalities(self) -> Iterable[DatasetModality]:
@@ -94,12 +109,14 @@ class StandardScalerPipeline(
 class LogScalerPipeline(Pipeline, id="log-scaler", summary="Logarithmic Scaler", modalities=[DatasetModality.TABULAR]):
     """A pipeline that applies a logarithmic scaler to the input data."""
 
+    @staticmethod
+    def _log1p(x):
+        return np.log1p(np.abs(x))
+
     @classmethod
     def construct(cls: Type["LogScalerPipeline"], dataset: Dataset) -> "LogScalerPipeline":
-        def log1p(x):
-            return np.log1p(np.abs(x))
 
-        ops = [("log", FunctionTransformer(log1p)), ("scaler", StandardScaler())]
+        ops = [("log", FunctionTransformer(cls._log1p)), ("scaler", StandardScaler())]
         return LogScalerPipeline(ops)
 
 
@@ -145,16 +162,18 @@ class GaussBlurPipeline(Pipeline, id="gauss-blur", summary="Gaussian Blur", moda
     A pipeline that applies a gaussian blure filter.
     """
 
+    @staticmethod
+    def _gaussian_blur(x):
+        result = x
+        for axis in [1, 2]:
+            result = gaussian_filter1d(result, sigma=2, axis=axis, truncate=2.0)
+        result = np.reshape(result, (result.shape[0], -1))
+        return result
+
     @classmethod
     def construct(cls: Type["GaussBlurPipeline"], dataset: Dataset) -> "GaussBlurPipeline":
-        def gaussian_blur(x):
-            result = x
-            for axis in [1, 2]:
-                result = gaussian_filter1d(result, sigma=2, axis=axis, truncate=2.0)
-            result = np.reshape(result, (result.shape[0], -1))
-            return result
 
-        ops = [("blur", FunctionTransformer(gaussian_blur))]
+        ops = [("blur", FunctionTransformer(cls._gaussian_blur))]
         return GaussBlurPipeline(ops)
 
 
@@ -171,6 +190,28 @@ class HogTransformPipeline(
     A pipeline that applies a histogram of oriented gradients operator.
     """
 
+    @staticmethod
+    def _hog_transform(
+        X: np.ndarray,
+        orientations: int = DEFAULT_HOG_ORIENTATIONS,
+        pixels_per_cell: int = DEFAULT_HOG_PIXELS_PER_CELL,
+        cells_per_block: int = DEFAULT_HOG_CELLS_PER_BLOCK,
+        block_norm: str = DEFAULT_HOG_BLOCK_NORM,
+    ) -> np.ndarray:
+        channel_axis = None if X.ndim == 3 else X.ndim - 2
+
+        def hog_single(image):
+            return hog(
+                image=image,
+                orientations=orientations,
+                pixels_per_cell=(pixels_per_cell, pixels_per_cell),
+                cells_per_block=(cells_per_block, cells_per_block),
+                block_norm=block_norm,
+                channel_axis=channel_axis,
+            )
+
+        return np.array([hog_single(img) for img in X])
+
     @classmethod
     def construct(
         cls: Type["HogTransformPipeline"],
@@ -180,20 +221,14 @@ class HogTransformPipeline(
         cells_per_block: int = DEFAULT_HOG_CELLS_PER_BLOCK,
         block_norm: str = DEFAULT_HOG_BLOCK_NORM,
     ) -> "HogTransformPipeline":
-        def hog_transform(X: np.ndarray) -> np.ndarray:
-            channel_axis = None if X.ndim == 3 else X.ndim - 2
 
-            def hog_single(image):
-                return hog(
-                    image=image,
-                    orientations=orientations,
-                    pixels_per_cell=(pixels_per_cell, pixels_per_cell),
-                    cells_per_block=(cells_per_block, cells_per_block),
-                    block_norm=block_norm,
-                    channel_axis=channel_axis,
-                )
-
-            return np.array([hog_single(img) for img in X])
+        hog_transform = functools.partial(
+            cls._hog_transform,
+            orientations=orientations,
+            pixels_per_cell=(pixels_per_cell, pixels_per_cell),
+            cells_per_block=(cells_per_block, cells_per_block),
+            block_norm=block_norm,
+        )
 
         ops = [("hog", FunctionTransformer(hog_transform))]
         return HogTransformPipeline(ops)
@@ -206,6 +241,23 @@ class ResNet18EmbeddingPipeline(
     A pipeline that extracts embeddings using a ResNet50 model pre-trained on the ImageNet dataset.
     """
 
+    @staticmethod
+    def _embedding_transform(
+        X: np.ndarray, feature_extractor: BaseImageProcessor, model: PreTrainedModel
+    ) -> np.ndarray:
+        if X.ndim == 3:
+            X = np.expand_dims(X, axis=X.ndim)
+        if X.shape[-1] == 1:
+            X = np.tile(X, (1, 1, 1, 3))
+
+        inputs: BatchFeature = feature_extractor(list(X), return_tensors="pt")
+
+        with torch.no_grad():
+            outputs: BaseModelOutputWithPoolingAndNoAttention = model(**inputs)
+
+        result: np.ndarray = np.squeeze(outputs.pooler_output.numpy())
+        return result
+
     @classmethod
     def construct(cls: Type["ResNet18EmbeddingPipeline"], dataset: Dataset) -> "ResNet18EmbeddingPipeline":
 
@@ -216,21 +268,9 @@ class ResNet18EmbeddingPipeline(
 
         feature_extractor = AutoImageProcessor.from_pretrained("microsoft/resnet-18")
         model = ResNetModel.from_pretrained("microsoft/resnet-18")
-
-        def embedding_transform(X: np.ndarray) -> np.ndarray:
-
-            if X.ndim == 3:
-                X = np.expand_dims(X, axis=X.ndim)
-            if X.shape[-1] == 1:
-                X = np.tile(X, (1, 1, 1, 3))
-
-            inputs: BatchFeature = feature_extractor(list(X), return_tensors="pt")
-
-            with torch.no_grad():
-                outputs: BaseModelOutputWithPoolingAndNoAttention = model(**inputs)
-
-            result: np.ndarray = np.squeeze(outputs.pooler_output.numpy())
-            return result
+        embedding_transform = functools.partial(
+            cls._embedding_transform, feature_extractor=feature_extractor, model=model
+        )
 
         ops = [("embedding", FunctionTransformer(embedding_transform))]
         return cls(ops)
@@ -254,20 +294,23 @@ class ToLowerUrlRemovePipeline(
     A pipeline that applies a few text transformations such as converting everything to lowercase and removing URL's.
     """
 
+    @staticmethod
+    def _text_lowercase(text_array):
+        return list(map(lambda x: x.lower(), text_array))
+
+    def _remove_url(text):
+        return " ".join(re.sub(r"(@[A-Za-z0-9]+)|([^0-9A-Za-z \t])|(\w+:\/\/\S+)", " ", text).split())
+
+    @staticmethod
+    def _remove_urls(text_array):
+        return list(map(ToLowerUrlRemovePipeline._remove_url, text_array))
+
     @classmethod
     def construct(cls: Type["ToLowerUrlRemovePipeline"], dataset: Dataset) -> "ToLowerUrlRemovePipeline":
-        def text_lowercase(text_array):
-            return list(map(lambda x: x.lower(), text_array))
-
-        def remove_urls(text_array):
-            def remove_url(text):
-                return " ".join(re.sub(r"(@[A-Za-z0-9]+)|([^0-9A-Za-z \t])|(\w+:\/\/\S+)", " ", text).split())
-
-            return list(map(remove_url, text_array))
 
         ops = [
-            ("lower_case", FunctionTransformer(text_lowercase)),
-            ("remove_url", FunctionTransformer(remove_urls)),
+            ("lower_case", FunctionTransformer(cls._text_lowercase)),
+            ("remove_url", FunctionTransformer(cls._remove_urls)),
             ("vect", CountVectorizer()),
             ("tfidf", TfidfTransformer()),
         ]
@@ -321,6 +364,11 @@ class MiniLMEmbeddingPipeline(Pipeline, id="mini-lm", summary="MiniLM Embedding"
     A pipeline that extracts sentence embeddings using a MiniLM model pre-trained on the 1B sentences.
     """
 
+    @staticmethod
+    def _embedding_transform(X: np.ndarray, model: SentenceTransformer) -> np.ndarray:
+        embeddings = model.encode(list(X))
+        return np.array(embeddings)
+
     @classmethod
     def construct(cls: Type["MiniLMEmbeddingPipeline"], dataset: Dataset) -> "MiniLMEmbeddingPipeline":
 
@@ -328,10 +376,7 @@ class MiniLMEmbeddingPipeline(Pipeline, id="mini-lm", summary="MiniLM Embedding"
         #     raise ValueError("The provided dataset features must have either 0 or 1 dimensions.")
 
         model = SentenceTransformer("all-MiniLM-L6-v2")
-
-        def embedding_transform(X: np.ndarray) -> np.ndarray:
-            embeddings = model.encode(list(X))
-            return np.array(embeddings)
+        embedding_transform = functools.partial(cls._embedding_transform, model=model)
 
         ops = [("embedding", FunctionTransformer(embedding_transform))]
         return cls(ops)
