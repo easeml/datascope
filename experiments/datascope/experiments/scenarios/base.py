@@ -852,6 +852,7 @@ class Study:
         slurm_constraint: Optional[str] = None,
         slurm_partition: Optional[str] = None,
         slurm_maxjobs: Optional[int] = None,
+        slurm_args: Optional[str] = None,
         eventstream_host_ip: Optional[str] = None,
         eventstream_host_port: Optional[int] = None,
         eagersave: bool = True,
@@ -979,6 +980,8 @@ class Study:
                             slurm_command += " --constraint=%s" % slurm_constraint
                         if slurm_partition is not None:
                             slurm_command += " --partition=%s" % slurm_partition
+                        if slurm_args is not None:
+                            slurm_command += " %s " % slurm_args
                         slurm_command += " --output=%s" % logpath
                         slurm_command += ' --wrap="%s"' % run_command
                         result = subprocess.run(slurm_command, capture_output=True, shell=True)
