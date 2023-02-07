@@ -19,6 +19,9 @@ from typing import Any, Optional, Dict
 from .datascope_scenario import (
     DatascopeScenario,
     RepairMethod,
+    ModelSpec,
+    MODEL_TYPES,
+    MODEL_KWARGS,
     IMPORTANCE_METHODS,
     MC_ITERATIONS,
     DEFAULT_SEED,
@@ -43,7 +46,7 @@ from ..datasets import (
     DEFAULT_TESTSIZE,
     DEFAULT_BIAS_METHOD,
 )
-from ..pipelines import Pipeline, ModelType, get_model
+from ..pipelines import Pipeline, get_model
 
 
 DEFAULT_MAX_REMOVE = 0.5
@@ -67,7 +70,7 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
         method: RepairMethod,
         utility: UtilityType,
         iteration: int,
-        model: ModelType = DEFAULT_MODEL,
+        model: ModelSpec = DEFAULT_MODEL,
         trainbias: float = DEFAULT_TRAIN_BIAS,
         valbias: float = DEFAULT_VAL_BIAS,
         biasmethod: BiasMethod = DEFAULT_BIAS_METHOD,
@@ -188,7 +191,9 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
         provenance = binarize(provenance)
 
         # Initialize the model and utility.
-        model = get_model(self.model)
+        model_type = MODEL_TYPES[self.model]
+        model_kwargs = MODEL_KWARGS[self.model]
+        model = get_model(model_type, **model_kwargs)
         # model_pipeline = deepcopy(pipeline)
         # pipeline.steps.append(("model", model))
         # if RepairMethod.is_pipe(self.method):

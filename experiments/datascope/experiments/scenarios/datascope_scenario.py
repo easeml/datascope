@@ -19,6 +19,52 @@ from ..datasets import (
 from ..pipelines import Pipeline, ModelType, MODEL_KEYWORD_REPLACEMENTS
 
 
+class ModelSpec(str, Enum):
+    LogisticRegression = "logreg"
+    RandomForest = "randf"
+    KNeighbors = "knn"
+    KNeighbors_1 = "knn-1"
+    KNeighbors_5 = "knn-5"
+    KNeighbors_10 = "knn-10"
+    SVM = "svm"
+    LinearSVM = "linsvm"
+    GaussianProcess = "gp"
+    NaiveBayes = "nb"
+    NeuralNetwork = "nn"
+    XGBoost = "xgb"
+
+
+MODEL_TYPES = {
+    ModelSpec.LogisticRegression: ModelType.LogisticRegression,
+    ModelSpec.RandomForest: ModelType.RandomForest,
+    ModelSpec.KNeighbors: ModelType.KNeighbors,
+    ModelSpec.KNeighbors_1: ModelType.KNeighbors,
+    ModelSpec.KNeighbors_5: ModelType.KNeighbors,
+    ModelSpec.KNeighbors_10: ModelType.KNeighbors,
+    ModelSpec.SVM: ModelType.SVM,
+    ModelSpec.LinearSVM: ModelType.LinearSVM,
+    ModelSpec.GaussianProcess: ModelType.GaussianProcess,
+    ModelSpec.NaiveBayes: ModelType.NaiveBayes,
+    ModelSpec.NeuralNetwork: ModelType.NeuralNetwork,
+    ModelSpec.XGBoost: ModelType.XGBoost,
+}
+
+MODEL_KWARGS: Dict[ModelSpec, Dict[str, Any]] = {
+    ModelSpec.LogisticRegression: {},
+    ModelSpec.RandomForest: {},
+    ModelSpec.KNeighbors: {},
+    ModelSpec.KNeighbors_1: {"n_neighbors": 1},
+    ModelSpec.KNeighbors_5: {"n_neighbors": 5},
+    ModelSpec.KNeighbors_10: {"n_neighbors": 10},
+    ModelSpec.SVM: {},
+    ModelSpec.LinearSVM: {},
+    ModelSpec.GaussianProcess: {},
+    ModelSpec.NaiveBayes: {},
+    ModelSpec.NeuralNetwork: {},
+    ModelSpec.XGBoost: {},
+}
+
+
 class RepairMethod(str, Enum):
     KNN_Single = "shapley-knn-single"
     KNN_Interactive = "shapley-knn-interactive"
@@ -139,6 +185,10 @@ KEYWORD_REPLACEMENTS = {
     "shapley-tmc-pipe-050": "Shapley TMC x50",
     "shapley-tmc-pipe-100": "Shapley TMC x100",
     "shapley-tmc-pipe-500": "Shapley TMC x500",
+    "knn": "K-Nearest Neighbor (K=1)",
+    "knn-1": "K-Nearest Neighbor (K=1)",
+    "knn-5": "K-Nearest Neighbor (K=5)",
+    "knn-10": "K-Nearest Neighbor (K=10)",
     "eqodds": "Equalized Odds Difference",
     "importance_cputime": "Compute Time [s]",
     "steps": "Repair Steps Taken",
@@ -152,7 +202,7 @@ KEYWORD_REPLACEMENTS.update(MODEL_KEYWORD_REPLACEMENTS)
 DEFAULT_SEED = 1
 DEFAULT_CHECKPOINTS = 100
 DEFAULT_PROVIDERS = 0
-DEFAULT_MODEL = ModelType.LogisticRegression
+DEFAULT_MODEL = ModelSpec.LogisticRegression
 DEFAULT_REPAIR_GOAL = RepairGoal.ACCURACY
 DEFAULT_TRAIN_BIAS = 0.0
 DEFAULT_VAL_BIAS = 0.0
@@ -166,7 +216,7 @@ class DatascopeScenario(Scenario, abstract=True):
         method: RepairMethod,
         utility: UtilityType,
         iteration: int,
-        model: ModelType = DEFAULT_MODEL,
+        model: ModelSpec = DEFAULT_MODEL,
         trainbias: float = DEFAULT_TRAIN_BIAS,
         valbias: float = DEFAULT_VAL_BIAS,
         biasmethod: BiasMethod = DEFAULT_BIAS_METHOD,
@@ -223,7 +273,7 @@ class DatascopeScenario(Scenario, abstract=True):
         return self._method
 
     @attribute(domain=[None])
-    def model(self) -> ModelType:
+    def model(self) -> ModelSpec:
         """Model used to make predictions."""
         return self._model
 
