@@ -170,12 +170,12 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
         # X_train, y_train = dataset.X_train, dataset.y_train
         # X_val, y_val = dataset.X_val, dataset.y_val
         # X_train_orig, y_train_orig = dataset.X_train, dataset.y_train
-        if RepairMethod.is_tmc_nonpipe(self.method):
-            raise ValueError("This is not supported at the moment.")
-            # self.logger.debug("Shape of X_train before feature extraction: %s", str(dataset.X_train.shape))
-            # dataset = dataset.apply(pipeline)  # TODO: Fit the pipeline with dirty data.
-            # assert isinstance(dataset, BiasedMixin)
-            # self.logger.debug("Shape of X_train after feature extraction: %s", str(dataset.X_train.shape))
+        # if RepairMethod.is_tmc_nonpipe(self.method):
+        #     raise ValueError("This is not supported at the moment.")
+        # self.logger.debug("Shape of X_train before feature extraction: %s", str(dataset.X_train.shape))
+        # dataset = dataset.apply(pipeline)  # TODO: Fit the pipeline with dirty data.
+        # assert isinstance(dataset, BiasedMixin)
+        # self.logger.debug("Shape of X_train after feature extraction: %s", str(dataset.X_train.shape))
 
         # Reshape datasets if needed.
         # if dataset.X_train.ndim > 2:
