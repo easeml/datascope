@@ -10,6 +10,9 @@ from typing import Any, Optional, Dict
 from .base import Scenario, attribute, result
 from .datascope_scenario import (
     RepairMethod,
+    ModelSpec,
+    MODEL_TYPES,
+    MODEL_KWARGS,
     IMPORTANCE_METHODS,
     MC_ITERATIONS,
     DEFAULT_SEED,
@@ -19,7 +22,7 @@ from .datascope_scenario import (
     UtilityType,
 )
 from ..datasets import Dataset, DEFAULT_TRAINSIZE, DEFAULT_VALSIZE, DEFAULT_NUMFEATURES
-from ..pipelines import Pipeline, ModelType, get_model
+from ..pipelines import Pipeline, get_model
 
 DEFAULT_DATASET = "random"
 KEYWORD_REPLACEMENTS = {
@@ -35,7 +38,7 @@ class ComputeTimeScenario(Scenario, id="compute-time"):
         method: RepairMethod,
         iteration: int,
         dataset: str = DEFAULT_DATASET,
-        model: ModelType = DEFAULT_MODEL,
+        model: ModelSpec = DEFAULT_MODEL,
         seed: int = DEFAULT_SEED,
         trainsize: int = DEFAULT_TRAINSIZE,
         valsize: int = DEFAULT_VALSIZE,
@@ -82,7 +85,7 @@ class ComputeTimeScenario(Scenario, id="compute-time"):
         return self._method
 
     @attribute(domain=[None])
-    def model(self) -> ModelType:
+    def model(self) -> ModelSpec:
         """Model used to make predictions."""
         return self._model
 
@@ -157,7 +160,9 @@ class ComputeTimeScenario(Scenario, id="compute-time"):
         pipeline = Pipeline.pipelines[self.pipeline].construct(dataset)
 
         # Initialize the model and utility.
-        model = get_model(self.model)
+        model_type = MODEL_TYPES[self.model]
+        model_kwargs = MODEL_KWARGS[self.model]
+        model = get_model(model_type, **model_kwargs)
         utility = SklearnModelAccuracy(model)
 
         # Compute importance scores and time it.
