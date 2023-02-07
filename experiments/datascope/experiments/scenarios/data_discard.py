@@ -126,8 +126,6 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
     @classmethod
     def is_valid_config(cls, **attributes: Any) -> bool:
         result = True
-        if "method" in attributes:
-            result = result and not RepairMethod.is_tmc_nonpipe(attributes["method"])
         if "repairgoal" not in attributes or attributes["repairgoal"] == RepairGoal.FAIRNESS:
             if "dataset" in attributes:
                 dataset = Dataset.datasets[attributes["dataset"]]()
