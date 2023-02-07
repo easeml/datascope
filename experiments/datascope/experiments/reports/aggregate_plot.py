@@ -152,7 +152,7 @@ def aggregate(
     dataframe.sort_index(inplace=True)
     if len(compare) > 0:
         dataframe = dataframe.unstack()
-        dataframe.columns = dataframe.columns.swaplevel().map(">".join)
+        dataframe.columns = dataframe.columns.swaplevel().map(lambda x: tuple(str(xx) for xx in x)).map(">".join)
     return dataframe
 
 
@@ -283,7 +283,16 @@ def lineplot(
             xval = dataframe.index.values
             yval = center.to_numpy()
             yerr = np.abs(np.stack([lower, upper]) - yval)
-            axes.errorbar(xval, yval, yerr=yerr, fmt="o", linewidth=2, capsize=6, color=comp_colors[i], label=labels[i])
+            axes.errorbar(
+                xval,
+                yval,
+                yerr=yerr,
+                fmt="o",
+                linewidth=DEFAULT_LINEWIDTH,
+                capsize=6,
+                color=comp_colors[i],
+                label=labels[i],
+            )
             if annotations:
                 for x, y in zip(xval, yval):
                     axes.annotate(
@@ -300,7 +309,8 @@ def lineplot(
     for comp, c, l in linedesc:
         if ",".join(str(c) for c in comp) in dontcompare:
             continue
-        axes.plot(dataframe[comp][targetval][centercol], color=c, label=l, linewidth=DEFAULT_LINEWIDTH)
+        ll = l if errdisplay != ErrorDisplay.BAR else None
+        axes.plot(dataframe[comp][targetval][centercol], color=c, label=ll, linewidth=DEFAULT_LINEWIDTH)
 
     # Plot a dashed line over the current lines to improve visibility of overlapping lines.
     for comp, c, l in reversed(linedesc):
