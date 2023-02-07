@@ -217,6 +217,7 @@ def lineplot(
     fontsize: int = DEFAULT_FONTSIZE,
     annotations: bool = False,
     dontcompare: Optional[str] = None,
+    linemarker: Optional[str] = None,
 ) -> Optional[Figure]:
     if compare is None:
         compare = []
@@ -310,7 +311,14 @@ def lineplot(
         if ",".join(str(c) for c in comp) in dontcompare:
             continue
         ll = l if errdisplay != ErrorDisplay.BAR else None
-        axes.plot(dataframe[comp][targetval][centercol], color=c, label=ll, linewidth=DEFAULT_LINEWIDTH)
+        axes.plot(
+            dataframe[comp][targetval][centercol],
+            color=c,
+            label=ll,
+            marker=linemarker,
+            markersize=4 * DEFAULT_LINEWIDTH,
+            linewidth=DEFAULT_LINEWIDTH,
+        )
 
     # Plot a dashed line over the current lines to improve visibility of overlapping lines.
     for comp, c, l in reversed(linedesc):
@@ -637,6 +645,7 @@ class AggregatePlot(Report, id="aggplot"):
         ylogscale: Optional[Union[List[bool], bool]] = None,
         xtickfmt: Optional[Union[List[TickFormat], TickFormat]] = None,
         ytickfmt: Optional[Union[List[TickFormat], TickFormat]] = None,
+        linemarker: Optional[Union[List[str], str]] = None,
         annotations: Optional[Union[List[bool], bool]] = None,
         dontcompare: Optional[Union[List[str], str]] = None,
         groupby: Optional[Dict[str, Any]] = None,
@@ -669,6 +678,7 @@ class AggregatePlot(Report, id="aggplot"):
         self._ylogscale: List[bool] = ensurelist(ylogscale, default=False, length=n_plots)
         self._xtickfmt: List[TickFormat] = ensurelist(xtickfmt, default=TickFormat.DEFAULT, length=n_plots)
         self._ytickfmt: List[TickFormat] = ensurelist(ytickfmt, default=TickFormat.DEFAULT, length=n_plots)
+        self._linemarker: List[str] = ensurelist(linemarker, default="", length=n_plots)
         self._annotations: List[bool] = ensurelist(annotations, default=False, length=n_plots)
         self._dontcompare: List[str] = ensurelist(dontcompare, default=NONE_SYMBOL, length=n_plots)
 
@@ -781,6 +791,11 @@ class AggregatePlot(Report, id="aggplot"):
     def ytickfmt(self) -> List[TickFormat]:
         """The tick formatting to use for the y-axis."""
         return self._ytickfmt
+
+    @attribute
+    def linemarker(self) -> List[str]:
+        """The type of marker to use when plotting lines."""
+        return self._linemarker
 
     @attribute
     def annotations(self) -> List[bool]:
@@ -906,6 +921,7 @@ class AggregatePlot(Report, id="aggplot"):
                         fontsize=self.fontsize,
                         annotations=self._annotations[i],
                         dontcompare=self._dontcompare[i],
+                        linemarker=self._linemarker[i],
                     )
                 elif plottype == PlotType.BAR:
 
