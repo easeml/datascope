@@ -969,28 +969,28 @@ class Study:
                         if scenario.completed:
                             if pbar is not None:
                                 pbar.update(1)
-                            continue
-                        path = self.save_scenario(scenario)
-                        logpath = os.path.join(path, "slurm.log")
-                        run_command = "python -m datascope.experiments run-scenario -o %s -e %s" % (path, address)
-                        slurm_command = "sbatch --job-name=%s" % self.id
-                        slurm_command += " --time=%s" % slurm_jobtime
-                        slurm_command += " --mem-per-cpu=%s" % slurm_jobmemory
-                        if slurm_constraint is not None:
-                            slurm_command += " --constraint=%s" % slurm_constraint
-                        if slurm_partition is not None:
-                            slurm_command += " --partition=%s" % slurm_partition
-                        if slurm_args is not None:
-                            slurm_command += " %s " % slurm_args
-                        slurm_command += " --output=%s" % logpath
-                        slurm_command += ' --wrap="%s"' % run_command
-                        result = subprocess.run(slurm_command, capture_output=True, shell=True)
-                        if result.returncode != 0:
-                            raise RuntimeError(
-                                "Slurm sbatch command resulted in non-zero return code. \nstdout:\n%r\nstderr:\n%r\n"
-                                % (result.stdout, result.stderr)
-                            )
-                        scenarios_running += 1
+                        else:
+                            path = self.save_scenario(scenario)
+                            logpath = os.path.join(path, "slurm.log")
+                            run_command = "python -m datascope.experiments run-scenario -o %s -e %s" % (path, address)
+                            slurm_command = "sbatch --job-name=%s" % self.id
+                            slurm_command += " --time=%s" % slurm_jobtime
+                            slurm_command += " --mem-per-cpu=%s" % slurm_jobmemory
+                            if slurm_constraint is not None:
+                                slurm_command += " --constraint=%s" % slurm_constraint
+                            if slurm_partition is not None:
+                                slurm_command += " --partition=%s" % slurm_partition
+                            if slurm_args is not None:
+                                slurm_command += " %s " % slurm_args
+                            slurm_command += " --output=%s" % logpath
+                            slurm_command += ' --wrap="%s"' % run_command
+                            result = subprocess.run(slurm_command, capture_output=True, shell=True)
+                            if result.returncode != 0:
+                                raise RuntimeError(
+                                    "Slurm sbatch command resulted in non-zero return code. \nstdout:\n%r\nstderr:\n%r\n"
+                                    % (result.stdout, result.stderr)
+                                )
+                            scenarios_running += 1
 
                         # Check if we need to wait for jobs to finish. We do that either when
                         # the maximum number of allowed jobs has been reached
