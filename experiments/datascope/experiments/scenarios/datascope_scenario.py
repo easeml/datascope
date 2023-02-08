@@ -26,6 +26,8 @@ class ModelSpec(str, Enum):
     KNeighbors_1 = "knn-1"
     KNeighbors_5 = "knn-5"
     KNeighbors_10 = "knn-10"
+    KNeighbors_50 = "knn-50"
+    KNeighbors_100 = "knn-100"
     SVM = "svm"
     LinearSVM = "linsvm"
     GaussianProcess = "gp"
@@ -56,6 +58,8 @@ MODEL_KWARGS: Dict[ModelSpec, Dict[str, Any]] = {
     ModelSpec.KNeighbors_1: {"n_neighbors": 1},
     ModelSpec.KNeighbors_5: {"n_neighbors": 5},
     ModelSpec.KNeighbors_10: {"n_neighbors": 10},
+    ModelSpec.KNeighbors_50: {"n_neighbors": 50},
+    ModelSpec.KNeighbors_100: {"n_neighbors": 100},
     ModelSpec.SVM: {},
     ModelSpec.LinearSVM: {},
     ModelSpec.GaussianProcess: {},
@@ -189,6 +193,8 @@ KEYWORD_REPLACEMENTS = {
     "knn-1": "K-Nearest Neighbor (K=1)",
     "knn-5": "K-Nearest Neighbor (K=5)",
     "knn-10": "K-Nearest Neighbor (K=10)",
+    "knn-50": "K-Nearest Neighbor (K=50)",
+    "knn-100": "K-Nearest Neighbor (K=100)",
     "eqodds": "Equalized Odds Difference",
     "importance_cputime": "Compute Time [s]",
     "steps": "Repair Steps Taken",

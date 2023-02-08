@@ -987,7 +987,7 @@ class Study:
                             result = subprocess.run(slurm_command, capture_output=True, shell=True)
                             if result.returncode != 0:
                                 raise RuntimeError(
-                                    "Slurm sbatch command resulted in non-zero return code. \nstdout:\n%r\nstderr:\n%r\n"
+                                    "Slurm sbatch command gave a non-zero return code. \nstdout:\n%r\nstderr:\n%r\n"
                                     % (result.stdout, result.stderr)
                                 )
                             scenarios_running += 1
