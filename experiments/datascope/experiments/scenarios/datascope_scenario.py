@@ -43,6 +43,8 @@ MODEL_TYPES = {
     ModelSpec.KNeighbors_1: ModelType.KNeighbors,
     ModelSpec.KNeighbors_5: ModelType.KNeighbors,
     ModelSpec.KNeighbors_10: ModelType.KNeighbors,
+    ModelSpec.KNeighbors_50: ModelType.KNeighbors,
+    ModelSpec.KNeighbors_100: ModelType.KNeighbors,
     ModelSpec.SVM: ModelType.SVM,
     ModelSpec.LinearSVM: ModelType.LinearSVM,
     ModelSpec.GaussianProcess: ModelType.GaussianProcess,
