@@ -1,9 +1,11 @@
+import itertools
 import numpy as np
 from sklearn.neighbors import KNeighborsClassifier
 
 
 from datascope.importance.common import (
     SklearnModelEqualizedOddsDifference,
+    SklearnModelRocAuc,
     compute_groupings,
     equalized_odds_diff,
     get_indices,
@@ -138,4 +140,32 @@ def test_eod_elementwise_score_1():
             [0, -1, 0, 1],
         ]
     )
+    assert np.array_equal(result, expected)
+
+
+def test_auc_elementwise_score_1():
+    X = np.zeros_like((4, 2))
+    y = np.array([1, 0, 0, 1], dtype=int)
+    X_test = np.zeros_like((3, 2))
+    y_test = np.array([0, 0, 1], dtype=int)
+
+    utility = SklearnModelRocAuc(KNeighborsClassifier(n_neighbors=1))
+    result = utility.elementwise_score(X, y, X_test, y_test)
+    for idx in itertools.product(range(len(y)), repeat=len(y_test)):
+        idx = list(idx)
+        y_pred = y[idx]
+        expected_score = utility.metric(y_test, y_pred)
+        obtained_score = result[idx, range(len(y_test))].sum(dtype=float)
+        assert obtained_score == expected_score
+
+
+def test_auc_elementwise_null_score_1():
+    X = np.zeros_like((4, 2))
+    y = np.array([1, 0, 0, 1], dtype=int)
+    X_test = np.zeros_like((3, 2))
+    y_test = np.array([0, 0, 1], dtype=int)
+
+    utility = SklearnModelRocAuc(KNeighborsClassifier(n_neighbors=1))
+    result = utility.elementwise_null_score(X, y, X_test, y_test)
+    expected = np.array([0.0, 0.0, 0.5])
     assert np.array_equal(result, expected)
