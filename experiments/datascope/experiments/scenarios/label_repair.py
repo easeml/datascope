@@ -3,9 +3,10 @@ import numpy as np
 import pandas as pd
 
 from datascope.importance.common import (
-    SklearnModelAccuracy,
     JointUtility,
+    SklearnModelAccuracy,
     SklearnModelEqualizedOddsDifference,
+    SklearnModelRocAuc,
     Utility,
     compute_groupings,
 )
@@ -126,7 +127,7 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
             if "dataset" in attributes:
                 result = result and (attributes["dataset"] != "random")
             if "utility" in attributes:
-                result = result and attributes["utility"] == UtilityType.ACCURACY
+                result = result and attributes["utility"] in [UtilityType.ACCURACY, UtilityType.ROC_AUC]
         return result and super().is_valid_config(**attributes)
 
     @attribute
@@ -255,6 +256,8 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
                 ),
                 weights=[-0.5, 0.5],
             )
+        elif self.utility == UtilityType.ROC_AUC:
+            target_utility = JointUtility(SklearnModelRocAuc(model), weights=[-1.0])
         else:
             raise ValueError("Unknown utility type '%s'." % repr(self.utility))
 

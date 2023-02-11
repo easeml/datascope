@@ -137,6 +137,7 @@ class UtilityType(str, Enum):
     ACCURACY = "acc"
     EQODDS = "eqodds"
     EQODDS_AND_ACCURACY = "eqodds-acc"
+    ROC_AUC = "rocauc"
 
 
 IMPORTANCE_METHODS = {
