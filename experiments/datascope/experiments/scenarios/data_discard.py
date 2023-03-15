@@ -6,6 +6,7 @@ from datascope.importance.common import (
     JointUtility,
     SklearnModelAccuracy,
     SklearnModelEqualizedOddsDifference,
+    SklearnModelRocAuc,
     Utility,
     binarize,
     get_indices,
@@ -19,6 +20,9 @@ from typing import Any, Optional, Dict
 from .datascope_scenario import (
     DatascopeScenario,
     RepairMethod,
+    ModelSpec,
+    MODEL_TYPES,
+    MODEL_KWARGS,
     IMPORTANCE_METHODS,
     MC_ITERATIONS,
     DEFAULT_SEED,
@@ -43,7 +47,7 @@ from ..datasets import (
     DEFAULT_TESTSIZE,
     DEFAULT_BIAS_METHOD,
 )
-from ..pipelines import Pipeline, ModelType, get_model
+from ..pipelines import Pipeline, get_model
 
 
 DEFAULT_MAX_REMOVE = 0.5
@@ -67,7 +71,7 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
         method: RepairMethod,
         utility: UtilityType,
         iteration: int,
-        model: ModelType = DEFAULT_MODEL,
+        model: ModelSpec = DEFAULT_MODEL,
         trainbias: float = DEFAULT_TRAIN_BIAS,
         valbias: float = DEFAULT_VAL_BIAS,
         biasmethod: BiasMethod = DEFAULT_BIAS_METHOD,
@@ -123,8 +127,6 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
     @classmethod
     def is_valid_config(cls, **attributes: Any) -> bool:
         result = True
-        if "method" in attributes:
-            result = result and not RepairMethod.is_tmc_nonpipe(attributes["method"])
         if "repairgoal" not in attributes or attributes["repairgoal"] == RepairGoal.FAIRNESS:
             if "dataset" in attributes:
                 dataset = Dataset.datasets[attributes["dataset"]]()
@@ -133,7 +135,7 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
             if "dataset" in attributes:
                 result = result and (attributes["dataset"] != "random")
             if "utility" in attributes:
-                result = result and attributes["utility"] == UtilityType.ACCURACY
+                result = result and attributes["utility"] in [UtilityType.ACCURACY, UtilityType.ROC_AUC]
 
         return result and super().is_valid_config(**attributes)
 
@@ -169,12 +171,12 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
         # X_train, y_train = dataset.X_train, dataset.y_train
         # X_val, y_val = dataset.X_val, dataset.y_val
         # X_train_orig, y_train_orig = dataset.X_train, dataset.y_train
-        if RepairMethod.is_tmc_nonpipe(self.method):
-            raise ValueError("This is not supported at the moment.")
-            # self.logger.debug("Shape of X_train before feature extraction: %s", str(dataset.X_train.shape))
-            # dataset = dataset.apply(pipeline)  # TODO: Fit the pipeline with dirty data.
-            # assert isinstance(dataset, BiasedMixin)
-            # self.logger.debug("Shape of X_train after feature extraction: %s", str(dataset.X_train.shape))
+        # if RepairMethod.is_tmc_nonpipe(self.method):
+        #     raise ValueError("This is not supported at the moment.")
+        # self.logger.debug("Shape of X_train before feature extraction: %s", str(dataset.X_train.shape))
+        # dataset = dataset.apply(pipeline)  # TODO: Fit the pipeline with dirty data.
+        # assert isinstance(dataset, BiasedMixin)
+        # self.logger.debug("Shape of X_train after feature extraction: %s", str(dataset.X_train.shape))
 
         # Reshape datasets if needed.
         # if dataset.X_train.ndim > 2:
@@ -188,7 +190,9 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
         provenance = binarize(provenance)
 
         # Initialize the model and utility.
-        model = get_model(self.model)
+        model_type = MODEL_TYPES[self.model]
+        model_kwargs = MODEL_KWARGS[self.model]
+        model = get_model(model_type, **model_kwargs)
         # model_pipeline = deepcopy(pipeline)
         # pipeline.steps.append(("model", model))
         # if RepairMethod.is_pipe(self.method):
@@ -220,6 +224,8 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
                 ),
                 weights=[-0.5, 0.5],
             )
+        elif self.utility == UtilityType.ROC_AUC:
+            target_utility = JointUtility(SklearnModelRocAuc(model), weights=[-1.0])
         else:
             raise ValueError("Unknown utility type '%s'." % repr(self.utility))
 

@@ -4,11 +4,12 @@ import warnings
 
 from abc import ABC, abstractmethod
 from collections import defaultdict
+from functools import partial
 from numpy import ndarray
 from typing import Iterable, Optional, Callable, Sequence, Tuple, Union, List
 from typing_extensions import Protocol
 from sklearn.base import clone
-from sklearn.metrics import accuracy_score
+from sklearn.metrics import accuracy_score, roc_auc_score
 
 
 class SklearnModel(Protocol):
@@ -16,6 +17,9 @@ class SklearnModel(Protocol):
         pass
 
     def predict(self, X: ndarray) -> ndarray:
+        pass
+
+    def predict_proba(self, X: ndarray) -> ndarray:
         pass
 
 
@@ -290,6 +294,77 @@ class SklearnModelAccuracy(SklearnModelUtility):
                 result = elementwise_sore
 
         return result
+
+
+class SklearnModelRocAuc(SklearnModelUtility):
+    def __init__(self, model: SklearnModelOrPipeline) -> None:
+        metric = partial(roc_auc_score, multi_class="ovr")  # We multi-class mode to be one-vs-rest.
+        super().__init__(model, metric)
+
+    def _model_predict(self, model: SklearnModelOrPipeline, X_test: ndarray) -> ndarray:
+        y_test_pred_proba = model.predict_proba(X_test)
+        if y_test_pred_proba.shape[1] == 2:
+            y_test_pred_proba = y_test_pred_proba[:, 1]
+        return y_test_pred_proba
+
+    def null_score(
+        self,
+        X_train: ndarray,
+        y_train: ndarray,
+        X_test: ndarray,
+        y_test: ndarray,
+    ) -> float:
+        scores = []
+        classes = np.unique(y_train)
+        for x in classes:
+            y_spoof = np.full((y_test.shape[0], len(classes)), np.eye(len(classes))[x])
+            if y_spoof.shape[1] == 2:
+                y_spoof = y_spoof[:, 1]
+            scores.append(self._metric_score(self.metric, y_test, y_spoof, X_test=X_test))
+
+        return min(scores)
+
+    def elementwise_score(
+        self,
+        X_train: ndarray,
+        y_train: ndarray,
+        X_test: ndarray,
+        y_test: ndarray,
+    ) -> ndarray:
+        classes = np.unique(y_train)
+        result = np.zeros((len(y_train), len(y_test)))
+        for c in classes:
+            eq = np.equal.outer(y_train, y_test)
+            all_c = np.full_like(y_train, c, dtype=y_train.dtype)
+            tp = (eq * np.equal.outer(all_c, y_test)).astype(float)
+            tn = (eq * np.not_equal.outer(all_c, y_test)).astype(float)
+            p = np.equal(y_test, c).sum(dtype=float)
+            n = np.not_equal(y_test, c).sum(dtype=float)
+            result += (tp / p + tn / n) * 0.5
+        return result / float(len(classes))
+
+    def elementwise_null_score(
+        self,
+        X_train: ndarray,
+        y_train: ndarray,
+        X_test: ndarray,
+        y_test: ndarray,
+    ) -> ndarray:
+        result = np.zeros_like(y_test, dtype=float)
+        classes, counts = np.unique(y_test, return_counts=True)
+        least_frequent_class = classes[np.argmin(counts)]
+        y_spoof = np.full_like(y_test, least_frequent_class, dtype=y_test.dtype)
+
+        for c in classes:
+            eq = np.equal(y_spoof, y_test)
+            all_c = np.full_like(y_spoof, c, dtype=y_spoof.dtype)
+            tp = (eq * np.equal(all_c, y_test)).astype(float)
+            tn = (eq * np.not_equal(all_c, y_test)).astype(float)
+            p = np.equal(y_test, c).sum(dtype=float)
+            n = np.not_equal(y_test, c).sum(dtype=float)
+            result += (tp / p + tn / n) * 0.5
+
+        return result / float(len(classes))
 
 
 def compute_groupings(X: ndarray, sensitive_features: Union[int, Sequence[int]]) -> ndarray:

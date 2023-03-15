@@ -3,9 +3,10 @@ import numpy as np
 import pandas as pd
 
 from datascope.importance.common import (
-    SklearnModelAccuracy,
     JointUtility,
+    SklearnModelAccuracy,
     SklearnModelEqualizedOddsDifference,
+    SklearnModelRocAuc,
     Utility,
     compute_groupings,
 )
@@ -18,6 +19,9 @@ from .base import attribute
 from .datascope_scenario import (
     DatascopeScenario,
     RepairMethod,
+    ModelSpec,
+    MODEL_TYPES,
+    MODEL_KWARGS,
     IMPORTANCE_METHODS,
     MC_ITERATIONS,
     DEFAULT_SEED,
@@ -40,7 +44,7 @@ from ..datasets import (
     DEFAULT_VALSIZE,
     DEFAULT_TESTSIZE,
 )
-from ..pipelines import Pipeline, ModelType, get_model
+from ..pipelines import Pipeline, get_model
 
 
 DEFAULT_DIRTY_RATIO = 0.5
@@ -63,7 +67,7 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
         method: RepairMethod,
         iteration: int,
         utility: UtilityType = UtilityType.ACCURACY,
-        model: ModelType = DEFAULT_MODEL,
+        model: ModelSpec = DEFAULT_MODEL,
         dirtyratio: float = DEFAULT_DIRTY_RATIO,
         dirtybias: float = DEFAULT_DIRTY_BIAS,
         seed: int = DEFAULT_SEED,
@@ -123,7 +127,7 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
             if "dataset" in attributes:
                 result = result and (attributes["dataset"] != "random")
             if "utility" in attributes:
-                result = result and attributes["utility"] == UtilityType.ACCURACY
+                result = result and attributes["utility"] in [UtilityType.ACCURACY, UtilityType.ROC_AUC]
         return result and super().is_valid_config(**attributes)
 
     @attribute
@@ -218,7 +222,9 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
         # provenance = binarize(provenance)
 
         # Initialize the model and utility.
-        model = get_model(self.model)
+        model_type = MODEL_TYPES[self.model]
+        model_kwargs = MODEL_KWARGS[self.model]
+        model = get_model(model_type, **model_kwargs)
         # model_pipeline = deepcopy(pipeline)
         # pipeline.steps.append(("model", model))
         # if RepairMethod.is_pipe(self.method):
@@ -250,6 +256,8 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
                 ),
                 weights=[-0.5, 0.5],
             )
+        elif self.utility == UtilityType.ROC_AUC:
+            target_utility = JointUtility(SklearnModelRocAuc(model), weights=[-1.0])
         else:
             raise ValueError("Unknown utility type '%s'." % repr(self.utility))
 

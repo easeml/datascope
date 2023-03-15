@@ -149,6 +149,15 @@ def main():
     )
 
     parser_run.add_argument(
+        "--slurm-args",
+        type=str,
+        action=env_default("EXPERIMENTS_SLURM_ARGS"),
+        required=False,
+        default=None,
+        help="Additional arguments to pass to sbatch (if slurm is used as backend).",
+    )
+
+    parser_run.add_argument(
         "--eventstream-host-ip",
         type=str,
         action=env_default("EVENTSTREAM_HOST_IP"),
