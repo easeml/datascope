@@ -858,7 +858,7 @@ class AggregatePlot(Report, id="aggplot"):
             title = "\n".join(self.titleformat) % formatdict
             title = replace_keywords(title, keyword_replacements)
             plt.rc("text", usetex=self.usetex)
-            self._figure.suptitle(title, fontsize=self.fontsize)
+            self._figure.suptitle(title, fontsize=self.fontsize * 0.9)
             axes: plt.Axes = self._figure.subplots(nrows=1, ncols=len(self.plot))
             if len(self.plot) == 1:
                 axes = np.array([axes])
