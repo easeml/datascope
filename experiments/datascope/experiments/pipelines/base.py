@@ -359,7 +359,7 @@ class ToLowerUrlRemovePipeline(
 #         return cls(ops)
 
 # Source: https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2
-class MiniLMEmbeddingPipeline(Pipeline, id="mini-lm", summary="MiniLM Embedding", modalities=[DatasetModality.IMAGE]):
+class MiniLMEmbeddingPipeline(Pipeline, id="mini-lm", summary="MiniLM Embedding", modalities=[DatasetModality.TEXT]):
     """
     A pipeline that extracts sentence embeddings using a MiniLM model pre-trained on the 1B sentences.
     """
