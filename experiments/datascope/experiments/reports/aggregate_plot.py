@@ -699,7 +699,7 @@ class AggregatePlot(Report, id="aggplot"):
         self._usetex = usetex if usetex is not None else True
         self._legend = legend if legend is not None else True
         if titleformat is None:
-            titleformat = [" ".join("%s=%%(%s)s" % (str(k).title(), str(k)) for k in self._groupby.keys())]
+            titleformat = ["; ".join("%s=%%(%s)s" % (str(k).title(), str(k)) for k in self._groupby.keys())]
         self._titleformat = titleformat
 
         self._view: Optional[DataFrame] = None
