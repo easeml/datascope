@@ -866,7 +866,7 @@ class AggregatePlot(Report, id="aggplot"):
                 groupby = dataframe.groupby(groupattrs)
                 sliceop = SLICE_OPS[self.sliceop]
                 dataframe = sliceop(groupby)
-                dataframe.reset_index()
+                dataframe.reset_index(inplace=True)
 
             if self._summary is None:
                 self._summary = summarize(
