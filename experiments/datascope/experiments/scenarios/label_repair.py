@@ -10,12 +10,14 @@ from datascope.importance.common import (
     Utility,
     compute_groupings,
 )
+from datascope.importance.importance import Importance
 from datascope.importance.shapley import ShapleyImportance
 from datetime import timedelta
 from time import process_time_ns
 from typing import Any, Iterable, List, Optional, Union, Dict
 
 from .base import attribute
+from ..baselines.influence.importance import InfluenceImportance
 from .datascope_scenario import (
     DatascopeScenario,
     RepairMethod,
@@ -37,6 +39,7 @@ from .datascope_scenario import (
 )
 from ..datasets import (
     Dataset,
+    DatasetModality,
     BiasMethod,
     BiasedNoisyLabelDataset,
     NoisyLabelDataset,
@@ -44,7 +47,7 @@ from ..datasets import (
     DEFAULT_VALSIZE,
     DEFAULT_TESTSIZE,
 )
-from ..pipelines import Pipeline, get_model
+from ..pipelines import Pipeline, FlattenPipeline, get_model
 
 
 DEFAULT_DIRTY_RATIO = 0.5
@@ -128,6 +131,11 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
                 result = result and (attributes["dataset"] != "random")
             if "utility" in attributes:
                 result = result and attributes["utility"] in [UtilityType.ACCURACY, UtilityType.ROC_AUC]
+        if "method" in attributes and attributes["method"] == RepairMethod.KNN_Raw:
+            dataset_class = Dataset.datasets[attributes["dataset"]]
+            result = result and dataset_class._modality in [DatasetModality.TABULAR, DatasetModality.IMAGE]
+        elif "method" in attributes and attributes["method"] == RepairMethod.INFLUENCE:
+            result = result and attributes.get("model", DEFAULT_MODEL) == ModelSpec.LogisticRegression
         return result and super().is_valid_config(**attributes)
 
     @attribute
@@ -264,19 +272,25 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
         # Compute importance scores and time it.
         importance_time_start = process_time_ns()
         n_units = dataset_dirty.units.shape[0]
-        importance: Optional[ShapleyImportance] = None
+        importance: Optional[Importance] = None
         importances: Optional[Iterable[float]] = None
         random = np.random.RandomState(seed=self._seed + self._iteration + 1)
         if self.method == RepairMethod.RANDOM:
             importances = list(random.rand(n_units))
+        elif self.method == RepairMethod.INFLUENCE:
+            importance = InfluenceImportance()
+            importances = importance.fit(
+                dataset_dirty.X_train, dataset_dirty.y_train, provenance=dataset_dirty.provenance
+            ).score(dataset.X_val, dataset.y_val)
         else:
+            shapley_pipeline = pipeline if self.method != RepairMethod.KNN_Raw else FlattenPipeline()
             method = IMPORTANCE_METHODS[self.method]
             mc_iterations = MC_ITERATIONS[self.method]
             mc_preextract = RepairMethod.is_tmc_nonpipe(self.method)
             importance = ShapleyImportance(
                 method=method,
                 utility=target_utility,
-                pipeline=pipeline,
+                pipeline=shapley_pipeline,
                 mc_iterations=mc_iterations,
                 mc_timeout=self.mc_timeout,
                 mc_tolerance=self.mc_tolerance,

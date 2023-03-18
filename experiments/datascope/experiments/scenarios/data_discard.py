@@ -12,6 +12,7 @@ from datascope.importance.common import (
     get_indices,
     compute_groupings,
 )
+from datascope.importance.importance import Importance
 from datascope.importance.shapley import ShapleyImportance
 from datetime import timedelta
 from time import process_time_ns
@@ -38,8 +39,10 @@ from .datascope_scenario import (
     RepairGoal,
 )
 from .base import attribute
+from ..baselines.influence.importance import InfluenceImportance
 from ..datasets import (
     Dataset,
+    DatasetModality,
     BiasMethod,
     BiasedMixin,
     DEFAULT_TRAINSIZE,
@@ -47,7 +50,7 @@ from ..datasets import (
     DEFAULT_TESTSIZE,
     DEFAULT_BIAS_METHOD,
 )
-from ..pipelines import Pipeline, get_model
+from ..pipelines import Pipeline, FlattenPipeline, get_model
 
 
 DEFAULT_MAX_REMOVE = 0.5
@@ -136,6 +139,11 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
                 result = result and (attributes["dataset"] != "random")
             if "utility" in attributes:
                 result = result and attributes["utility"] in [UtilityType.ACCURACY, UtilityType.ROC_AUC]
+        if "method" in attributes and attributes["method"] == RepairMethod.KNN_Raw:
+            dataset_class = Dataset.datasets[attributes["dataset"]]
+            result = result and dataset_class._modality in [DatasetModality.TABULAR, DatasetModality.IMAGE]
+        elif "method" in attributes and attributes["method"] == RepairMethod.INFLUENCE:
+            result = result and attributes.get("model", DEFAULT_MODEL) == ModelSpec.LogisticRegression
 
         return result and super().is_valid_config(**attributes)
 
@@ -232,18 +240,22 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
         # Compute importance scores and time it.
         random = np.random.RandomState(seed=seed)
         importance_time_start = process_time_ns()
-        importance: Optional[ShapleyImportance] = None
+        importance: Optional[Importance] = None
         importances: Optional[np.ndarray] = None
         if self.method == RepairMethod.RANDOM:
             importances = np.array(random.rand(dataset.trainsize))
+        elif self.method == RepairMethod.INFLUENCE:
+            importance = InfluenceImportance()
+            importances = np.array(importance.fit(dataset.X_train, dataset.y_train).score(dataset.X_val, dataset.y_val))
         else:
+            shapley_pipeline = pipeline if self.method != RepairMethod.KNN_Raw else FlattenPipeline()
             method = IMPORTANCE_METHODS[self.method]
             mc_iterations = MC_ITERATIONS[self.method]
             mc_preextract = RepairMethod.is_tmc_nonpipe(self.method)
             importance = ShapleyImportance(
                 method=method,
                 utility=target_utility,
-                pipeline=pipeline,
+                pipeline=shapley_pipeline,
                 mc_iterations=mc_iterations,
                 mc_timeout=self.mc_timeout,
                 mc_tolerance=self.mc_tolerance,

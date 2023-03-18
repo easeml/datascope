@@ -74,6 +74,7 @@ MODEL_KWARGS: Dict[ModelSpec, Dict[str, Any]] = {
 class RepairMethod(str, Enum):
     KNN_Single = "shapley-knn-single"
     KNN_Interactive = "shapley-knn-interactive"
+    KNN_Raw = "shapley-knn-raw"
     TMC_1 = "shapley-tmc-001"
     TMC_5 = "shapley-tmc-005"
     TMC_10 = "shapley-tmc-010"
@@ -87,6 +88,7 @@ class RepairMethod(str, Enum):
     TMC_PIPE_100 = "shapley-tmc-pipe-100"
     TMC_PIPE_500 = "shapley-tmc-pipe-500"
     RANDOM = "random"
+    INFLUENCE = "influence"
 
     @staticmethod
     def is_pipe(method: "RepairMethod") -> bool:
@@ -143,6 +145,7 @@ class UtilityType(str, Enum):
 IMPORTANCE_METHODS = {
     RepairMethod.KNN_Single: ImportanceMethod.NEIGHBOR,
     RepairMethod.KNN_Interactive: ImportanceMethod.NEIGHBOR,
+    RepairMethod.KNN_Raw: ImportanceMethod.NEIGHBOR,
     RepairMethod.TMC_1: ImportanceMethod.MONTECARLO,
     RepairMethod.TMC_5: ImportanceMethod.MONTECARLO,
     RepairMethod.TMC_10: ImportanceMethod.MONTECARLO,
@@ -161,6 +164,7 @@ IMPORTANCE_METHODS = {
 MC_ITERATIONS = {
     RepairMethod.KNN_Single: 0,
     RepairMethod.KNN_Interactive: 0,
+    RepairMethod.KNN_Raw: 0,
     RepairMethod.TMC_1: 1,
     RepairMethod.TMC_5: 5,
     RepairMethod.TMC_10: 10,
@@ -177,9 +181,11 @@ MC_ITERATIONS = {
 
 KEYWORD_REPLACEMENTS = {
     "random": "Random",
+    "influence": "Influence Function",
     "shapley-tmc": "Shapley TMC",
     "shapley-knn-single": "Shapley KNN Single",
     "shapley-knn-interactive": "Shapley KNN Interactive",
+    "shapley-knn-raw": "Shapley KNN over Raw Features",
     "shapley-tmc-001": "Shapley TMC+PP x1",
     "shapley-tmc-005": "Shapley TMC+PP x5",
     "shapley-tmc-010": "Shapley TMC+PP x10",

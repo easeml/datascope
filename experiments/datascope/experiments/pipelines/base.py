@@ -380,3 +380,12 @@ class MiniLMEmbeddingPipeline(Pipeline, id="mini-lm", summary="MiniLM Embedding"
 
         ops = [("embedding", FunctionTransformer(embedding_transform))]
         return cls(ops)
+
+
+class FlattenPipeline(sklearn.pipeline.Pipeline):
+    @staticmethod
+    def _flatten(X: np.ndarray) -> np.ndarray:
+        return np.reshape(X, newshape=(X.shape[0], -1))
+
+    def __init__(self):
+        super().__init__([("flatten", FunctionTransformer(FlattenPipeline._flatten))])

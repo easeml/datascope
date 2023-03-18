@@ -13,6 +13,7 @@ from .base import (
     ToLowerUrlRemovePipeline,
     # MobileBertEmbeddingPipeline,
     MiniLMEmbeddingPipeline,
+    FlattenPipeline,
 )
 
 from .models import get_model, ModelType, KEYWORD_REPLACEMENTS as MODEL_KEYWORD_REPLACEMENTS
@@ -32,6 +33,7 @@ __all__ = [
     "ToLowerUrlRemovePipeline",
     # "MobileBertEmbeddingPipeline",
     "MiniLMEmbeddingPipeline",
+    "FlattenPipeline",
     "get_model",
     "ModelType",
     "MODEL_KEYWORD_REPLACEMENTS",
