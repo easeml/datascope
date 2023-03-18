@@ -134,8 +134,6 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
         if "method" in attributes and attributes["method"] == RepairMethod.KNN_Raw:
             dataset_class = Dataset.datasets[attributes["dataset"]]
             result = result and dataset_class._modality in [DatasetModality.TABULAR, DatasetModality.IMAGE]
-        elif "method" in attributes and attributes["method"] == RepairMethod.INFLUENCE:
-            result = result and attributes.get("model", DEFAULT_MODEL) == ModelSpec.LogisticRegression
         return result and super().is_valid_config(**attributes)
 
     @attribute
@@ -284,6 +282,7 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
             importances = importance.fit(
                 dataset_dirty_f.X_train, dataset_dirty_f.y_train, provenance=dataset_dirty_f.provenance
             ).score(dataset_f.X_val, dataset_f.y_val)
+            importances = [-x for x in importances]
         else:
             shapley_pipeline = pipeline if self.method != RepairMethod.KNN_Raw else FlattenPipeline()
             method = IMPORTANCE_METHODS[self.method]
