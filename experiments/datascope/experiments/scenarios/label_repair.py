@@ -278,10 +278,12 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
         if self.method == RepairMethod.RANDOM:
             importances = list(random.rand(n_units))
         elif self.method == RepairMethod.INFLUENCE:
+            dataset_f = dataset.apply(pipeline)
+            dataset_dirty_f = dataset_dirty.apply(pipeline)
             importance = InfluenceImportance()
             importances = importance.fit(
-                dataset_dirty.X_train, dataset_dirty.y_train, provenance=dataset_dirty.provenance
-            ).score(dataset.X_val, dataset.y_val)
+                dataset_dirty_f.X_train, dataset_dirty_f.y_train, provenance=dataset_dirty_f.provenance
+            ).score(dataset_f.X_val, dataset_f.y_val)
         else:
             shapley_pipeline = pipeline if self.method != RepairMethod.KNN_Raw else FlattenPipeline()
             method = IMPORTANCE_METHODS[self.method]

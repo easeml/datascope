@@ -17,7 +17,7 @@ class InfluenceImportance(Importance):
         self.dataset = DataSet(self.X_train, self.y_train)
 
         self.model = LogisticRegressionWithLBFGS(
-            input_dim=X.shape[1],
+            input_dim=self.X_train.shape[1],
             weight_decay=0.01,
             max_lbfgs_iter=1000,
             num_classes=len(self.classes),
