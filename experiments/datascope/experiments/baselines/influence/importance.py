@@ -12,9 +12,9 @@ from .logisticRegressionWithLBFGS import LogisticRegressionWithLBFGS
 class InfluenceImportance(Importance):
     def _fit(self, X: ndarray, y: ndarray, provenance: Optional[ndarray] = None) -> "Importance":
         self.classes = unique_labels(y)
-        self.X_train = X
+        self.X_train = np.reshape(X, newshape=(X.shape[0], -1))
         self.y_train = y
-        self.dataset = DataSet(X, y)
+        self.dataset = DataSet(self.X_train, self.y_train)
 
         self.model = LogisticRegressionWithLBFGS(
             input_dim=X.shape[1],
@@ -35,6 +35,7 @@ class InfluenceImportance(Importance):
         return self
 
     def _score(self, X: ndarray, y: Optional[ndarray] = None, **kwargs) -> Iterable[float]:
+        X = np.reshape(X, newshape=(X.shape[0], -1))
         self.model.update_test_x_y(X, y)
         predicted_loss_diffs = self.model.get_influence_on_test_loss(
             test_indices=None, train_idx=np.arange(len(self.y_train)), force_refresh=True
