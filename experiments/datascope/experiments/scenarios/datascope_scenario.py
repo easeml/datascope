@@ -81,12 +81,14 @@ class RepairMethod(str, Enum):
     TMC_50 = "shapley-tmc-050"
     TMC_100 = "shapley-tmc-100"
     TMC_500 = "shapley-tmc-500"
+    TMC_1000 = "shapley-tmc-1000"
     TMC_PIPE_1 = "shapley-tmc-pipe-001"
     TMC_PIPE_5 = "shapley-tmc-pipe-005"
     TMC_PIPE_10 = "shapley-tmc-pipe-010"
     TMC_PIPE_50 = "shapley-tmc-pipe-050"
     TMC_PIPE_100 = "shapley-tmc-pipe-100"
     TMC_PIPE_500 = "shapley-tmc-pipe-500"
+    TMC_PIPE_1000 = "shapley-tmc-pipe-1000"
     RANDOM = "random"
     INFLUENCE = "influence"
 
@@ -99,6 +101,7 @@ class RepairMethod(str, Enum):
             RepairMethod.TMC_PIPE_50,
             RepairMethod.TMC_PIPE_100,
             RepairMethod.TMC_PIPE_500,
+            RepairMethod.TMC_PIPE_1000,
         ]
 
     @staticmethod
@@ -110,12 +113,14 @@ class RepairMethod(str, Enum):
             RepairMethod.TMC_50,
             RepairMethod.TMC_100,
             RepairMethod.TMC_500,
+            RepairMethod.TMC_1000,
             RepairMethod.TMC_PIPE_1,
             RepairMethod.TMC_PIPE_5,
             RepairMethod.TMC_PIPE_10,
             RepairMethod.TMC_PIPE_50,
             RepairMethod.TMC_PIPE_100,
             RepairMethod.TMC_PIPE_500,
+            RepairMethod.TMC_PIPE_1000,
         ]
 
     @staticmethod
@@ -127,6 +132,7 @@ class RepairMethod(str, Enum):
             RepairMethod.TMC_50,
             RepairMethod.TMC_100,
             RepairMethod.TMC_500,
+            RepairMethod.TMC_1000,
         ]
 
 
@@ -152,12 +158,14 @@ IMPORTANCE_METHODS = {
     RepairMethod.TMC_50: ImportanceMethod.MONTECARLO,
     RepairMethod.TMC_100: ImportanceMethod.MONTECARLO,
     RepairMethod.TMC_500: ImportanceMethod.MONTECARLO,
+    RepairMethod.TMC_1000: ImportanceMethod.MONTECARLO,
     RepairMethod.TMC_PIPE_1: ImportanceMethod.MONTECARLO,
     RepairMethod.TMC_PIPE_5: ImportanceMethod.MONTECARLO,
     RepairMethod.TMC_PIPE_10: ImportanceMethod.MONTECARLO,
     RepairMethod.TMC_PIPE_50: ImportanceMethod.MONTECARLO,
     RepairMethod.TMC_PIPE_100: ImportanceMethod.MONTECARLO,
     RepairMethod.TMC_PIPE_500: ImportanceMethod.MONTECARLO,
+    RepairMethod.TMC_PIPE_1000: ImportanceMethod.MONTECARLO,
 }
 
 
@@ -171,12 +179,14 @@ MC_ITERATIONS = {
     RepairMethod.TMC_50: 50,
     RepairMethod.TMC_100: 100,
     RepairMethod.TMC_500: 500,
+    RepairMethod.TMC_1000: 1000,
     RepairMethod.TMC_PIPE_1: 1,
     RepairMethod.TMC_PIPE_5: 5,
     RepairMethod.TMC_PIPE_10: 10,
     RepairMethod.TMC_PIPE_50: 50,
     RepairMethod.TMC_PIPE_100: 100,
     RepairMethod.TMC_PIPE_500: 500,
+    RepairMethod.TMC_PIPE_1000: 1000,
 }
 
 KEYWORD_REPLACEMENTS = {
@@ -192,12 +202,14 @@ KEYWORD_REPLACEMENTS = {
     "shapley-tmc-050": "Shapley TMC+PP x50",
     "shapley-tmc-100": "Shapley TMC+PP x100",
     "shapley-tmc-500": "Shapley TMC+PP x500",
+    "shapley-tmc-1000": "Shapley TMC+PP x1000",
     "shapley-tmc-pipe-001": "Shapley TMC x1",
     "shapley-tmc-pipe-005": "Shapley TMC x5",
     "shapley-tmc-pipe-010": "Shapley TMC x10",
     "shapley-tmc-pipe-050": "Shapley TMC x50",
     "shapley-tmc-pipe-100": "Shapley TMC x100",
     "shapley-tmc-pipe-500": "Shapley TMC x500",
+    "shapley-tmc-pipe-1000": "Shapley TMC x1000",
     "knn": "K-Nearest Neighbor (K=1)",
     "knn-1": "K-Nearest Neighbor (K=1)",
     "knn-5": "K-Nearest Neighbor (K=5)",
