@@ -17,7 +17,6 @@ from time import process_time_ns
 from typing import Any, Iterable, List, Optional, Union, Dict
 
 from .base import attribute
-from ..baselines.influence.importance import InfluenceImportance
 from .datascope_scenario import (
     DatascopeScenario,
     RepairMethod,
@@ -276,6 +275,8 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
         if self.method == RepairMethod.RANDOM:
             importances = list(random.rand(n_units))
         elif self.method == RepairMethod.INFLUENCE:
+            from ..baselines.influence.importance import InfluenceImportance
+
             dataset_f = dataset.apply(pipeline)
             dataset_dirty_f = dataset_dirty.apply(pipeline)
             importance = InfluenceImportance()

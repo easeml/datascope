@@ -39,7 +39,6 @@ from .datascope_scenario import (
     RepairGoal,
 )
 from .base import attribute
-from ..baselines.influence.importance import InfluenceImportance
 from ..datasets import (
     Dataset,
     DatasetModality,
@@ -245,6 +244,8 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
         if self.method == RepairMethod.RANDOM:
             importances = np.array(random.rand(dataset.trainsize))
         elif self.method == RepairMethod.INFLUENCE:
+            from ..baselines.influence.importance import InfluenceImportance
+
             importance = InfluenceImportance()
             importances = np.array(importance.fit(dataset.X_train, dataset.y_train).score(dataset.X_val, dataset.y_val))
         else:
