@@ -13,6 +13,7 @@ from datascope.importance.common import (
 from datascope.importance.importance import Importance
 from datascope.importance.shapley import ShapleyImportance
 from datetime import timedelta
+from numpy.typing import NDArray
 from time import process_time_ns
 from typing import Any, Iterable, List, Optional, Union, Dict
 
@@ -168,8 +169,8 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
         )
 
         # Compute sensitive feature groupings.
-        groupings_val: Optional[np.ndarray] = None
-        groupings_test: Optional[np.ndarray] = None
+        groupings_val: Optional[NDArray] = None
+        groupings_test: Optional[NDArray] = None
         if isinstance(dataset, BiasedNoisyLabelDataset):
             groupings_val = compute_groupings(dataset.X_val, dataset.sensitive_feature)
             groupings_test = compute_groupings(dataset.X_test, dataset.sensitive_feature)

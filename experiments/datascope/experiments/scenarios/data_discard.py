@@ -15,6 +15,7 @@ from datascope.importance.common import (
 from datascope.importance.importance import Importance
 from datascope.importance.shapley import ShapleyImportance
 from datetime import timedelta
+from numpy.typing import NDArray
 from time import process_time_ns
 from typing import Any, Optional, Dict
 
@@ -167,8 +168,8 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
         )
 
         # Compute sensitive feature groupings.
-        groupings_val: Optional[np.ndarray] = None
-        groupings_test: Optional[np.ndarray] = None
+        groupings_val: Optional[NDArray] = None
+        groupings_test: Optional[NDArray] = None
         if isinstance(dataset, BiasedMixin):
             groupings_val = compute_groupings(dataset.X_val, dataset.sensitive_feature)
             groupings_test = compute_groupings(dataset.X_test, dataset.sensitive_feature)
@@ -240,14 +241,20 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
         random = np.random.RandomState(seed=seed)
         importance_time_start = process_time_ns()
         importance: Optional[Importance] = None
-        importances: Optional[np.ndarray] = None
+        importances: Optional[NDArray] = None
         if self.method == RepairMethod.RANDOM:
             importances = np.array(random.rand(dataset.trainsize))
         elif self.method == RepairMethod.INFLUENCE:
             from ..baselines.influence.importance import InfluenceImportance
 
+            dataset_f = dataset.apply(pipeline)
             importance = InfluenceImportance()
-            importances = np.array(importance.fit(dataset.X_train, dataset.y_train).score(dataset.X_val, dataset.y_val))
+            importances = np.array(
+                importance.fit(dataset_f.X_train, dataset_f.y_train, provenance=dataset_f.provenance).score(
+                    dataset_f.X_val, dataset_f.y_val
+                )
+            )
+            importances = np.negative(importances)
         else:
             shapley_pipeline = pipeline if self.method != RepairMethod.KNN_Raw else FlattenPipeline()
             method = IMPORTANCE_METHODS[self.method]
@@ -371,6 +378,7 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
             # Recompute if needed.
             if importance is not None and self.method == RepairMethod.KNN_Interactive:
                 importance_time_start = process_time_ns()
+                assert importances is not None
                 importances[present_idx] = importance.fit(dataset_current.X_train, dataset_current.y_train).score(
                     dataset_current.X_val, dataset_current.y_val
                 )
