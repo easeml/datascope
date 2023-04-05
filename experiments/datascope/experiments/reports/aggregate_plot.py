@@ -5,8 +5,10 @@ import re
 
 from enum import Enum
 from functools import partial
+from itertools import combinations, product
 from matplotlib.figure import Figure
 from matplotlib.ticker import EngFormatter, PercentFormatter
+from numpy.typing import NDArray
 from typing import Callable, Optional, Dict, Any, List, Union, TypeVar, Tuple
 
 from pandas import DataFrame
@@ -82,6 +84,21 @@ VALUE_MEASURE_C: Dict[AggregationMode, str] = {
     AggregationMode.MEDIAN_PERC_90: "median",
     AggregationMode.MEDIAN_PERC_95: "median",
     AggregationMode.MEDIAN_PERC_99: "median",
+}
+
+
+class CrossAggregationMode(str, Enum):
+    MEAN_SQUARE_ERROR = "mse"
+    ROOT_MEAN_SQUARE_ERROR = "rmse"
+    MEAN_ABSOLUTE_ERROR = "mae"
+    MEAN_ABSOLUTE_PERCENTAGE_ERROR = "mape"
+
+
+CROSS_AGGREGATION_FUNCTIONS: Dict[CrossAggregationMode, Callable[[NDArray, NDArray], float]] = {
+    CrossAggregationMode.MEAN_SQUARE_ERROR: lambda x1, x2: np.square(x1 - x2).mean(),
+    CrossAggregationMode.ROOT_MEAN_SQUARE_ERROR: lambda x1, x2: np.sqrt(np.square(x1 - x2).mean()),
+    CrossAggregationMode.MEAN_ABSOLUTE_ERROR: lambda x1, x2: np.abs(x1 - x2).mean(),
+    CrossAggregationMode.MEAN_ABSOLUTE_PERCENTAGE_ERROR: lambda x1, x2: np.abs((x1 - x2) / (x1 + 1e-6)).mean(),
 }
 
 
@@ -174,6 +191,56 @@ def summarize(
     dataframe = pd.concat(values, axis=axis)
     dataframe.sort_index(inplace=True)
     return dataframe.to_dict(orient="index") if isinstance(dataframe, DataFrame) else dataframe.to_dict()
+
+
+def cross_aggregate(
+    dataframe: pd.DataFrame,
+    index: Optional[List[str]],
+    compare: List[str],
+    targetval: List[str],
+    crossaggover: List[str],
+    crossaggpairs: Optional[List[str]] = None,
+    crossaggmode: CrossAggregationMode = CrossAggregationMode.MEAN_ABSOLUTE_ERROR,
+):
+
+    # Pivot the table so that target values from different comparison values appear side by side.
+    index = [] if index is None else index
+    crossaggover = [x for x in crossaggover if x not in index]
+    assert index is not None
+    indexlen = len(index)
+    dataframe = dataframe.pivot(index=index + crossaggover, columns=compare, values=targetval)
+
+    # Produce a series of pairwise comparisons for each target value and then concatenate them into one dataframe.
+    method = CROSS_AGGREGATION_FUNCTIONS[crossaggmode]
+    correlation_parts = []
+    for val in targetval:
+        target = dataframe[val]
+        if len(index) > 0:
+            target = target.groupby(index)
+        correlation_parts.append(target.corr(method=method).stack(dropna=False, level=compare).rename(val))
+    dataframe = pd.concat(correlation_parts, axis=1)
+
+    # Keep only a single instance of each pair.
+    if crossaggpairs is None or len(crossaggpairs) == 0:
+        comparevals = [sorted(dataframe[col].unique()) for col in compare]
+        crossaggpairs = [x[0] + x[1] for x in combinations(product(*comparevals), r=2)]
+    pairs = [tuple(x.replace("&", ",").split(",")) for x in crossaggpairs]
+    dataframe = dataframe[dataframe.index.map(lambda x: x[indexlen:] in pairs)]
+
+    # Move values from the index into regular columns.
+    n = len(compare)
+
+    def column_mapper(x: Tuple) -> Tuple:
+        result = tuple(x[:indexlen])
+        result += (",".join(str(x[i]) for i in range(-2 * n, -n)) + "&" + ",".join(str(x[i]) for i in range(-n, 0)),)
+        result += tuple([None for _ in range(2 * n - 1)])
+        return result
+
+    dataframe.index = dataframe.index.map(column_mapper)
+    dataframe.index = dataframe.index.droplevel(list(range(-2 * n + 1, 0)))
+    dataframe.index = dataframe.index.set_names(">".join(compare), level=-1 if len(index) > 0 else None)
+    dataframe = dataframe.reset_index()
+    return dataframe
 
 
 def replace_keywords(source: str, keyword_replacements: Dict[str, str]) -> str:
@@ -635,12 +702,14 @@ class AggregatePlot(Report, id="aggplot"):
         compareorder: Optional[List[str]] = None,
         colors: Optional[List[str]] = None,
         summarize: Optional[Union[List[str], str]] = None,
+        crossaggover: Optional[Union[List[str], str]] = None,
         sliceby: Optional[Union[List[str], str]] = None,
         sliceop: Optional[SliceOp] = None,
         resultfilter: Optional[str] = None,
         errdisplay: Optional[ErrorDisplay] = None,
         aggmode: Optional[AggregationMode] = None,
         summode: Optional[AggregationMode] = None,
+        crossaggmode: Optional[CrossAggregationMode] = None,
         xlogscale: Optional[Union[List[bool], bool]] = None,
         ylogscale: Optional[Union[List[bool], bool]] = None,
         xtickfmt: Optional[Union[List[TickFormat], TickFormat]] = None,
@@ -667,6 +736,7 @@ class AggregatePlot(Report, id="aggplot"):
         self._compareorder: List[str] = compareorder if compareorder is not None else []
         self._colors: List[str] = colors if colors is not None else []
         self._summarize: List[str] = ensurelist(summarize, default=None)
+        self._crossaggover: List[str] = ensurelist(crossaggover, default=None)
         self._filter = filter
         self._sliceby: List[str] = ensurelist(sliceby, default=None)
         self._sliceop = sliceop if sliceop is not None else SliceOp.FIRST
@@ -674,6 +744,7 @@ class AggregatePlot(Report, id="aggplot"):
         self._errdisplay = errdisplay if errdisplay is not None else ErrorDisplay.SHADE
         self._aggmode = aggmode if aggmode is not None else AggregationMode.MEDIAN_PERC_95
         self._summode = summode if summode is not None else AggregationMode.MEDIAN_PERC_95
+        self._crossaggmode = crossaggmode if crossaggmode is not None else CrossAggregationMode.MEAN_ABSOLUTE_ERROR
         self._xlogscale: List[bool] = ensurelist(xlogscale, default=False, length=n_plots)
         self._ylogscale: List[bool] = ensurelist(ylogscale, default=False, length=n_plots)
         self._xtickfmt: List[TickFormat] = ensurelist(xtickfmt, default=TickFormat.DEFAULT, length=n_plots)
@@ -742,6 +813,11 @@ class AggregatePlot(Report, id="aggplot"):
         return self._summarize
 
     @attribute
+    def crossaggover(self) -> List[str]:
+        """The attributes that we use for joining the cross aggregation."""
+        return self._crossaggover
+
+    @attribute
     def sliceby(self) -> List[str]:
         """Slice along the index attribute by taking the first value in each slice plane.
         We use the given set of attributes to define a slice plane."""
@@ -766,6 +842,11 @@ class AggregatePlot(Report, id="aggplot"):
     def summode(self) -> AggregationMode:
         """The mode of summarization to apply."""
         return self._summode
+
+    @attribute
+    def crossaggmode(self) -> CrossAggregationMode:
+        """The mode of cross aggregation to apply."""
+        return self._crossaggmode
 
     @attribute
     def errdisplay(self) -> ErrorDisplay:
@@ -850,8 +931,22 @@ class AggregatePlot(Report, id="aggplot"):
 
         if self.index is not None and len(self.targetval) > 0:
             if self._view is None:
+
+                agg_dataframe = dataframe
+
+                if len(self._crossaggover) > 0:
+                    agg_dataframe = cross_aggregate(
+                        dataframe=dataframe,
+                        index=[self.index],
+                        compare=self.compare,
+                        targetval=self.targetval,
+                        crossaggover=self._crossaggover,
+                        crossaggpairs=self._compareorder,
+                        crossaggmode=self._crossaggmode,
+                    )
+
                 self._view = aggregate(
-                    dataframe=dataframe,
+                    dataframe=agg_dataframe,
                     compare=self.compare,
                     index=self.index,
                     targetval=self.targetval,
@@ -860,17 +955,31 @@ class AggregatePlot(Report, id="aggplot"):
 
         if len(self.summarize) > 0:
 
-            # If slicing was specified, then we slice the dataframe first.
-            if len(self.sliceby) > 0:
-                groupattrs = self.sliceby + self.compare
-                groupby = dataframe.groupby(groupattrs)
-                sliceop = SLICE_OPS[self.sliceop]
-                dataframe = sliceop(groupby)
-                dataframe.reset_index(inplace=True)
-
             if self._summary is None:
+
+                summ_dataframe = dataframe
+
+                # If slicing was specified, then we slice the dataframe first.
+                if len(self.sliceby) > 0:
+                    groupattrs = self.sliceby + self.compare
+                    groupby = summ_dataframe.groupby(groupattrs)
+                    sliceop = SLICE_OPS[self.sliceop]
+                    summ_dataframe = sliceop(groupby)
+                    summ_dataframe.reset_index(inplace=True)
+
+                if len(self._crossaggover) > 0:
+                    summ_dataframe = cross_aggregate(
+                        dataframe=summ_dataframe,
+                        index=None,
+                        compare=self.compare,
+                        targetval=self.targetval,
+                        crossaggover=self._crossaggover,
+                        crossaggpairs=self._compareorder,
+                        crossaggmode=self._crossaggmode,
+                    )
+
                 self._summary = summarize(
-                    dataframe=dataframe,
+                    dataframe=summ_dataframe,
                     summarize=self.summarize,
                     compare=self.compare,
                     summode=self.summode,
