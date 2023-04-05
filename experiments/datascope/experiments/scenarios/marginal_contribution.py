@@ -8,6 +8,7 @@ from datascope.importance.common import (
 )
 from datetime import timedelta
 from pandas import DataFrame
+from sklearn.preprocessing import FunctionTransformer
 from sklearn.utils.multiclass import unique_labels
 from time import process_time_ns
 from typing import Any, Optional, Dict
@@ -115,6 +116,17 @@ class MarginalContributionScenario(Scenario, id="marginal-contribution"):  # typ
     @property
     def keyword_replacements(self) -> Dict[str, str]:
         return {**KEYWORD_REPLACEMENTS, **Pipeline.summaries}
+
+    @classmethod
+    def is_valid_config(cls, **attributes: Any) -> bool:
+        result = True
+        if "pipeline" in attributes and "dataset" in attributes:
+            dataset = Dataset.datasets[attributes["dataset"]]()
+            pipeline = Pipeline.pipelines[attributes["pipeline"]](steps=[("hack", FunctionTransformer())])
+            result = result and dataset.modality in pipeline.modalities
+        if "utility" in attributes:
+            result = result and attributes["utility"] in [UtilityType.ACCURACY, UtilityType.ROC_AUC, UtilityType.EQODDS]
+        return result and super().is_valid_config(**attributes)
 
     def _run(self, progress_bar: bool = True, **kwargs: Any) -> None:
 
