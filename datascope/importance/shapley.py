@@ -373,7 +373,8 @@ class ShapleyImportance(Importance):
             # Train the model and score it. If we fail at any step we get zero score.
             score = null_score
             with warnings.catch_warnings():
-                warnings.simplefilter("error")
+                warnings.simplefilter("error", category=RuntimeWarning)
+                warnings.simplefilter("error", category=UserWarning)
                 try:
                     X_train = X[indices]
                     y_train = y[indices]
@@ -461,7 +462,8 @@ class ShapleyImportance(Importance):
                 # Train the model and score it. If we fail at any step we get zero score.
                 new_score = null_score
                 with warnings.catch_warnings():
-                    warnings.simplefilter("error")
+                    warnings.simplefilter("error", category=RuntimeWarning)
+                    warnings.simplefilter("error", category=UserWarning)
                     try:
                         X_train = X[indices]
                         y_train = y[indices]

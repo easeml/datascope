@@ -194,7 +194,8 @@ class SklearnModelUtility(Utility):
     ) -> float:
         score = 0.0
         with warnings.catch_warnings():
-            warnings.simplefilter("error")
+            warnings.simplefilter("error", category=RuntimeWarning)
+            warnings.simplefilter("ignore", category=FutureWarning)
             try:
                 # TODO: Ensure fit clears the model.
                 np.random.seed(seed)
