@@ -154,12 +154,12 @@ def test_add_chain_1():
 
     V22 = AValue[2, 2]
     variables = [0, 1, 2, 3]
-    add = ADD.construct_chain(variables, V22)
+    add = ADD.construct_chain(variables, atype=V22)
 
-    add.aright[0, 0] = V22(0, 1)
-    add.aright[1, 0] = V22(0, 1)
-    add.aright[2, 0] = V22(0, 1)
-    add.aright[3, 0] = V22(0, 1)
+    add.adder[0, 0, 1] = V22(0, 1)
+    add.adder[1, 0, 1] = V22(0, 1)
+    add.adder[2, 0, 1] = V22(0, 1)
+    add.adder[3, 0, 1] = V22(0, 1)
 
     assert add(False, False, False, False) == V22(0)
     assert add(False, True, False, False) == V22(0, 1)
@@ -178,12 +178,12 @@ def test_add_chain_1():
 def test_add_tree_1():
     V22 = AValue[2, 2]
     variables = [0, 1, 2, 3]
-    add = ADD.construct_tree(variables, V22)
+    add = ADD.construct_tree(variables, atype=V22)
 
-    add.aright[0, 0] = V22(0, 1)
-    add.aright[1, 0] = V22(0, 1)
-    add.aright[2, 0] = V22(0, 1)
-    add.aright[3, 0] = V22(0, 1)
+    add.adder[0, 0, 1] = V22(0, 1)
+    add.adder[1, 0, 1] = V22(0, 1)
+    add.adder[2, 0, 1] = V22(0, 1)
+    add.adder[3, 0, 1] = V22(0, 1)
 
     assert add(False, False, False, False) == V22(0)
     assert add(True, False, False, False) == V22(0, 1)
@@ -202,21 +202,21 @@ def test_add_concatenate_1():
 
     V22 = AValue[2, 2]
     variables_1 = [0, 1]
-    add_1 = ADD.construct_chain(variables_1, V22)
-    add_1.aright[0, 0] = V22(0, 1)
-    add_1.aright[1, 0] = V22(0, 1)
+    add_1 = ADD.construct_chain(variables_1, atype=V22)
+    add_1.adder[0, 0, 1] = V22(0, 1)
+    add_1.adder[1, 0, 1] = V22(0, 1)
 
     variables_2 = [2, 3]
-    add_2 = ADD.construct_chain(variables_2, V22)
-    add_2.aright[0, 0] = V22(0, 1)
-    add_2.aright[1, 0] = V22(0, 1)
+    add_2 = ADD.construct_chain(variables_2, atype=V22)
+    add_2.adder[0, 0, 1] = V22(0, 1)
+    add_2.adder[1, 0, 1] = V22(0, 1)
 
     add_r1 = ADD.concatenate([add_1, add_2])
 
     variables_r2 = variables_1 + variables_2
-    add_r2 = ADD.construct_chain(variables_r2, V22)
+    add_r2 = ADD.construct_chain(variables_r2, atype=V22)
     for i in range(len(variables_r2)):
-        add_r2.aright[i, 0] = V22(0, 1)
+        add_r2.adder[i, 0, 1] = V22(0, 1)
 
     for values in product(*[[False, True] for _ in range(len(variables_r2))]):
         assert add_r1(*values) == add_r2(*values)
@@ -226,20 +226,20 @@ def test_add_stack_1():
 
     V22 = AValue[2, 2]
     variables = [1, 2]
-    add_1 = ADD.construct_chain(variables, V22)
-    add_1.aleft[0, 0] = V22(0, 1)
-    add_1.aleft[1, 0] = V22(0, 1)
-    add_2 = ADD.construct_chain(variables, V22)
-    add_2.aright[0, 0] = V22(0, 1)
-    add_2.aright[1, 0] = V22(0, 1)
+    add_1 = ADD.construct_chain(variables, atype=V22)
+    add_1.adder[0, 0, 0] = V22(0, 1)
+    add_1.adder[1, 0, 0] = V22(0, 1)
+    add_2 = ADD.construct_chain(variables, atype=V22)
+    add_2.adder[0, 0, 1] = V22(0, 1)
+    add_2.adder[1, 0, 1] = V22(0, 1)
 
-    add = ADD.stack([0], {(False,): add_1, (True,): add_2})
-    assert add(False, False, False) == V22(0, 2)
-    assert add(True, False, False) == V22(0, 0)
-    assert add(True, True, False) == V22(0, 1)
-    assert add(False, True, False) == V22(0, 1)
-    assert add(False, False, True) == V22(0, 1)
-    assert add(False, True, True) == V22(0, 0)
+    add = ADD.stack([0], {(0,): add_1, (1,): add_2})
+    assert add(0, 0, 0) == V22(0, 2)
+    assert add(1, 0, 0) == V22(0, 0)
+    assert add(1, 1, 0) == V22(0, 1)
+    assert add(0, 1, 0) == V22(0, 1)
+    assert add(0, 0, 1) == V22(0, 1)
+    assert add(0, 1, 1) == V22(0, 0)
 
     expected = np.zeros(V22.domainsize, dtype=int)
     expected[index(V22(0, 0))] = 2
@@ -254,13 +254,13 @@ def test_add_stack_2():
 
     V22 = AValue[2, 2]
     variables = [2, 3]
-    add_1 = ADD.construct_chain(variables, V22)
-    add_1.aleft[0, 0] = V22(0, 1)
-    add_1.aleft[1, 0] = V22(0, 1)
-    add_2 = ADD.construct_chain(variables, V22)
-    add_2.aright[0, 0] = V22(0, 1)
-    add_2.aright[1, 0] = V22(0, 1)
-    add_3 = ADD.construct_chain(variables, V22)
+    add_1 = ADD.construct_chain(variables, atype=V22)
+    add_1.adder[0, 0, 0] = V22(0, 1)
+    add_1.adder[1, 0, 0] = V22(0, 1)
+    add_2 = ADD.construct_chain(variables, atype=V22)
+    add_2.adder[0, 0, 1] = V22(0, 1)
+    add_2.adder[1, 0, 1] = V22(0, 1)
+    add_3 = ADD.construct_chain(variables, atype=V22)
 
     add = ADD.stack([0, 1], {(False, False): add_1, (True, True): add_2, (True, False): add_3, (False, True): add_3})
     assert add(False, False, False, False) == V22(0, 2)
@@ -275,12 +275,12 @@ def test_add_stack_invalid_1():
 
     V22 = AValue[2, 2]
     variables = [1, 2]
-    add_1 = ADD.construct_chain(variables, V22)
-    add_1.aleft[0, 0] = V22(0, 1)
-    add_1.aleft[1, 0] = V22(0, 1)
-    add_2 = ADD.construct_chain(variables, V22)
-    add_2.aright[0, 0] = V22(0, 1)
-    add_2.aright[1, 0] = V22(0, 1)
+    add_1 = ADD.construct_chain(variables, atype=V22)
+    add_1.adder[0, 0, 0] = V22(0, 1)
+    add_1.adder[1, 0, 0] = V22(0, 1)
+    add_2 = ADD.construct_chain(variables, atype=V22)
+    add_2.adder[0, 0, 1] = V22(0, 1)
+    add_2.adder[1, 0, 1] = V22(0, 1)
 
     with pytest.raises(ValueError):
         ADD.stack([0, 1], {(False,): add_1, (True,): add_2})
@@ -293,7 +293,7 @@ def test_add_call_invalid_1():
 
     V22 = AValue[2, 2]
     variables = [0, 1, 2, 3]
-    add = ADD.construct_chain(variables, V22)
+    add = ADD.construct_chain(variables, atype=V22)
 
     with pytest.raises(ValueError):
         add(False, False, False)
@@ -303,7 +303,7 @@ def test_add_repr_1():
 
     V22 = AValue[2, 2]
     variables = [0, 1, 2, 3]
-    add = ADD.construct_chain(variables, V22)
+    add = ADD.construct_chain(variables, atype=V22)
     lines = str.split(repr(add), sep="\n")
     assert len(lines) == len(variables) + 1
 
@@ -312,13 +312,13 @@ def test_add_restrict_1():
 
     V22 = AValue[2, 2]
     variables = [2, 3]
-    add_1 = ADD.construct_chain(variables, V22)
-    add_1.aleft[0, 0] = V22(0, 1)
-    add_1.aleft[1, 0] = V22(0, 1)
-    add_2 = ADD.construct_chain(variables, V22)
-    add_2.aright[0, 0] = V22(0, 1)
-    add_2.aright[1, 0] = V22(0, 1)
-    add_3 = ADD.construct_chain(variables, V22)
+    add_1 = ADD.construct_chain(variables, atype=V22)
+    add_1.adder[0, 0, 0] = V22(0, 1)
+    add_1.adder[1, 0, 0] = V22(0, 1)
+    add_2 = ADD.construct_chain(variables, atype=V22)
+    add_2.adder[0, 0, 1] = V22(0, 1)
+    add_2.adder[1, 0, 1] = V22(0, 1)
+    add_3 = ADD.construct_chain(variables, atype=V22)
 
     add = ADD.stack([0, 1], {(False, True): add_1, (True, True): add_2, (True, False): add_3, (False, False): add_3})
 
@@ -336,13 +336,13 @@ def test_add_restrict_2():
 
     V22 = AValue[2, 2]
     variables = [2, 3]
-    add_1 = ADD.construct_chain(variables, V22)
-    add_1.aleft[0, 0] = V22(0, 1)
-    add_1.aleft[1, 0] = V22(0, 1)
-    add_2 = ADD.construct_chain(variables, V22)
-    add_2.aright[0, 0] = V22(0, 1)
-    add_2.aright[1, 0] = V22(0, 1)
-    add_3 = ADD.construct_chain(variables, V22)
+    add_1 = ADD.construct_chain(variables, atype=V22)
+    add_1.adder[0, 0, 0] = V22(0, 1)
+    add_1.adder[1, 0, 0] = V22(0, 1)
+    add_2 = ADD.construct_chain(variables, atype=V22)
+    add_2.adder[0, 0, 1] = V22(0, 1)
+    add_2.adder[1, 0, 1] = V22(0, 1)
+    add_3 = ADD.construct_chain(variables, atype=V22)
 
     add = ADD.stack([0, 1], {(True, False): add_1, (True, True): add_2, (False, True): add_3, (False, False): add_3})
 
@@ -360,10 +360,10 @@ def test_add_sum_1():
 
     V22 = AValue[2, 2]
     variables = [0, 1]
-    add_1 = ADD.construct_chain(variables, V22)
-    add_1.aright[0, 0] = V22(0, 1)
-    add_2 = ADD.construct_chain(variables, V22)
-    add_2.aright[1, 0] = V22(0, 1)
+    add_1 = ADD.construct_chain(variables, atype=V22)
+    add_1.adder[0, 0, 1] = V22(0, 1)
+    add_2 = ADD.construct_chain(variables, atype=V22)
+    add_2.adder[1, 0, 1] = V22(0, 1)
 
     add = add_1.sum(add_2)
 
@@ -376,24 +376,24 @@ def test_add_sum_1():
 def test_add_sum_2():
 
     V22 = AValue[2, 2]
-    add_11_a = ADD.construct_chain([1, 2], V22)
-    add_11_a.aright[0, 0] = V22(0, 1)
-    add_11_a.aright[1, 0] = V22(0, 1)
-    add_12_a = ADD.construct_chain([1, 2], V22)
+    add_11_a = ADD.construct_chain([1, 2], atype=V22)
+    add_11_a.adder[0, 0, 1] = V22(0, 1)
+    add_11_a.adder[1, 0, 1] = V22(0, 1)
+    add_12_a = ADD.construct_chain([1, 2], atype=V22)
     add_1_a = ADD.stack([0], {(True,): add_11_a, (False,): add_12_a})
 
-    add_21_a = ADD.construct_chain([4], V22)
-    add_21_a.aright[0, 0] = V22(0, 1)
-    add_22_a = ADD.construct_chain([4], V22)
+    add_21_a = ADD.construct_chain([4], atype=V22)
+    add_21_a.adder[0, 0, 1] = V22(0, 1)
+    add_22_a = ADD.construct_chain([4], atype=V22)
     add_2_a = ADD.stack([3], {(True,): add_21_a, (False,): add_22_a})
 
     add_a = ADD.concatenate([add_1_a, add_2_a])
 
-    add_1_b = ADD.construct_chain([0, 1], V22)
-    add_21_b = ADD.construct_chain([3, 4], V22)
-    add_22_b = ADD.construct_chain([3, 4], V22)
-    add_22_b.aleft[0, 0] = V22(None)
-    add_22_b.aleft[1, 0] = V22(None)
+    add_1_b = ADD.construct_chain([0, 1], atype=V22)
+    add_21_b = ADD.construct_chain([3, 4], atype=V22)
+    add_22_b = ADD.construct_chain([3, 4], atype=V22)
+    add_22_b.adder[0, 0, 0] = V22(None)
+    add_22_b.adder[1, 0, 0] = V22(None)
     add_2_b = ADD.stack([2], {(True,): add_21_b, (False,): add_22_b})
 
     add_b = ADD.concatenate([add_1_b, add_2_b])

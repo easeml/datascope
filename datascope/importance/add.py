@@ -4,7 +4,7 @@ import numpy as np
 from itertools import product
 from numpy import ndarray
 from operator import index
-from typing import Tuple, Dict, List, Type, Union, Optional, Iterable
+from typing import Tuple, Dict, List, Type, Union, Optional, Iterable, Sequence
 
 
 class AValue:
@@ -190,164 +190,162 @@ class AValue:
 
 
 class ADD:
-    def __init__(self, variables: List[int], diameter: int, atype: Type[AValue]) -> None:
-        self.variables = variables
+    def __init__(
+        self,
+        units: Union[Sequence[int], int],
+        num_candidates: int = 2,
+        diameter: int = 1,
+        atype: Optional[Type[AValue]] = None,
+    ) -> None:
+        self.units = list(range(units)) if isinstance(units, int) else list(units)  # type: ignore
+        self.num_units = len(self.units)
+        self.num_candidates = num_candidates
         self.diameter = diameter
-        self.atype = atype
+        self.atype = atype if atype is not None else AValue[len(self.units)]  # type: ignore
         self.root = 0
-        self.nodes = np.zeros((len(variables), diameter))
-        self.cleft = np.zeros((len(variables), diameter), dtype=int)
-        self.cright = np.zeros((len(variables), diameter), dtype=int)
-        self.aleft = np.full((len(variables), diameter), fill_value=atype(0), dtype=atype)
-        self.aright = np.full((len(variables), diameter), fill_value=atype(0), dtype=atype)
+        self.nodes = np.zeros((len(self.units), diameter), dtype=int)
+        self.child = np.zeros((len(self.units), diameter, self.num_candidates), dtype=int)
+        self.adder = np.full(
+            (len(self.units), diameter, self.num_candidates), fill_value=self.atype(0), dtype=self.atype
+        )
 
-    def __call__(self, *args: bool) -> AValue:
-        if len(args) != len(self.variables):
-            raise ValueError("Exactly %d arguments expected but %d provided." % (len(self.variables), len(args)))
+    def __call__(self, *args: Union[int, bool]) -> AValue:
+        if len(args) != len(self.units):
+            raise ValueError("Exactly %d arguments expected but %d provided." % (len(self.units), len(args)))
 
         j = self.root
         result = self.atype.get_zero()
         for i, arg in enumerate(args):
-            result += self.aright[i, j] if arg else self.aleft[i, j]
-            j = self.cright[i, j] if arg else self.cleft[i, j]
+            arg = int(arg)
+            result += self.adder[i, j, arg]
+            j = self.child[i, j, arg]
 
         return result
 
-    def restrict(self, variable: int, value: bool, inplace: bool = False) -> "ADD":
+    def restrict(self, unit: int, value: Union[int, bool], inplace: bool = False) -> "ADD":
+        value = int(value)
         result = self if inplace else copy.deepcopy(self)
-        idx = self.variables.index(variable)
-        self.variables.pop(idx)
-        child = self.cright if value else self.cleft
-        adder = self.aright if value else self.aleft
+        idx = self.units.index(unit)
+        self.units.pop(idx)
         if idx > 0:
             pidx = idx - 1
             for i in range(self.diameter):
                 if result.nodes[pidx, i] == 1:
-                    result.aleft[pidx, i] += adder[idx, self.cleft[pidx, i]]
-                    result.aright[pidx, i] += adder[idx, self.cleft[pidx, i]]
-                    result.cleft[pidx, i] = child[idx, self.cleft[pidx, i]]
-                    result.cright[pidx, i] = child[idx, self.cleft[pidx, i]]
+                    for c in range(self.num_candidates):
+                        result.adder[pidx, i, c] += self.adder[idx, self.child[pidx, i, c], value]
+                        result.child[pidx, i, c] = self.child[idx, self.child[pidx, i, c], value]
         else:
-            result.root = child[idx, self.root]
+            result.root = self.child[idx, self.root, value]
         # TODO: Prune dead nodes.
         result.nodes = np.delete(result.nodes, idx, axis=0)
-        result.cleft = np.delete(result.cleft, idx, axis=0)
-        result.cright = np.delete(result.cright, idx, axis=0)
-        result.aleft = np.delete(result.aleft, idx, axis=0)
-        result.aright = np.delete(result.aright, idx, axis=0)
+        result.child = np.delete(result.child, idx, axis=0)
+        result.adder = np.delete(result.adder, idx, axis=0)
         return result
 
     def sum(self, other: "ADD") -> "ADD":
-        assert self.variables == other.variables
-        result = ADD(self.variables, self.diameter * other.diameter, self.atype)
+        assert self.units == other.units
+        assert self.num_candidates == other.num_candidates
+        result = ADD(self.units, self.num_candidates, self.diameter * other.diameter, self.atype)
         pnodes: Dict[Tuple[int, int], int] = {}
         cnodes: Dict[Tuple[int, int], int] = {(self.root, other.root): 0}
-        for idx in range(len(self.variables)):
+        for idx in range(len(self.units)):
             pnodes = cnodes
             cnodes = {}
             for (i, j), k in pnodes.items():
-                lidx = cnodes.setdefault((self.cleft[idx, i], other.cleft[idx, j]), len(cnodes))
-                ridx = cnodes.setdefault((self.cright[idx, i], other.cright[idx, j]), len(cnodes))
-                result.nodes[idx, k] = 1
-                result.cleft[idx, k] = lidx
-                result.cright[idx, k] = ridx
-                result.aleft[idx, k] = self.aleft[idx, i] + other.aleft[idx, j]
-                result.aright[idx, k] = self.aright[idx, i] + other.aright[idx, j]
+                for c in range(self.num_candidates):
+                    cidx = cnodes.setdefault((self.child[idx, i, c], other.child[idx, j, c]), len(cnodes))
+                    result.nodes[idx, k] = 1
+                    result.child[idx, k, c] = cidx
+                    result.adder[idx, k, c] = self.adder[idx, i, c] + other.adder[idx, j, c]
         return result
 
     def modelcount(self) -> ndarray:
         adomain = np.array(list(self.atype.domain()), dtype=self.atype)
         result_current = np.zeros((self.diameter, adomain.shape[0]), dtype=int)
         result_current[:, 0] = 1
-        for i in reversed(range(len(self.variables))):
+        for i in reversed(range(len(self.units))):
             result_previous = result_current
             result_current = np.zeros((self.diameter, adomain.shape[0]), dtype=int)
 
             for j in range(self.diameter):
                 for k, e in enumerate(adomain):
-                    result_current[j, k] = (
-                        result_previous[self.cleft[i, j], index(e - self.aleft[i, j])]
-                        + result_previous[self.cright[i, j], index(e - self.aright[i, j])]
-                    ) * self.nodes[i, j]
+                    if self.nodes[i, j] != 0:
+                        for c in range(self.num_candidates):
+                            result_current[j, k] += result_previous[self.child[i, j, c], index(e - self.adder[i, j, c])]
 
         result = result_current[self.root]
-        result[-1] = 2 ** len(self.variables) - sum(result)  # Correct the count of invalid values.
+        result[-1] = 2 ** len(self.units) - sum(result)  # Correct the count of invalid values.
         return result
 
     @classmethod
-    def construct_tree(cls, variables: List[int], atype: Type[AValue]) -> "ADD":
-        diameter = 2 ** (len(variables) - 1)
-        d = ADD(variables=variables, diameter=diameter, atype=atype)
-        for i in range(len(variables) - 1):
-            d.nodes[i, : 2**i] = np.ones(2**i)
-            d.cleft[i, : 2**i] = np.arange(0, 2 ** (i + 1), 2)
-            d.cright[i, : 2**i] = np.arange(1, 2 ** (i + 1) + 1, 2)
-        d.nodes[len(variables) - 1] = 1
+    def construct_tree(cls, units: List[int], num_candidates: int = 2, atype: Optional[Type[AValue]] = None) -> "ADD":
+        diameter = num_candidates ** (len(units) - 1)
+        d = ADD(units=units, num_candidates=num_candidates, diameter=diameter, atype=atype)
+        for i in range(len(units) - 1):
+            d.nodes[i, : num_candidates**i] = np.ones(num_candidates**i, dtype=int)
+            for c in range(num_candidates):
+                d.child[i, : num_candidates**i, c] = np.arange(c, num_candidates ** (i + 1) + c, 2, dtype=int)
+        d.nodes[len(units) - 1] = 1
         return d
 
     @classmethod
-    def construct_chain(cls, variables: List[int], atype: Type[AValue]) -> "ADD":
-        d = ADD(variables=variables, diameter=1, atype=atype)
-        d.nodes = np.ones((len(variables), 1))
+    def construct_chain(cls, units: List[int], num_candidates: int = 2, atype: Optional[Type[AValue]] = None) -> "ADD":
+        d = ADD(units=units, num_candidates=num_candidates, diameter=1, atype=atype)
+        d.nodes = np.ones((len(units), 1), dtype=int)
         return d
 
     @classmethod
     def concatenate(cls, elements: List["ADD"]) -> "ADD":
         # Prepare the resulting diagram.
+        assert all(e.num_candidates == elements[0].num_candidates for e in elements)
         diameter = max(x.diameter for x in elements)
-        variables: List[int] = sum([x.variables for x in elements], [])
+        units: List[int] = sum([x.units for x in elements], [])
         atype = elements[0].atype
-        result = ADD(variables=variables, diameter=diameter, atype=atype)
+        result = ADD(units=units, diameter=diameter, atype=atype)
         result.root = elements[0].root
 
         # Perform the actual concatenation.
         margins = [diameter - x.diameter for x in elements]
         np.concatenate([np.pad(x.nodes, [(0, 0), (0, margins[i])]) for i, x in enumerate(elements)], out=result.nodes)
-        np.concatenate([np.pad(x.cleft, [(0, 0), (0, margins[i])]) for i, x in enumerate(elements)], out=result.cleft)
-        np.concatenate([np.pad(x.cright, [(0, 0), (0, margins[i])]) for i, x in enumerate(elements)], out=result.cright)
         np.concatenate(
-            [
-                np.pad(x.aleft, [(0, 0), (0, margins[i])], constant_values=atype(0))  # type: ignore
-                for i, x in enumerate(elements)
-            ],
-            out=result.aleft,
+            [np.pad(x.child, [(0, 0), (0, margins[i]), (0, 0)]) for i, x in enumerate(elements)], out=result.child
         )
         np.concatenate(
             [
-                np.pad(x.aright, [(0, 0), (0, margins[i])], constant_values=atype(0))  # type: ignore
+                np.pad(x.adder, [(0, 0), (0, margins[i]), (0, 0)], constant_values=atype(0))  # type: ignore
                 for i, x in enumerate(elements)
             ],
-            out=result.aright,
+            out=result.adder,
         )
 
         # Reroute child connections between elements.
         idx = -1
         for i in range(len(elements) - 1):
-            idx += len(elements[i].variables)
+            idx += len(elements[i].units)
             selector = result.nodes[idx].astype("bool")
-            result.cleft[idx, selector] = elements[i + 1].root
-            result.cright[idx, selector] = elements[i + 1].root
+            result.child[idx, selector, :] = elements[i + 1].root
 
         return result
 
     @classmethod
-    def stack(cls, factors: List[int], elements: Dict[Tuple[bool, ...], "ADD"]) -> "ADD":
+    def stack(cls, factors: List[int], elements: Dict[Tuple[int, ...], "ADD"]) -> "ADD":
 
-        if len(elements) != 2 ** len(factors):
+        num_candidates = next(iter(elements.values())).num_candidates
+        if len(elements) != num_candidates ** len(factors):
             raise ValueError(
                 "Given %d factors, the number of elements has to be exactly %d."
-                % (len(factors), 2 ** (len(factors) + 1))
+                % (len(factors), num_candidates ** (len(factors) + 1))
             )
 
         # Prepare the resulting diagram.
         diameter = sum(x.diameter for x in elements.values())
-        variables: List[int] = factors + next(iter(elements.values())).variables
+        units: List[int] = factors + next(iter(elements.values())).units
         atype = next(iter(elements.values())).atype
-        result = ADD(variables=variables, diameter=diameter, atype=atype)
+        result = ADD(units=units, diameter=diameter, atype=atype)
 
         # Construct the elements list according to their corresponding factor values.
         elements_list: List["ADD"] = []
-        for value in product(*[[False, True] for _ in range(len(factors))]):
+        for value in product(*[list(range(num_candidates)) for _ in range(len(factors))]):
             e = elements.get(value, None)
             if e is None:
                 raise ValueError("Element for valuation %s not provided." % str(value))
@@ -355,48 +353,50 @@ class ADD:
 
         # Construct the header tree made up of factors.
         for i in range(len(factors) - 1):
-            result.nodes[i, : 2**i] = np.ones(2**i)
-            result.cleft[i, : 2**i] = np.arange(0, 2 ** (i + 1), 2)
-            result.cright[i, : 2**i] = np.arange(1, 2 ** (i + 1) + 1, 2)
-        result.nodes[len(factors) - 1, : 2 ** (len(factors) - 1)] = 1
+            result.nodes[i, : num_candidates**i] = np.ones(num_candidates**i, dtype=int)
+            for c in range(num_candidates):
+                result.child[i, : 2**i, c] = np.arange(c, num_candidates ** (i + 1) + c, 2, dtype=int)
+        result.nodes[len(factors) - 1, : num_candidates ** (len(factors) - 1)] = 1
 
         # Route factor leaves to element roots.
         offsets = np.zeros(len(elements_list), dtype=int)
         np.cumsum([elements_list[i].diameter for i in range(len(elements_list) - 1)], out=offsets[1:])
-        roots = np.array([elements_list[i].root for i in range(len(elements_list))]) + offsets
+        roots = np.array([elements_list[i].root for i in range(len(elements_list))], dtype=int) + offsets
         nf = len(factors)
         ne = len(elements)
-        result.cleft[nf - 1, : 2 ** (nf - 1)] = [roots[i] for i in range(ne) if i % 2 == 0]  # noqa: E203
-        result.cright[nf - 1, : 2 ** (nf - 1)] = [roots[i] for i in range(ne) if i % 2 == 1]  # noqa: E203
+        for c in range(num_candidates):
+            result.child[nf - 1, : num_candidates ** (nf - 1), c] = [
+                roots[i] for i in range(ne) if i % num_candidates == c
+            ]  # noqa: E203
 
         # Perform the actual stacking of elements. We need to apply offsets to child node pointers.
         np.concatenate([x.nodes for x in elements_list], axis=1, out=result.nodes[len(factors) :])  # noqa: E203
         np.concatenate(
-            [x.cleft + offsets[i] for i, x in enumerate(elements_list)],
+            [x.child + offsets[i] for i, x in enumerate(elements_list)],
             axis=1,
-            out=result.cleft[len(factors) :],  # noqa: E203
+            out=result.child[len(factors) :],  # noqa: E203
         )
-        np.concatenate(
-            [x.cright + offsets[i] for i, x in enumerate(elements_list)],
-            axis=1,
-            out=result.cright[len(factors) :],  # noqa: E203
-        )
-        np.concatenate([x.aleft for x in elements_list], axis=1, out=result.aleft[len(factors) :])  # noqa: E203
-        np.concatenate([x.aright for x in elements_list], axis=1, out=result.aright[len(factors) :])  # noqa: E203
+        np.concatenate([x.adder for x in elements_list], axis=1, out=result.adder[len(factors) :])  # noqa: E203
 
         return result
 
+    @classmethod
+    def from_provenance(cls):
+        pass
+
     def __repr__(self) -> str:
         return "ROOT: %d\n" % self.root + "\n".join(
-            "[% 2d]: %s"
+            "[% 3s]: %s"
             % (
-                v,
+                str(v),
                 " ".join(
-                    "[%d](%d, %s)(%d, %s)"
-                    % (j, self.cleft[i, j], str(self.aleft[i, j]), self.cright[i, j], str(self.aright[i, j]))
+                    "[%d]" % j
+                    + "".join(
+                        "(%d, %s)" % (self.child[i, j, k], self.adder[i, j, k]) for k in range(self.num_candidates)
+                    )
                     for j, n in enumerate(self.nodes[i])
                     if n != 0
                 ),
             )
-            for i, v in enumerate(self.variables)
+            for i, v in enumerate(self.units)
         )
