@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from datascope.importance.add import AValue, ADD
+from datascope.utility import AValue, ADD
 from itertools import product
 from operator import index
 
