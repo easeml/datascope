@@ -2,7 +2,7 @@ import copy
 import numpy as np
 
 from itertools import product
-from numpy import ndarray
+from numpy.typing import NDArray
 from operator import index
 from typing import Tuple, Dict, List, Type, Union, Optional, Iterable, Sequence
 
@@ -10,11 +10,11 @@ from typing import Tuple, Dict, List, Type, Union, Optional, Iterable, Sequence
 class AValue:
 
     maxvalue: Tuple[int, ...] = ()
-    infvalue: ndarray
-    zerovalue: ndarray
+    infvalue: NDArray
+    zerovalue: NDArray
     domainsize: int
 
-    def __init__(self, value: Union[int, Tuple[int, ...], ndarray, None], *args: int) -> None:
+    def __init__(self, value: Union[int, Tuple[int, ...], NDArray, None], *args: int) -> None:
         if self.maxvalue == ():
             raise ValueError("Cannot initialize an abstract %s instance." % self.__class__.__name__)
         if len(args) > 0:
@@ -22,7 +22,7 @@ class AValue:
                 self._value = np.array((value,) + args)
             else:
                 raise ValueError("When initializing with multiple arguments, all of them need to be integers.")
-        elif isinstance(value, ndarray):
+        elif isinstance(value, np.ndarray):
             self._value = value
         elif isinstance(value, tuple):
             self._value = np.array(value)
@@ -40,7 +40,7 @@ class AValue:
                 )
         self._value = self._clip(self._value)
 
-    def _clip(self, value: ndarray) -> ndarray:
+    def _clip(self, value: NDArray) -> NDArray:
         return self.infvalue if (np.any(value < 0) or np.any(value > self.maxvalue)) else value
 
     def __class_getitem__(cls, key: Tuple[int, ...]) -> Type["AValue"]:
@@ -129,57 +129,57 @@ class AValue:
     def __ne__(self, other: object) -> bool:
         return not self.__eq__(other)
 
-    def __add__(self, other: Union["AValue", int, Tuple[int, ...], ndarray, None]) -> "AValue":
+    def __add__(self, other: Union["AValue", int, Tuple[int, ...], NDArray, None]) -> "AValue":
         other = type(self)(other) if not isinstance(other, AValue) else other
         return type(self)(self._clip(self._value + other._value))
 
-    def __sub__(self, other: Union["AValue", int, Tuple[int, ...], ndarray, None]) -> "AValue":
+    def __sub__(self, other: Union["AValue", int, Tuple[int, ...], NDArray, None]) -> "AValue":
         other = type(self)(other) if not isinstance(other, AValue) else other
         return type(self)(self._clip(self._value - other._value))
 
-    def __mul__(self, other: Union["AValue", int, Tuple[int, ...], ndarray, None]) -> "AValue":
+    def __mul__(self, other: Union["AValue", int, Tuple[int, ...], NDArray, None]) -> "AValue":
         other = type(self)(other) if not isinstance(other, AValue) else other
         return type(self)(self._clip(self._value * other._value))
 
-    def __truediv__(self, other: Union["AValue", int, Tuple[int, ...], ndarray, None]) -> "AValue":
+    def __truediv__(self, other: Union["AValue", int, Tuple[int, ...], NDArray, None]) -> "AValue":
         other = type(self)(other) if not isinstance(other, AValue) else other
         if other.is_zero:
             return type(self)(None)
         return type(self)(self._clip(self._value / other._value))
 
-    def __radd__(self, other: Union["AValue", int, Tuple[int, ...], ndarray, None]) -> "AValue":
+    def __radd__(self, other: Union["AValue", int, Tuple[int, ...], NDArray, None]) -> "AValue":
         return self.__add__(other)
 
-    def __rsub__(self, other: Union["AValue", int, Tuple[int, ...], ndarray, None]) -> "AValue":
+    def __rsub__(self, other: Union["AValue", int, Tuple[int, ...], NDArray, None]) -> "AValue":
         other = type(self)(other) if not isinstance(other, AValue) else other
         return type(self)(self._clip(other._value - self._value))
 
-    def __rmul__(self, other: Union["AValue", int, Tuple[int, ...], ndarray, None]) -> "AValue":
+    def __rmul__(self, other: Union["AValue", int, Tuple[int, ...], NDArray, None]) -> "AValue":
         return self.__mul__(other)
 
-    def __rtruediv__(self, other: Union["AValue", int, Tuple[int, ...], ndarray, None]) -> "AValue":
+    def __rtruediv__(self, other: Union["AValue", int, Tuple[int, ...], NDArray, None]) -> "AValue":
         other = type(self)(other) if not isinstance(other, AValue) else other
         return type(self)(self._clip(other._value / self._value))
 
-    def __iadd__(self, other: Union["AValue", int, Tuple[int, ...], ndarray, None]) -> "AValue":
+    def __iadd__(self, other: Union["AValue", int, Tuple[int, ...], NDArray, None]) -> "AValue":
         if not isinstance(other, AValue):
             other = type(self)(other)
         self._value = self._clip(self._value + other._value)
         return self
 
-    def __isub__(self, other: Union["AValue", int, Tuple[int, ...], ndarray, None]) -> "AValue":
+    def __isub__(self, other: Union["AValue", int, Tuple[int, ...], NDArray, None]) -> "AValue":
         if not isinstance(other, AValue):
             other = type(self)(other)
         self._value = self._clip(self._value - other._value)
         return self
 
-    def __imul__(self, other: Union["AValue", int, Tuple[int, ...], ndarray, None]) -> "AValue":
+    def __imul__(self, other: Union["AValue", int, Tuple[int, ...], NDArray, None]) -> "AValue":
         if not isinstance(other, AValue):
             other = type(self)(other)
         self._value = self._clip(self._value * other._value)
         return self
 
-    def __itruediv__(self, other: Union["AValue", int, Tuple[int, ...], ndarray, None]) -> "AValue":
+    def __itruediv__(self, other: Union["AValue", int, Tuple[int, ...], NDArray, None]) -> "AValue":
         if not isinstance(other, AValue):
             other = type(self)(other)
         if other.is_zero:
@@ -198,6 +198,7 @@ class ADD:
         atype: Optional[Type[AValue]] = None,
     ) -> None:
         self.units = list(range(units)) if isinstance(units, int) else list(units)  # type: ignore
+        self._units_index = dict((unit, idx) for (idx, unit) in enumerate(self.units))
         self.num_units = len(self.units)
         self.num_candidates = num_candidates
         self.diameter = diameter
@@ -225,8 +226,9 @@ class ADD:
     def restrict(self, unit: int, value: Union[int, bool], inplace: bool = False) -> "ADD":
         value = int(value)
         result = self if inplace else copy.deepcopy(self)
-        idx = self.units.index(unit)
-        self.units.pop(idx)
+        idx = self._units_index[unit]
+        result.units.pop(idx)
+        del result._units_index[unit]
         if idx > 0:
             pidx = idx - 1
             for i in range(self.diameter):
@@ -241,6 +243,34 @@ class ADD:
         result.child = np.delete(result.child, idx, axis=0)
         result.adder = np.delete(result.adder, idx, axis=0)
         return result
+
+    def get_update_location(self, units: Iterable[int], values: Iterable[int]) -> List[Tuple]:
+        assignment = sorted(zip(units, values), key=lambda x: self._units_index[x[0]])
+        if len(assignment) == 0:
+            raise ValueError("At one value assignment must be provided.")
+        elif len(assignment) == 1:
+            unit, value = assignment[0]
+            cur_unit_idx = self._units_index[unit]
+            cur_nodes = set(self.nodes[cur_unit_idx].nonzero())
+        elif len(assignment) > 1:
+            cur_unit_idx = 0
+            cur_nodes = {self.root}
+
+        cur_location: List[Tuple] = []
+        for unit, value in assignment:
+            while self.units[cur_unit_idx] != unit:
+                cur_nodes = set(self.child[cur_unit_idx, list(cur_nodes)].flatten())
+                cur_unit_idx += 1
+            cur_location = [(cur_unit_idx, node, value) for node in cur_nodes]
+            cur_nodes = set(self.child[cur_unit_idx, list(cur_nodes), value].flatten())
+            cur_unit_idx += 1
+        return cur_location
+
+    def update(self, location: List[Tuple], avalue: AValue, increment: bool = False) -> None:
+        if increment:
+            self.adder[location] += avalue
+        else:
+            self.adder[location] = avalue
 
     def sum(self, other: "ADD") -> "ADD":
         assert self.units == other.units
@@ -259,7 +289,7 @@ class ADD:
                     result.adder[idx, k, c] = self.adder[idx, i, c] + other.adder[idx, j, c]
         return result
 
-    def modelcount(self) -> ndarray:
+    def modelcount(self) -> NDArray:
         adomain = np.array(list(self.atype.domain()), dtype=self.atype)
         result_current = np.zeros((self.diameter, adomain.shape[0]), dtype=int)
         result_current[:, 0] = 1
@@ -379,10 +409,6 @@ class ADD:
         np.concatenate([x.adder for x in elements_list], axis=1, out=result.adder[len(factors) :])  # noqa: E203
 
         return result
-
-    @classmethod
-    def from_provenance(cls):
-        pass
 
     def __repr__(self) -> str:
         return "ROOT: %d\n" % self.root + "\n".join(
