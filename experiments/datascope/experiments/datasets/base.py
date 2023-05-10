@@ -24,6 +24,7 @@ from joblib import Memory
 from joblib.hashing import NumpyHasher
 from math import ceil, floor
 from numpy import ndarray
+from pandas import DataFrame
 from pyarrow import parquet as pq
 from sklearn.datasets import fetch_openml, fetch_20newsgroups, make_classification
 from sklearn.model_selection import train_test_split
@@ -109,7 +110,6 @@ def cache(
     prehash: Optional[List[str]] = None,
     ignore: Optional[List[str]] = None,
 ) -> Callable:
-
     # If the function was called as a decorator, we return a partial decorating function.
     if func is None:
         return functools.partial(cache, memory=memory, prehash=prehash, ignore=ignore)
@@ -134,7 +134,6 @@ def cache(
             arg_defaults.append(default)
 
     def wrapper(*args, **kwargs):
-
         # Handle arguments that we need to prehash.
         args = list(args)
         targets = {}
@@ -169,7 +168,6 @@ def _apply_pipeline(dataset: "Dataset", pipeline: Pipeline, **kwargs) -> "Datase
 
 
 class Dataset(ABC):
-
     datasets: Dict[str, Type["Dataset"]] = {}
     _dataset: Optional[str] = None
     _modality: DatasetModality
@@ -189,10 +187,13 @@ class Dataset(ABC):
         self._loaded: bool = False
         self._X_train: Optional[ndarray] = None
         self._y_train: Optional[ndarray] = None
+        self._metadata_train: Optional[DataFrame] = None
         self._X_val: Optional[ndarray] = None
         self._y_val: Optional[ndarray] = None
+        self._metadata_val: Optional[DataFrame] = None
         self._X_test: Optional[ndarray] = None
         self._y_test: Optional[ndarray] = None
+        self._metadata_test: Optional[DataFrame] = None
         self._provenance: Optional[ndarray] = None
         self._bin_provenance: Optional[ndarray] = None
         self._units: Optional[ndarray] = None
@@ -261,6 +262,10 @@ class Dataset(ABC):
         self._fresh = False
 
     @property
+    def metadata_train(self) -> Optional[DataFrame]:
+        return self._metadata_train
+
+    @property
     def X_val(self) -> ndarray:
         if self._X_val is None:
             raise ValueError("The dataset is not loaded yet.")
@@ -283,6 +288,10 @@ class Dataset(ABC):
         self._fresh = False
 
     @property
+    def metadata_val(self) -> Optional[DataFrame]:
+        return self._metadata_val
+
+    @property
     def X_test(self) -> ndarray:
         if self._X_test is None:
             raise ValueError("The dataset is not loaded yet.")
@@ -303,6 +312,10 @@ class Dataset(ABC):
     def y_test(self, value: ndarray):
         self._y_test = value
         self._fresh = False
+
+    @property
+    def metadata_test(self) -> Optional[DataFrame]:
+        return self._metadata_test
 
     @property
     def provenance(self) -> ndarray:
@@ -400,7 +413,6 @@ class RandomDataset(Dataset, modality=DatasetModality.TABULAR, id="random"):
         return self._numfeatures
 
     def load(self) -> None:
-
         X, y = make_classification(
             n_samples=self.trainsize + self.valsize + self.testsize,
             n_features=self.numfeatures,
@@ -710,7 +722,6 @@ def reduce_train_val_and_testsize(
 def balance_train_val_and_testsize(
     trainsize: int, valsize: int, testsize: int, totsize: int
 ) -> Tuple[int, int, int, int]:
-
     assert trainsize >= 0
     assert valsize >= 0
     assert testsize >= 0
@@ -1132,7 +1143,6 @@ class FolkUCI(BiasedNoisyLabelDataset, modality=DatasetModality.TABULAR):
 
 
 class FashionMNIST(NoisyLabelDataset, modality=DatasetModality.IMAGE):
-
     CLASSES = ["t-shirt/top", "trouser", "pullover", "dress", "coat", "sandal", "shirt", "sneaker", "bag", "ankle boot"]
 
     def __init__(
@@ -1238,7 +1248,6 @@ class TwentyNewsGroups(NoisyLabelDataset, modality=DatasetModality.TEXT):
 
 
 class Higgs(NoisyLabelDataset, modality=DatasetModality.TABULAR):
-
     TRAINSIZES = [1000, 10000, 100000, 1000000]
     TESTSIZES = [500, 5000, 50000, 500000]
 
@@ -1310,7 +1319,6 @@ class Higgs(NoisyLabelDataset, modality=DatasetModality.TABULAR):
 
 
 class DataPerfVision(NaturallyNoisyLabelDataset, modality=DatasetModality.TABULAR):
-
     DATA_DIR = os.path.join(DEFAULT_DATA_DIR, "dataperf-vision")
 
     @classmethod
@@ -1484,7 +1492,6 @@ class DataPerfVision(NaturallyNoisyLabelDataset, modality=DatasetModality.TABULA
 
 
 class CifarN(NaturallyNoisyLabelDataset, modality=DatasetModality.IMAGE):
-
     DATA_DIR = os.path.join(DEFAULT_DATA_DIR, "cifar-n")
     CIFAR_10_DATA_DIR = os.path.join(DATA_DIR, "cifar-10-batches-py")
     CIFAR_10_TRAIN_FILES = ["data_batch_%d" % i for i in [1, 2, 3, 4, 5]]
@@ -1518,7 +1525,6 @@ class CifarN(NaturallyNoisyLabelDataset, modality=DatasetModality.IMAGE):
             unzip(source=filename, path=cls.DATA_DIR)
 
     def load(self) -> None:
-
         # Load the CIFAR-10 dataset. We load the minimal number of batches needed.
         num_batches = math.ceil((self.trainsize + self.valsize) / 10000)
         if num_batches == 0:
