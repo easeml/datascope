@@ -459,7 +459,7 @@ class SklearnModelEqualizedOddsDifference(SklearnModelUtility):
 
         n_test = X_test.shape[0]
         classes = np.unique(y_train)
-        utilities = np.zeros((classes, n_test), dtype=float)
+        utilities = np.zeros((len(classes), n_test), dtype=float)
 
         try:
             # Precompute the true positive rate and false positive rate by using the entire training dataset.
