@@ -3,14 +3,15 @@ import time
 import warnings
 
 from enum import Enum
-from itertools import product
+from itertools import chain, product
 from scipy.special import comb
 
 # from numba import prange, jit
 from logging import Logger, getLogger
-from numpy import ndarray
+from numpy.typing import NDArray
 from scipy.sparse import csr_matrix, issparse, spmatrix
 from scipy.sparse.csgraph import connected_components
+from sklearn.preprocessing import LabelEncoder
 
 try:
     from sklearn.metrics import DistanceMetric
@@ -20,11 +21,12 @@ except ImportError:
 from sklearn.pipeline import Pipeline
 
 from typing_extensions import Literal
-from typing import Dict, List, Optional, Iterable, Set, Tuple
+from typing import Dict, List, Optional, Iterable, Set, Tuple, Sequence, Hashable, Union
 
-# from .add import ADD
-from .common import DEFAULT_SEED, DistanceCallable, Utility, binarize, get_indices, reshape
+from ..utility import Provenance
+from .common import DEFAULT_SEED, DistanceCallable, Utility
 from .importance import Importance
+from .oracle import ShapleyOracle, ATally
 
 
 from .shapley_cy import compute_all_importances_cy
@@ -46,7 +48,7 @@ DEFAULT_NN_K = 1
 DEFAULT_NN_DISTANCE = DistanceMetric.get_metric("minkowski").pairwise
 
 
-def checknan(x: ndarray) -> bool:
+def checknan(x: NDArray) -> bool:
     if (x.ndim == 0) and np.all(np.isnan(x)):
         return True
     else:
@@ -54,7 +56,7 @@ def checknan(x: ndarray) -> bool:
 
 
 def factorize_provenance(
-    provenance: ndarray, units: ndarray
+    provenance: NDArray, units: NDArray
 ) -> Tuple[List[Set[int]], List[Dict[int, Dict[Tuple[int, ...], List[int]]]]]:
     assert provenance.ndim == 2
 
@@ -96,77 +98,71 @@ def factorize_provenance(
     return factors, leaves
 
 
-# def compile_add(sigma: ndarray, provenance: ndarray, units: ndarray, btuple: int) -> ADD:
-#     pass
-
-
-# def compute_shapley_add(
-#     distances: ndarray,
-#     utilities: ndarray,
-#     provenance: ndarray,
-#     units: ndarray,
-# ) -> Iterable[float]:
-#     pass
+def argmin(a):
+    return min(range(len(a)), key=lambda x: a[x])
 
 
 # @jit(nopython=True)
-def get_unit_distances_and_utilities(
-    distances: ndarray,
-    utilities: ndarray,
-    provenance: ndarray,
-    units: ndarray,
-    world: ndarray,
-    simple_provenance: bool = False,
-) -> Tuple[ndarray, ndarray]:
+def get_unit_labels_and_distances(
+    labels: NDArray,
+    distances: NDArray,
+    provenance: Provenance,
+    units: NDArray,
+    world: NDArray,
+) -> Tuple[NDArray, NDArray]:
+    n_train, n_test, n_units = distances.shape[0], distances.shape[1], len(units)
+    assert labels.ndim == 1
+    assert len(labels) == n_train
 
-    n_test = distances.shape[1]
-    n_units = len(units)
-    # We check if we are dealing with the trivial situation, when we need only to return the trivial answer.
-    if simple_provenance or (
-        provenance.ndim == 3
-        and provenance.shape[-1] == 1
-        and provenance.shape[0] == provenance.shape[1]
-        and np.all(np.equal(provenance[..., 0], np.eye(n_units)))
-    ):
-        return distances, utilities
+    # If the provenance is simple (i.e. each tuple has a single distinct unit and they are sorted)
+    # then we just apply the simple case (the label vector needs to be broadcast only).
+    if provenance.is_simple:
+        labels = np.broadcast_to(np.expand_dims(labels, axis=1), (n_train, n_test))
+        return labels, distances
 
+    distances = np.array(distances, dtype=float)
     # Compute the minimal distance for each unit and each test example.
-    unit_provenance = provenance[..., units, world].astype(np.bool_)
+    query = np.zeros((provenance.num_units,), dtype=int)
+    unit_labels = np.zeros((n_units, n_test), dtype=int)
     unit_distances = np.zeros((n_units, n_test))  # TODO: Make this faster.
-    unit_utilities = np.zeros((n_units, n_test))  # TODO: Make this faster.
+    # for i, unit in enumerate(units):
     for i in range(n_units):
-        # # Find minimal distance indices for each test example, among tuples associated with i-th unit.
-        # idx = np.argmin(distances[unit_provenance[:, i]], axis=0)
-        # # Given those indices, select the minimal distance value and the associated utility value.
-        # unit_distances[i] = distances[unit_provenance[:, i]][idx, np.arange(n_test)]
-        # unit_utilities[i] = utilities[unit_provenance[:, i]][idx, np.arange(n_test)]
-        pidx = unit_provenance[:, i]
-        pdistances = distances[pidx]
-        putilities = utilities[pidx]
+        # Find minimal distance indices for each test example, among tuples associated with i-th unit.
+        unit = units[i]
+        query[unit] = world[i]
+        gidx = provenance.query(query)
+        glabels = labels[gidx]
+        gdistances = np.array(distances[gidx], dtype=float)
+        gidx_min = np.argmin(gdistances, axis=0)
         for j in range(n_test):
-            idx = np.argmin(distances[pidx, j])
-            unit_distances[i, j] = pdistances[idx, j]
-            unit_utilities[i, j] = putilities[idx, j]
-    return unit_distances, unit_utilities
+            idx = gidx_min[j]
+            unit_labels[i, j] = glabels[idx]
+            unit_distances[i, j] = gdistances[idx, j]
+        query[unit] = 0
+    return unit_labels, unit_distances
 
 
 # @jit(nopython=True, nogil=True, cache=True)
 def compute_all_importances(
-    unit_distances: ndarray,
-    unit_utilities: ndarray,
-    null_scores: ndarray,
-) -> ndarray:
+    unit_labels: NDArray,
+    unit_distances: NDArray,
+    label_utilities: NDArray,
+    null_scores: NDArray,
+) -> NDArray:
     # Compute unit importances.
     n_units, n_test = unit_distances.shape
     all_importances = np.zeros((n_units + 1))
-    unit_utilities = np.vstack((unit_utilities, null_scores))
+    unit_labels = np.vstack((unit_labels, np.repeat(label_utilities.shape[0], n_test)))
+    label_utilities = np.vstack((label_utilities, null_scores))
     for j in prange(n_test):
         idxs = np.append(np.argsort(unit_distances[:, j]), [n_units])
         current = 0.0
         for i in prange(n_units - 1, -1, -1):
             i_1 = idxs[i]
             i_2 = idxs[i + 1]
-            current += (unit_utilities[i_1, j] - unit_utilities[i_2, j]) / float(i + 1)
+            current += (label_utilities[unit_labels[i_1, j], j] - label_utilities[unit_labels[i_2, j], j]) / float(
+                i + 1
+            )
             all_importances[i_1] += current
         # all_importances /= n_units
     result = all_importances[:-1] / n_test
@@ -177,63 +173,69 @@ def compute_all_importances(
 # @njit(parallel=False)
 # @njit(parallel=True, fastmath=True)
 def compute_shapley_1nn_mapfork(
-    distances: ndarray,
-    utilities: ndarray,
-    provenance: ndarray,
-    units: ndarray,
-    world: ndarray,
-    null_scores: Optional[ndarray] = None,
-    simple_provenance: bool = False,
+    labels: NDArray,
+    distances: NDArray,
+    label_utilities: NDArray,
+    provenance: Provenance,
+    units: NDArray,
+    world: NDArray,
+    null_scores: Optional[NDArray] = None,
 ) -> Iterable[float]:
+    # Compute the minimal distance for each unit and each test example.
+    unit_labels, unit_distances = get_unit_labels_and_distances(labels, distances, provenance, units, world)
 
-    # if not np.all(provenance.sum(axis=2) == 1):
-    #     raise ValueError("The provenance of all data examples must reference at most one unit.")
-    if not checknan(provenance):  # TODO: Remove this hack.
-        provenance = np.squeeze(provenance, axis=1)
-
-    # n_test = distances.shape[1]
-    # n_units = len(units)
-
-    # # Compute the minimal distance for each unit and each test example.
-    # unit_provenance = provenance[..., units, world].astype(np.bool_)
-    # unit_distances = np.zeros((n_units, n_test))  # TODO: Make this faster.
-    # unit_utilities = np.zeros((n_units, n_test))  # TODO: Make this faster.
-    # for i in prange(n_units):
-    #     # # Find minimal distance indices for each test example, among tuples associated with i-th unit.
-    #     # idx = np.argmin(distances[unit_provenance[:, i]], axis=0)
-    #     # # Given those indices, select the minimal distance value and the associated utility value.
-    #     # unit_distances[i] = distances[unit_provenance[:, i]][idx, np.arange(n_test)]
-    #     # unit_utilities[i] = utilities[unit_provenance[:, i]][idx, np.arange(n_test)]
-    #     for j in prange(n_test):
-    #         idx = np.argmin(distances[unit_provenance[:, i], j])
-    #         unit_distances[i, j] = distances[unit_provenance[:, i]][idx, j]
-    #         unit_utilities[i, j] = utilities[unit_provenance[:, i]][idx, j]
-
-    unit_distances, unit_utilities = distances, utilities
-    if not checknan(provenance):  # TODO: Remove this hack.
-        unit_distances, unit_utilities = get_unit_distances_and_utilities(
-            distances, utilities, provenance, units, world, simple_provenance=simple_provenance
-        )
-    # unit_distances, unit_utilities = distances, utilities
-
-    # # Compute unit importances.
-    # all_importances = np.zeros((n_units + 1, n_test))
-    # unit_utilities = np.vstack((unit_utilities, np.ones((1, n_test)) * 0.5))
-    # for j in prange(n_test):
-    #     idxs = np.append(np.argsort(unit_distances[:, j]), [n_units])
-    #     for i in range(n_units - 1, -1, -1):
-    #         all_importances[idxs[i], j] = all_importances[idxs[i + 1], j] + (
-    #             unit_utilities[idxs[i], j] - unit_utilities[idxs[i + 1], j]
-    #         ) / float(i + 1)
+    # Compute unit importances.
     n_test = distances.shape[1]
     null_scores = null_scores if null_scores is not None else np.zeros((1, n_test))
-    all_importances = compute_all_importances_cy(unit_distances, unit_utilities, null_scores)
+    all_importances = compute_all_importances_cy(unit_labels, unit_distances, label_utilities, null_scores)
 
-    # Aggregate results.
-    # importances = np.mean(all_importances[:-1], axis=1)
-    # importances = np.zeros(n_units)
-    # for i in range(n_units):
-    #     importances[i] = np.mean(all_importances[i])
+    return all_importances
+
+
+def compute_shapley_add(
+    labels: NDArray,
+    distances: NDArray,
+    label_utilities: NDArray,
+    provenance: Provenance,
+    units: NDArray,
+    world: NDArray,
+    max_cardinality: Optional[int] = None,
+    num_neighbors: int = 1,
+    num_classes: int = 2,
+    null_scores: Optional[NDArray] = None,
+) -> Iterable[float]:
+    if max_cardinality is None or max_cardinality >= distances.shape[0]:
+        max_cardinality = distances.shape[0] - 1
+    n_units, n_tuples, n_test = len(units), distances.shape[0], distances.shape[1]
+    all_importances = np.zeros((n_units), dtype=float)
+    null_scores = null_scores if null_scores is not None else np.zeros((1, n_test))
+    atype = ATally[max_cardinality, num_neighbors, num_classes]  # type: ignore
+
+    for j in prange(n_test):
+        oracle = ShapleyOracle(provenance=provenance, labels=labels, distances=distances[:, j], atype=atype)
+        for t1, t2 in product(range(n_tuples), chain(range(n_tuples), [None])):
+            for i, unit in enumerate(units):
+                result = oracle.query(target=provenance.units[unit], boundary_with=t1, boundary_without=t2)
+                assert result is not None
+                for avalue, rvalue in result.items():
+                    if (
+                        avalue.is_inf
+                        or avalue.tupletally == 0
+                        or rvalue <= 0
+                        or (np.sum(avalue.labeltally_with) != num_neighbors and t1 is not None)  # type: ignore
+                        or (np.sum(avalue.labeltally_without) != num_neighbors and t2 is not None)  # type: ignore
+                        or (np.sum(avalue.labeltally_without) >= num_neighbors and t2 is None)  # type: ignore
+                    ):
+                        continue
+                    label_with = np.argmax(avalue.labeltally_with)  # type: ignore
+                    label_without = np.argmax(avalue.labeltally_without)  # type: ignore
+                    utility_diff = (
+                        label_utilities[label_with, j] - label_utilities[label_without, j]
+                        if t2 is not None
+                        else label_utilities[label_with, j] - null_scores[j]
+                    )
+                    all_importances[i] += (1.0 / comb(n_units - 1, avalue.tupletally)) * rvalue * utility_diff
+    all_importances /= n_units * n_test
     return all_importances
 
 
@@ -264,48 +266,54 @@ class ShapleyImportance(Importance):
         self.mc_preextract = mc_preextract
         self.nn_k = nn_k
         self.nn_distance = nn_distance
-        self.X: Optional[ndarray] = None
-        self.y: Optional[ndarray] = None
-        self.provenance: Optional[ndarray] = None
-        self._simple_provenance = False
+        self.X: Optional[NDArray] = None
+        self.y: Optional[NDArray] = None
+        self.provenance: Optional[Provenance] = None
         self.randomstate = np.random.RandomState(seed)
+        self.label_encoder = LabelEncoder()
         self.logger = logger if logger is not None else getLogger(__name__)
 
-    def _fit(self, X: ndarray, y: ndarray, provenance: Optional[ndarray] = None) -> "ShapleyImportance":
+    def _fit(self, X: NDArray, y: NDArray, provenance: Provenance) -> "ShapleyImportance":
         self.X = X
-        self.y = y
-
-        if provenance is None:
-            provenance = np.arange(X.shape[0])
-            self._simple_provenance = True
-        if checknan(provenance):
-            self._simple_provenance = True
-        if not checknan(provenance):  # TODO: Remove this hack.
-            self.provenance = reshape(provenance)
-        else:
-            self.provenance = provenance
+        self.y = self.label_encoder.fit_transform(y)
+        self.provenance = provenance
         return self
 
-    def _score(self, X: ndarray, y: Optional[ndarray] = None, **kwargs) -> Iterable[float]:
+    def _score(
+        self,
+        X: NDArray,
+        y: Optional[NDArray] = None,
+        units: Union[Sequence[Hashable], NDArray[np.int32], None] = None,
+        world: Union[Sequence[Hashable], NDArray[np.int32], None] = None,
+        **kwargs
+    ) -> Iterable[float]:
         if self.X is None or self.y is None or self.provenance is None:
             raise ValueError("The fit function was not called first.")
         if y is None:
             raise ValueError("The 'y' argument cannot be None.")
+        else:
+            y = self.label_encoder.transform(y)
+            assert y is not None
 
-        units = kwargs.get("units", np.unique(self.provenance))
-        units = np.delete(units, np.where(units == -1))
-        world = kwargs.get("world", np.zeros_like(units, dtype=int))
+        if units is None:
+            units = np.arange(self.provenance.num_units)
+        elif not isinstance(units, np.ndarray):
+            units = np.array([self.provenance.units_index[x] for x in units], dtype=int)
+        if world is None:
+            world = np.ones_like(units, dtype=int)
+        elif not isinstance(world, np.ndarray):
+            world = np.array([self.provenance.candidates_index[x] for x in world], dtype=int)
         return self._shapley(self.X, self.y, X, y, self.provenance, units, world)
 
     def _shapley(
         self,
-        X: ndarray,
-        y: ndarray,
-        X_test: ndarray,
-        y_test: ndarray,
-        provenance: ndarray,
-        units: ndarray,
-        world: ndarray,
+        X: NDArray,
+        y: NDArray,
+        X_test: NDArray,
+        y_test: NDArray,
+        provenance: Provenance,
+        units: NDArray[np.int32],
+        world: NDArray[np.int32],
     ) -> Iterable[float]:
         if self.method == ImportanceMethod.BRUTEFORCE:
             return self._shapley_bruteforce(X, y, X_test, y_test, provenance, units, world)
@@ -330,23 +338,22 @@ class ShapleyImportance(Importance):
 
     def _shapley_bruteforce(
         self,
-        X: ndarray,
-        y: ndarray,
-        X_test: ndarray,
-        y_test: ndarray,
-        provenance: ndarray,
-        units: ndarray,
-        world: ndarray,
+        X: NDArray,
+        y: NDArray,
+        X_test: NDArray,
+        y_test: NDArray,
+        provenance: Provenance,
+        units: NDArray[np.int32],
+        world: NDArray[np.int32],
     ) -> Iterable[float]:
+        # if checknan(provenance):  # TODO: Remove this hack.
+        #     units = np.arange(X.shape[0])
+        #     world = np.zeros_like(units, dtype=int)
+        #     provenance = np.arange(X.shape[0])
+        #     provenance = reshape(provenance)
 
-        if checknan(provenance):  # TODO: Remove this hack.
-            units = np.arange(X.shape[0])
-            world = np.zeros_like(units, dtype=int)
-            provenance = np.arange(X.shape[0])
-            provenance = reshape(provenance)
-
-        # Convert provenance and units to bit-arrays.
-        provenance = binarize(provenance)
+        # # Convert provenance and units to bit-arrays.
+        # provenance = binarize(provenance)
 
         # Apply the feature extraction pipeline if it was provided.
         if self.pipeline is not None:
@@ -357,18 +364,18 @@ class ShapleyImportance(Importance):
         null_score = self.utility.null_score(X, y, X_test, y_test)
 
         # Iterate over all subsets of units.
-        n_units_total = provenance.shape[2]
-        n_candidates_total = provenance.shape[3]
+        # n_units_total = provenance.shape[2]
+        # n_candidates_total = provenance.shape[3]
         n_units = len(units)
         importance = np.zeros(n_units)
-        for iteration in product(*[[0, 1] for _ in range(n_units)]):
-            iter = np.array(iteration)
+        for iteration in product(*[[0, world[i]] for i in range(n_units)]):
+            iter = np.array(iteration, dtype=int)
             s_iter = np.sum(iter)
 
             # Get indices of data points selected based on the iteration query.
-            query = np.zeros((n_units_total, n_candidates_total))
-            query[units, world] = iter
-            indices = get_indices(provenance, query)
+            # query = np.zeros((n_units_total, n_candidates_total))
+            # query[units, world] = iter
+            indices = provenance.query(iter)
 
             # Train the model and score it. If we fail at any step we get zero score.
             score = null_score
@@ -393,27 +400,26 @@ class ShapleyImportance(Importance):
 
     def _shapley_montecarlo(
         self,
-        X: ndarray,
-        y: ndarray,
-        X_test: ndarray,
-        y_test: ndarray,
-        provenance: ndarray,
-        units: ndarray,
-        world: ndarray,
+        X: NDArray,
+        y: NDArray,
+        X_test: NDArray,
+        y_test: NDArray,
+        provenance: Provenance,
+        units: NDArray[np.int32],
+        world: NDArray[np.int32],
         iterations: int = DEFAULT_MC_ITERATIONS,
         timeout: int = DEFAULT_MC_TIMEOUT,
         tolerance: float = DEFAULT_MC_TOLERANCE,
         truncation_steps: int = DEFAULT_MC_TRUNCATION_STEPS,
     ) -> Iterable[float]:
+        # if checknan(provenance):  # TODO: Remove this hack.
+        #     units = np.arange(X.shape[0])
+        #     world = np.zeros_like(units, dtype=int)
+        #     provenance = np.arange(X.shape[0])
+        #     provenance = reshape(provenance)
 
-        if checknan(provenance):  # TODO: Remove this hack.
-            units = np.arange(X.shape[0])
-            world = np.zeros_like(units, dtype=int)
-            provenance = np.arange(X.shape[0])
-            provenance = reshape(provenance)
-
-        # Convert provenance and units to bit-arrays.
-        provenance = binarize(provenance)
+        # # Convert provenance and units to bit-arrays.
+        # provenance = binarize(provenance)
 
         # Apply the feature extraction pipeline if it was provided.
         X_tr = X
@@ -432,22 +438,22 @@ class ShapleyImportance(Importance):
             X_test = X_ts
 
         # Run a given number of iterations.
-        n_units_total = provenance.shape[2]
-        n_candidates_total = provenance.shape[3]
+        n_units_total = provenance.num_units
+        # n_candidates_total = provenance.shape[3]
         n_units = len(units)
-        simple_provenance = self._simple_provenance or bool(
-            provenance.shape[1] == 1
-            and provenance.shape[3] == 1
-            and provenance.shape[0] == provenance.shape[2]
-            and np.all(np.equal(provenance[:, 0, :, 0], np.eye(n_units)))
-        )
+        # simple_provenance = self._simple_provenance or bool(
+        #     provenance.shape[1] == 1
+        #     and provenance.shape[3] == 1
+        #     and provenance.shape[0] == provenance.shape[2]
+        #     and np.all(np.equal(provenance[:, 0, :, 0], np.eye(n_units)))
+        # )
         all_importances = np.zeros((n_units, iterations))
         all_truncations = np.ones(iterations, dtype=int) * n_units
         start_time = time.time()
         for i in range(iterations):
             idxs = self.randomstate.permutation(n_units)
             importance = np.zeros(n_units)
-            query = np.zeros((n_units_total, n_candidates_total))
+            query = np.zeros((n_units_total,), dtype=int)
 
             new_score = null_score
             truncation_counter = 0
@@ -456,8 +462,9 @@ class ShapleyImportance(Importance):
                 old_score = new_score
 
                 # Get indices of data points selected based on the iteration query.
-                query[units[idx], world[idx]] = 1
-                indices = get_indices(provenance, query, simple_provenance=simple_provenance)
+                query[units[idx]] = world[idx]
+                indices = provenance.query(query)
+                # indices = get_indices(provenance, query, simple_provenance=simple_provenance)
 
                 # Train the model and score it. If we fail at any step we get zero score.
                 new_score = null_score
@@ -500,20 +507,20 @@ class ShapleyImportance(Importance):
 
     def _shapley_neighbor(
         self,
-        X: ndarray,
-        y: ndarray,
-        X_test: ndarray,
-        y_test: ndarray,
-        provenance: ndarray,
-        units: ndarray,
-        world: ndarray,
+        X: NDArray,
+        y: NDArray,
+        X_test: NDArray,
+        y_test: NDArray,
+        provenance: Provenance,
+        units: NDArray[np.int32],
+        world: NDArray[np.int32],
         k: int,
         distance: DistanceCallable,
     ) -> Iterable[float]:
-
-        # Convert provenance and units to bit-arrays.
-        if not checknan(provenance):  # TODO: Remove this hack.
-            provenance = binarize(provenance)
+        if provenance.max_disjunctions > 1:
+            raise ValueError(
+                "The neighbor method cannot be applied to data with provenance polynomials containing disjunctions."
+            )
 
         # Apply the feature extraction pipeline if it was provided.
         if self.pipeline is not None:
@@ -543,15 +550,25 @@ class ShapleyImportance(Importance):
         # Compute null scores.
         null_scores = self.utility.elementwise_null_score(X, y, X_test, y_test)
 
-        if k == 1:
+        if k == 1 and provenance.max_conjunctions == 1:
             return compute_shapley_1nn_mapfork(
+                y,
                 distances,
                 utilities,
                 provenance,
                 units,
                 world,
-                simple_provenance=self._simple_provenance,
                 null_scores=null_scores,
             )
         else:
-            raise ValueError("The value '%d' for the k-parameter is not possible.")
+            return compute_shapley_add(
+                y,
+                distances,
+                utilities,
+                provenance,
+                units,
+                world,
+                num_neighbors=k,
+                num_classes=len(self.label_encoder.classes_),
+                null_scores=null_scores,
+            )

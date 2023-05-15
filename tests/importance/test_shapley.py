@@ -3,6 +3,7 @@ import pytest
 
 from datascope.importance.common import SklearnModelAccuracy
 from datascope.importance.shapley import ShapleyImportance, ImportanceMethod
+from datascope.utility import Units, Provenance
 from sklearn.datasets import make_classification
 from sklearn.linear_model import LogisticRegression
 from sklearn.neighbors import KNeighborsClassifier
@@ -33,7 +34,7 @@ def test_simple_1(method: ImportanceMethod):
 def test_simple_2(method: ImportanceMethod):
     X = np.array([[0.9], [0], [1], [0]], dtype=float)
     y = np.array([1, 0, 0, 1], dtype=float)
-    provenance = np.array([0, 0, 1, 1], dtype=object)
+    provenance = Provenance(data=[0, 0, 1, 1])
     X_test = np.array([[1], [0]], dtype=float)
     y_test = np.array([1, 0], dtype=float)
     utility = SklearnModelAccuracy(KNeighborsClassifier(n_neighbors=1))
@@ -46,11 +47,14 @@ def test_simple_2(method: ImportanceMethod):
     assert np.array_equal(result, expected)
 
 
-@pytest.mark.parametrize("method", [ImportanceMethod.BRUTEFORCE, ImportanceMethod.MONTECARLO])
+@pytest.mark.parametrize(
+    "method", [ImportanceMethod.BRUTEFORCE, ImportanceMethod.MONTECARLO, ImportanceMethod.NEIGHBOR]
+)
 def test_simple_3(method: ImportanceMethod):
     X = np.array([[0.9], [0], [1]], dtype=float)
     y = np.array([1, 0, 0], dtype=float)
-    provenance = np.array([[0], [0, 2], [1, 2]], dtype=object)
+    x = Units(units=3, candidates=2)
+    provenance = Provenance([x[0] == 1, (x[0] == 1) & (x[2] == 1), (x[1] == 1) & (x[2] == 1)])
     X_test = np.array([[1], [0]], dtype=float)
     y_test = np.array([1, 0], dtype=float)
     utility = SklearnModelAccuracy(LogisticRegression())
@@ -70,7 +74,6 @@ ERROR_MARGIN = 5e-2
 @pytest.mark.parametrize("testsize", [3, 10])
 @pytest.mark.parametrize("method", [ImportanceMethod.NEIGHBOR, ImportanceMethod.MONTECARLO])
 def test_comparative_1(trainsize: int, testsize: int, method: ImportanceMethod):
-
     X, y = make_classification(
         n_samples=trainsize + testsize,
         n_features=1,
@@ -119,8 +122,8 @@ def test_neighbor_benchmark_1(n_samples_train: int, n_samples_test: int, benchma
 
 
 if __name__ == "__main__":
-    n_samples_train = 50000
-    n_samples_test = 1000
+    n_samples_train = 10000
+    n_samples_test = 500
 
     X, y = make_classification(
         n_samples=n_samples_train + n_samples_test,
@@ -134,8 +137,10 @@ if __name__ == "__main__":
     )
 
     X, X_test, y, y_test = train_test_split(X, y, train_size=n_samples_train, test_size=n_samples_test, random_state=7)
+    provenance = Provenance(units=1000)
+    provenance = provenance.fork(size=10)
 
     utility = SklearnModelAccuracy(KNeighborsClassifier(n_neighbors=1))
     importance = ShapleyImportance(method=ImportanceMethod.NEIGHBOR, utility=utility)
-    importance.fit(X, y)
+    importance.fit(X, y, provenance=provenance)
     importance.score(X_test, y_test)

@@ -390,7 +390,7 @@ class Disjunction(Expression):
     def from_data(cls: Type["Expression"], data: NDArray[np.int32], units: Units) -> "Disjunction":
         if data.ndim != 3:
             raise ValueError("The provided data array has %d dimensions but 3 was expected." % data.ndim)
-        elements = [Conjunction.from_data(data[i], units) for i in range(data.shape[0]) if not np.any(data[i] == -1)]
+        elements = [Conjunction.from_data(data[i], units) for i in range(data.shape[0]) if not np.all(data[i] == -1)]
         return Disjunction(*elements)
 
 
@@ -445,8 +445,9 @@ class Provenance(collections.abc.MutableSequence[Expression]):
         candidates: Union[Sequence[Hashable], int] = 2,
         data: Union[None, Sequence[int], NDArray[np.int32]] = None,
     ) -> None:
-        if expressions is not None and len(expressions) > 0:
+        self._is_simple = False
 
+        if expressions is not None and len(expressions) > 0:
             # If the expressions were passed as arguments, ensure that no other arguments were passed.
             if units is not None or candidates != 2 or data is not None:
                 raise ValueError(
@@ -481,6 +482,16 @@ class Provenance(collections.abc.MutableSequence[Expression]):
             self._data: NDArray[np.int32] = np.stack(expression_data, axis=0, dtype=np.int32)
 
         else:
+            # If units were not provided, we will gather all unique units we encounter in the data array.
+            if units is None:
+                if data is None:
+                    raise ValueError("Both units and data are set to None.")
+                unit_data = (
+                    data
+                    if isinstance(data, collections.abc.Sequence) or data.ndim == 1 or data.shape[-1] == 1
+                    else data[..., 0]
+                )
+                units = [unit for unit in np.unique(unit_data) if unit != -1]
 
             self._units = units if isinstance(units, Units) else Units(units=units, candidates=candidates)
             num_units = len(self._units.units)
@@ -488,12 +499,15 @@ class Provenance(collections.abc.MutableSequence[Expression]):
 
             if data is None:
                 data = np.arange(num_units, dtype=np.int32)
+                self._is_simple = True
             elif isinstance(data, collections.abc.Sequence):
                 data = np.array(data, dtype=np.int32)
+            elif not np.issubdtype(data.dtype, np.integer):
+                raise ValueError("The data must be an integer array.")
 
             if data.ndim == 1:
                 data = np.stack(
-                    [np.repeat(data, num_candidates - 1), np.tile(np.arange(1, num_candidates), num_units)], axis=-1
+                    [np.repeat(data, num_candidates - 1), np.tile(np.arange(1, num_candidates), len(data))], axis=-1
                 )
             assert data is not None and isinstance(data, np.ndarray)
             if data.ndim == 2:
@@ -507,8 +521,16 @@ class Provenance(collections.abc.MutableSequence[Expression]):
         return self._units.units
 
     @property
+    def units_index(self) -> Dict[Hashable, int]:
+        return self._units.units_index
+
+    @property
     def candidates(self) -> Sequence[Hashable]:
         return self._units.candidates
+
+    @property
+    def candidates_index(self) -> Dict[Hashable, int]:
+        return self._units.candidates_index
 
     @property
     def data(self) -> NDArray[np.int32]:
@@ -533,6 +555,10 @@ class Provenance(collections.abc.MutableSequence[Expression]):
     @property
     def num_candidates(self) -> int:
         return len(self._units.candidates)
+
+    @property
+    def is_simple(self) -> bool:
+        return self._is_simple
 
     @overload
     def __getitem__(self, index: int) -> Expression:

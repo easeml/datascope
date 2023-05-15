@@ -8,7 +8,6 @@ from typing import Tuple, Dict, List, Type, Union, Optional, Iterable, Sequence
 
 
 class AValue:
-
     maxvalue: Tuple[int, ...] = ()
     infvalue: NDArray
     zerovalue: NDArray
@@ -206,9 +205,17 @@ class ADD:
         self.root = 0
         self.nodes = np.zeros((len(self.units), diameter), dtype=int)
         self.child = np.zeros((len(self.units), diameter, self.num_candidates), dtype=int)
-        self.adder = np.full(
-            (len(self.units), diameter, self.num_candidates), fill_value=self.atype(0), dtype=self.atype
+
+        self.adder = np.reshape(
+            np.array(
+                [copy.deepcopy(self.atype(0)) for _ in range(len(self.units) * diameter * self.num_candidates)],
+                dtype=self.atype,
+            ),
+            newshape=(len(self.units), diameter, self.num_candidates),
         )
+        # self.adder = np.full(
+        #     (len(self.units), diameter, self.num_candidates), fill_value=self.atype(0), dtype=self.atype
+        # )
 
     def __call__(self, *args: Union[int, bool]) -> AValue:
         if len(args) != len(self.units):
@@ -238,6 +245,9 @@ class ADD:
                         result.child[pidx, i, c] = self.child[idx, self.child[pidx, i, c], value]
         else:
             result.root = self.child[idx, self.root, value]
+            for c in range(self.num_candidates):
+                result.adder[idx + 1, result.root, c] += self.adder[idx, self.root, value]
+            # TODO: Handle root node adders.
         # TODO: Prune dead nodes.
         result.nodes = np.delete(result.nodes, idx, axis=0)
         result.child = np.delete(result.child, idx, axis=0)
@@ -251,7 +261,7 @@ class ADD:
         elif len(assignment) == 1:
             unit, value = assignment[0]
             cur_unit_idx = self._units_index[unit]
-            cur_nodes = set(self.nodes[cur_unit_idx].nonzero())
+            cur_nodes = set(self.nodes[cur_unit_idx].nonzero()[0].tolist())
         elif len(assignment) > 1:
             cur_unit_idx = 0
             cur_nodes = {self.root}
@@ -268,9 +278,9 @@ class ADD:
 
     def update(self, location: List[Tuple], avalue: AValue, increment: bool = False) -> None:
         if increment:
-            self.adder[location] += avalue
+            self.adder[tuple(zip(*location))] += avalue
         else:
-            self.adder[location] = avalue
+            self.adder[tuple(zip(*location))] = np.array([copy.deepcopy(avalue) for _ in range(len(location))])
 
     def sum(self, other: "ADD") -> "ADD":
         assert self.units == other.units
@@ -298,10 +308,15 @@ class ADD:
             result_current = np.zeros((self.diameter, adomain.shape[0]), dtype=int)
 
             for j in range(self.diameter):
-                for k, e in enumerate(adomain):
-                    if self.nodes[i, j] != 0:
+                if self.nodes[i, j] != 0:
+                    for k, e in enumerate(adomain):
+                        if e.is_inf:
+                            continue
                         for c in range(self.num_candidates):
-                            result_current[j, k] += result_previous[self.child[i, j, c], index(e - self.adder[i, j, c])]
+                            avalue = e - self.adder[i, j, c]
+                            if avalue.is_inf:
+                                continue
+                            result_current[j, k] += result_previous[self.child[i, j, c], index(avalue)]
 
         result = result_current[self.root]
         result[-1] = 2 ** len(self.units) - sum(result)  # Correct the count of invalid values.
@@ -359,7 +374,6 @@ class ADD:
 
     @classmethod
     def stack(cls, factors: List[int], elements: Dict[Tuple[int, ...], "ADD"]) -> "ADD":
-
         num_candidates = next(iter(elements.values())).num_candidates
         if len(elements) != num_candidates ** len(factors):
             raise ValueError(

@@ -20,7 +20,6 @@ def test_avalue_init_valid_2():
 
 
 def test_avalue_init_invalid_1():
-
     assert AValue.maxvalue == ()
 
     with pytest.raises(ValueError):
@@ -34,7 +33,6 @@ def test_avalue_init_invalid_1():
 
 
 def test_avalue_factories_1():
-
     assert AValue[3, 3, 3].get_zero().value == (0, 0, 0)
 
     assert AValue[3, 3, 3].get_inf().value is None
@@ -43,7 +41,6 @@ def test_avalue_factories_1():
 
 
 def test_avalue_repr_1():
-
     assert repr(AValue[3, 3, 3](0)) == "AValue[3, 3, 3](0)"
 
     assert repr(AValue[3, 3, 3](None)) == "AValue[3, 3, 3](None)"
@@ -70,6 +67,13 @@ def test_avalue_domain_1():
 
 def test_avalue_index_1():
     AV = AValue[2, 2]
+    domain = AV.domain()
+    for i, av in enumerate(domain):
+        assert index(av) == i
+
+
+def test_avalue_index_2():
+    AV = AValue[5, 4, 3, 2]
     domain = AV.domain()
     for i, av in enumerate(domain):
         assert index(av) == i
@@ -114,7 +118,6 @@ ops_tuples = [
 
 @pytest.mark.parametrize("op,arg1,arg2,res", ops_tuples)
 def test_avalue_ops_1(op, arg1, arg2, res):
-
     V22 = AValue[2, 2]
     varg1, varg2, vres = (
         V22(arg1) if isinstance(arg1, tuple) else arg1,
@@ -134,7 +137,6 @@ def test_avalue_ops_1(op, arg1, arg2, res):
 
 @pytest.mark.parametrize("op,arg1,arg2,res", ops_tuples)
 def test_avalue_iops_1(op, arg1, arg2, res):
-
     V22 = AValue[2, 2]
     varg1, varg2, vres = V22(arg1), V22(arg2) if isinstance(arg2, tuple) else arg2, V22(res)
 
@@ -151,7 +153,6 @@ def test_avalue_iops_1(op, arg1, arg2, res):
 
 
 def test_add_chain_1():
-
     V22 = AValue[2, 2]
     variables = [0, 1, 2, 3]
     add = ADD.construct_chain(variables, atype=V22)
@@ -199,7 +200,6 @@ def test_add_tree_1():
 
 
 def test_add_concatenate_1():
-
     V22 = AValue[2, 2]
     variables_1 = [0, 1]
     add_1 = ADD.construct_chain(variables_1, atype=V22)
@@ -223,7 +223,6 @@ def test_add_concatenate_1():
 
 
 def test_add_stack_1():
-
     V22 = AValue[2, 2]
     variables = [1, 2]
     add_1 = ADD.construct_chain(variables, atype=V22)
@@ -251,7 +250,6 @@ def test_add_stack_1():
 
 
 def test_add_stack_2():
-
     V22 = AValue[2, 2]
     variables = [2, 3]
     add_1 = ADD.construct_chain(variables, atype=V22)
@@ -272,7 +270,6 @@ def test_add_stack_2():
 
 
 def test_add_stack_invalid_1():
-
     V22 = AValue[2, 2]
     variables = [1, 2]
     add_1 = ADD.construct_chain(variables, atype=V22)
@@ -290,7 +287,6 @@ def test_add_stack_invalid_1():
 
 
 def test_add_call_invalid_1():
-
     V22 = AValue[2, 2]
     variables = [0, 1, 2, 3]
     add = ADD.construct_chain(variables, atype=V22)
@@ -300,7 +296,6 @@ def test_add_call_invalid_1():
 
 
 def test_add_repr_1():
-
     V22 = AValue[2, 2]
     variables = [0, 1, 2, 3]
     add = ADD.construct_chain(variables, atype=V22)
@@ -309,7 +304,6 @@ def test_add_repr_1():
 
 
 def test_add_restrict_1():
-
     V22 = AValue[2, 2]
     variables = [2, 3]
     add_1 = ADD.construct_chain(variables, atype=V22)
@@ -333,7 +327,6 @@ def test_add_restrict_1():
 
 
 def test_add_restrict_2():
-
     V22 = AValue[2, 2]
     variables = [2, 3]
     add_1 = ADD.construct_chain(variables, atype=V22)
@@ -357,7 +350,6 @@ def test_add_restrict_2():
 
 
 def test_add_sum_1():
-
     V22 = AValue[2, 2]
     variables = [0, 1]
     add_1 = ADD.construct_chain(variables, atype=V22)
@@ -374,7 +366,6 @@ def test_add_sum_1():
 
 
 def test_add_sum_2():
-
     V22 = AValue[2, 2]
     add_11_a = ADD.construct_chain([1, 2], atype=V22)
     add_11_a.adder[0, 0, 1] = V22(0, 1)

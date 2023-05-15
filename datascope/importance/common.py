@@ -275,7 +275,8 @@ class SklearnModelAccuracy(SklearnModelUtility):
         X_test: ndarray,
         y_test: ndarray,
     ) -> ndarray:
-        return np.equal.outer(y_train, y_test).astype(float)
+        classes = np.unique(y_train)
+        return np.equal.outer(classes, y_test).astype(float)
 
     def elementwise_null_score(
         self,
@@ -333,10 +334,10 @@ class SklearnModelRocAuc(SklearnModelUtility):
         y_test: ndarray,
     ) -> ndarray:
         classes = np.unique(y_train)
-        result = np.zeros((len(y_train), len(y_test)))
+        result = np.zeros((len(classes), len(y_test)))
         for c in classes:
-            eq = np.equal.outer(y_train, y_test)
-            all_c = np.full_like(y_train, c, dtype=y_train.dtype)
+            eq = np.equal.outer(classes, y_test)
+            all_c = np.full_like(classes, c, dtype=classes.dtype)
             tp = (eq * np.equal.outer(all_c, y_test)).astype(float)
             tn = (eq * np.not_equal.outer(all_c, y_test)).astype(float)
             p = np.equal(y_test, c).sum(dtype=float)
@@ -456,8 +457,9 @@ class SklearnModelEqualizedOddsDifference(SklearnModelUtility):
         if list(sorted(np.unique(y_test))) != [0, 1]:
             raise ValueError("This utility works only on binary classification problems.")
 
-        n_train, n_test = X_train.shape[0], X_test.shape[0]
-        utilities = np.zeros((n_train, n_test), dtype=float)
+        n_test = X_test.shape[0]
+        classes = np.unique(y_train)
+        utilities = np.zeros((classes, n_test), dtype=float)
 
         try:
             # Precompute the true positive rate and false positive rate by using the entire training dataset.
@@ -468,7 +470,7 @@ class SklearnModelEqualizedOddsDifference(SklearnModelUtility):
             y_pred = self._model_predict(model, X_test)
             tpr, fpr = compute_tpr_and_fpr(y_test, y_pred, groupings=groupings)
 
-            utilities_eq = np.equal.outer(y_train, y_test).astype(float)
+            utilities_eq = np.equal.outer(classes, y_test).astype(float)
             utilities_neq = 1 - utilities_eq
             idx_y_pos = y_test == 1
             idx_y_neg = y_test == 0

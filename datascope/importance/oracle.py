@@ -7,7 +7,7 @@ from math import comb
 from numpy.typing import NDArray
 from scipy.sparse import csr_matrix
 from scipy.sparse.csgraph import connected_components
-from typing import Type, Hashable, List, Dict, Set, Tuple, Optional, Union, Iterable
+from typing import Type, Hashable, List, Dict, Set, Tuple, Optional, Union, Iterable, Sequence
 
 from ..utility import AValue, ADD, Provenance
 
@@ -18,6 +18,7 @@ class ATally(AValue):
     numclasses: int
     slots_with: NDArray
     slots_without: NDArray
+    domain_index: Optional[Dict[Optional[Tuple[int, ...]], int]] = None
 
     def __init__(
         self,
@@ -80,6 +81,12 @@ class ATally(AValue):
             yield cls(tupletally, labeltally_with, labeltally_without)
         yield cls(None)
 
+    def __index__(self) -> int:
+        cls = type(self)
+        if cls.domain_index is None:
+            cls.domain_index = dict((v.value, i) for i, v in enumerate(cls.domain()))
+        return cls.domain_index[self.value]
+
     def __repr__(self) -> str:
         return "%s[%d, %d, %d]%s" % (
             self.__class__.__name__,
@@ -120,13 +127,11 @@ class ATally(AValue):
 
 
 def compile(provenance: Provenance, atype: Type[ATally]) -> Tuple[ADD, List[List[Tuple]]]:
-
     if provenance.max_disjunctions > 1:
         raise ValueError("Provenance with disjunctions cannot be compiled into an ADD.")
 
     # Check if each polynomial has only one element.
     if provenance.max_conjunctions == 1:
-
         locations: List[List[Tuple]] = list(map(lambda x: [(x[0], 0, x[1])], map(tuple, provenance.data[:, 0, 0, 0:2])))
         add = ADD.construct_chain(
             units=list(range(provenance.num_units)), num_candidates=provenance.num_candidates, atype=atype
@@ -135,7 +140,6 @@ def compile(provenance: Provenance, atype: Type[ATally]) -> Tuple[ADD, List[List
         return add, locations
 
     else:
-
         # Extract all pairings of units that appear together in any expression.
         tuple_units = [np.sort(np.delete(a, np.asarray(a == -1).nonzero())) for a in provenance.data[:, 0, :, 0]]
         tuple_unit_pairs = map(partial(combinations, r=2), tuple_units)
@@ -159,7 +163,7 @@ def compile(provenance: Provenance, atype: Type[ATally]) -> Tuple[ADD, List[List
         for unit, component in enumerate(components_index):
             components[component].add(unit)
 
-        # Find all leaf units that can be separted from factors.
+        # Find all leaf units that can be separted from factors. This is the maximal independent set problem.
         leaf_units = set()
         available_units = set(range(provenance.num_units))
         for unit in np.argsort(degrees):
@@ -191,42 +195,67 @@ def compile(provenance: Provenance, atype: Type[ATally]) -> Tuple[ADD, List[List
 
 
 class ShapleyOracle:
-    def __init__(self, provenance: Provenance, labels: List[int], order: List[int], atype: Type[ATally]) -> None:
-
+    def __init__(
+        self,
+        provenance: Provenance,
+        labels: Union[Sequence[int], NDArray],
+        distances: Union[Sequence[int], NDArray],
+        atype: Type[ATally],
+    ) -> None:
         # Compile the provenance into an ADD and obtain the node index which maps tuples to nodes.
         self._provenance = provenance
-        self._units_index = dict((unit, i) for i, unit in enumerate(provenance.units))
         self._atype = atype
-        add, locations = compile(provenance=provenance, atype=atype)
+        self._add, locations = compile(provenance=provenance, atype=atype)
 
         # For each tuple, assume its a boundary tuple and produce an ADD for tallying tuples sorted above it.
-        self._add_with: List[ADD] = []
-        self._add_without: List[ADD] = []
-        for t in range(len(provenance)):
-            boundary_add_with = deepcopy(add)
-            boundary_add_without = deepcopy(add)
+        self._add_with: Dict[Optional[int], ADD] = {}
+        self._add_without: Dict[Optional[int], ADD] = {}
+        for t in chain(range(len(provenance)), [None]):
+            boundary_add_with = deepcopy(self._add)
+            boundary_add_without = deepcopy(self._add)
 
             # Use locations to update the adder according to this tuple being the boundary tuple.
             for tt in range(len(provenance)):
-                tally = tuple(np.eye(atype.numclasses, dtype=int)[labels[tt]])
-                zeros = (0,) * atype.numclasses
-                if order[t] > order[tt]:
-                    boundary_add_with.update(location=locations[tt], avalue=atype(1, tally, zeros), increment=True)
-                    boundary_add_without.update(location=locations[tt], avalue=atype(1, zeros, tally), increment=True)
+                if t is None or distances[t] >= distances[tt]:
+                    tally = tuple(np.eye(atype.numclasses, dtype=int)[labels[tt]])
+                    zeros = (0,) * atype.numclasses
+                    boundary_add_with.update(location=locations[tt], avalue=atype(0, tally, zeros), increment=True)
+                    boundary_add_without.update(location=locations[tt], avalue=atype(0, zeros, tally), increment=True)
 
             # Make it invalid to exclude the tuple t from the dataset.
-            boundary_units = list(filter(lambda x: x != -1, provenance.data[t, 0, :, 0]))
-            for unit in boundary_units:
-                unit_location = add.get_update_location(units=[unit], values=[0])
-                boundary_add_with.update(location=unit_location, avalue=atype(None))
-                boundary_add_without.update(location=unit_location, avalue=atype(None))
+            if t is not None:
+                boundary_units = list(filter(lambda x: x != -1, provenance.data[t, 0, :, 0]))
+                for unit in boundary_units:
+                    unit_location = self._add.get_update_location(units=[unit], values=[0])
+                    boundary_add_with.update(location=unit_location, avalue=atype(None))
+                    boundary_add_without.update(location=unit_location, avalue=atype(None))
 
             # Add the two ADD's to the cache.
-            self._add_with.append(boundary_add_with)
-            self._add_without.append(boundary_add_without)
+            self._add_with[t] = boundary_add_with
+            self._add_without[t] = boundary_add_without
 
-    def query(self, target: Hashable, boundary_with: int, boundary_without: int) -> Dict[ATally, NDArray]:
-        unit = self._units_index[target]
-        add = self._add_with[boundary_with].restrict(unit, 1).sum(self._add_without[boundary_without].restrict(unit, 0))
+    def query(
+        self, target: Hashable, boundary_with: Optional[int], boundary_without: Optional[int]
+    ) -> Dict[ATally, NDArray]:
+        unit = self._provenance.units_index[target]
+
+        add_with = self._add_with[boundary_with].restrict(unit, 1)
+        add_without = self._add_without[boundary_without].restrict(unit, 0)
+        add = add_with.sum(add_without)
+        # add = (
+        #     add_with.sum(add_without)
+        #     if add_with is not None and add_without is not None
+        #     else add_with
+        #     if add_with is not None
+        #     else add_without
+        #     if add_without is not None
+        #     else deepcopy(self._add)
+        # )
+        # add = self._add_with[boundary_with].restrict(unit,1).sum(self._add_without[boundary_without].restrict(unit,0))
+        # locations = add.get_update_location(add.units, repeat(1))
+        zeros = (0,) * self._atype.numclasses
+        add.adder[:, :, 1] += self._atype(1, zeros, zeros)
+        # add.update(location=locations, avalue=self._atype(1, zeros, zeros), increment=True)
         modelcounts: List[NDArray] = list(add.modelcount())
-        return dict((avalue, counts) for (avalue, counts) in zip(self._atype.domain(), modelcounts))
+        result = dict((avalue, counts) for (avalue, counts) in zip(self._atype.domain(), modelcounts))
+        return result
