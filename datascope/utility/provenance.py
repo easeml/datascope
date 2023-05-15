@@ -11,6 +11,8 @@ from typing import (
     Optional,
     Union,
     Sequence,
+    Mapping,
+    MutableSequence,
     Iterator,
     Iterable,
     Hashable,
@@ -60,7 +62,7 @@ def _pad_array(array: NDArray[T], shape: tuple) -> NDArray[T]:
         )
 
 
-class Units(collections.abc.Mapping[Hashable, "Units.Unit"]):
+class Units(Mapping[Hashable, "Units.Unit"]):
     """Represents a set of units."""
 
     class Unit:
@@ -394,7 +396,7 @@ class Disjunction(Expression):
         return Disjunction(*elements)
 
 
-class Provenance(collections.abc.MutableSequence[Expression]):
+class Provenance(MutableSequence[Expression]):
     """Enables efficient construction, storage and querying of provenance information for a set of tuples.
 
     Provenance information for each tuple is represented as a logical formula over a set of variables which
