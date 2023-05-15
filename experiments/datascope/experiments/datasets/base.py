@@ -34,8 +34,9 @@ from tqdm import tqdm
 from typing import Dict, List, Optional, Sequence, Tuple, Type, Union, Callable
 from zipfile import ZipFile
 
-from datascope.importance.common import binarize, get_indices
-from datascope.importance.shapley import checknan
+# from datascope.importance.common import binarize, get_indices, reshape
+# from datascope.importance.shapley import checknan
+from datascope.utility import Provenance
 
 
 class DatasetId(str, Enum):
@@ -156,7 +157,7 @@ def cache(
     return wrapper
 
 
-@cache(memory=memory, prehash=["dataset", "pipeline"])
+# @cache(memory=memory, prehash=["dataset", "pipeline"])
 def _apply_pipeline(dataset: "Dataset", pipeline: Pipeline, **kwargs) -> "Dataset":
     dataset = deepcopy(dataset)
     pipeline = deepcopy(pipeline)
@@ -194,8 +195,7 @@ class Dataset(ABC):
         self._X_test: Optional[ndarray] = None
         self._y_test: Optional[ndarray] = None
         self._metadata_test: Optional[DataFrame] = None
-        self._provenance: Optional[ndarray] = None
-        self._bin_provenance: Optional[ndarray] = None
+        self._provenance: Optional[Provenance] = None
         self._units: Optional[ndarray] = None
         self._fresh = True
 
@@ -318,7 +318,7 @@ class Dataset(ABC):
         return self._metadata_test
 
     @property
-    def provenance(self) -> ndarray:
+    def provenance(self) -> Provenance:
         if self._provenance is None:
             raise ValueError("The dataset is not loaded yet.")
         return self._provenance
@@ -331,12 +331,13 @@ class Dataset(ABC):
 
     def _construct_provenance(self, groupings: Optional[ndarray] = None) -> None:
         if groupings is None:
-            self._provenance = np.array(np.nan)
             self._units = np.arange(self._trainsize, dtype=int)
+            self._provenance = Provenance(units=self._trainsize)
         else:
-            provenance = np.expand_dims(groupings, axis=(1, 2, 3))
-            self._provenance = np.pad(provenance, pad_width=((0, 0), (0, 0), (0, 0), (0, 1)))
-            self._units = np.sort(np.unique(groupings))
+            self._units = np.unique(groupings)
+            self._provenance = Provenance(data=groupings)
+            # provenance = np.expand_dims(groupings, axis=(1, 2, 3))
+            # self._provenance = np.pad(provenance, pad_width=((0, 0), (0, 0), (0, 0), (0, 1)))
 
     def apply(self, pipeline: Pipeline) -> "Dataset":
         return _apply_pipeline(dataset=self, pipeline=pipeline)
@@ -465,18 +466,10 @@ class NoisyLabelDataset(Dataset, abstract=True):
     def y_train(self) -> ndarray:
         y_train = super().y_train
         if self._y_train_dirty is not None:
-            provenance = self.provenance
-            if (
-                provenance is None
-                or checknan(provenance)
-                or provenance.ndim == 4
-                and np.all(provenance[:, 0, 0, 0] == np.arange(provenance.shape[0]))
-            ):
+            if self.provenance.is_simple:
                 y_train = np.where(self.units_dirty, self._y_train_dirty, y_train)
             else:
-                if self._bin_provenance is None:
-                    self._bin_provenance = binarize(self.provenance)
-                idx_dirty = get_indices(self._bin_provenance, self.units_dirty)
+                idx_dirty = self.provenance.query(self.units_dirty)
                 y_train = np.where(idx_dirty, self._y_train_dirty, y_train)
         return y_train
 
@@ -836,6 +829,15 @@ class BiasedNoisyLabelDataset(NoisyLabelDataset, BiasedMixin, abstract=True):
         return result
 
 
+DEFAULT_AUGMENT_FACTOR = 10
+
+
+class AugmentableMixin:
+    @abstractmethod
+    def augment(self, factor: int = DEFAULT_AUGMENT_FACTOR, inplace: bool = False) -> Dataset:
+        raise NotImplementedError()
+
+
 UCI_DEFAULT_SENSITIVE_FEATURE = 9
 FOLK_UCI_DEFAULT_SENSITIVE_FEATURE = 8
 
@@ -1027,7 +1029,7 @@ def get_states_for_size(n: int) -> List[str]:
     return result
 
 
-class FolkUCI(BiasedNoisyLabelDataset, modality=DatasetModality.TABULAR):
+class FolkUCI(BiasedNoisyLabelDataset, AugmentableMixin, modality=DatasetModality.TABULAR):
     def __init__(
         self,
         trainsize: int = DEFAULT_TRAINSIZE,
@@ -1140,6 +1142,26 @@ class FolkUCI(BiasedNoisyLabelDataset, modality=DatasetModality.TABULAR):
         self._valsize = self._X_val.shape[0]
         self._testsize = self._X_test.shape[0]
         self._construct_provenance()
+
+    def augment(self, factor: int = DEFAULT_AUGMENT_FACTOR, inplace: bool = False) -> Dataset:
+        dataset = self if inplace else deepcopy(self)
+        if dataset._X_train is None or dataset._y_train is None or dataset._provenance is None:
+            raise ValueError("Cannot augment a dataset that is not loaded yet.")
+        # trainsize = dataset._X_train.shape[0]
+        dataset._X_train = np.repeat(dataset._X_train, repeats=factor, axis=0)
+        dataset._y_train = np.repeat(dataset._y_train, repeats=factor, axis=0)
+        if dataset._y_train_dirty is not None:
+            dataset._y_train_dirty = np.repeat(dataset._y_train_dirty, repeats=factor, axis=0)
+        dataset._trainsize = dataset._X_train.shape[0]
+        random = np.random.RandomState(seed=self._seed)
+        dataset._X_train[:, 0] += random.normal(0, 5, dataset._X_train.shape[0])
+
+        # if checknan(dataset._provenance):
+        #     dataset._provenance = np.arange(trainsize)
+        # dataset._provenance = reshape(np.repeat(dataset._provenance, repeats=factor, axis=0))
+        dataset._provenance = dataset._provenance.fork(size=factor)
+
+        return dataset
 
 
 class FashionMNIST(NoisyLabelDataset, modality=DatasetModality.IMAGE):

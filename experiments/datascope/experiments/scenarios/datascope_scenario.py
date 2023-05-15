@@ -10,6 +10,7 @@ from .base import Scenario, attribute, result
 from ..datasets import (
     Dataset,
     BiasMethod,
+    AugmentableMixin,
     DEFAULT_TRAINSIZE,
     DEFAULT_VALSIZE,
     DEFAULT_TESTSIZE,
@@ -233,6 +234,7 @@ DEFAULT_MODEL = ModelSpec.LogisticRegression
 DEFAULT_REPAIR_GOAL = RepairGoal.ACCURACY
 DEFAULT_TRAIN_BIAS = 0.0
 DEFAULT_VAL_BIAS = 0.0
+DEFAULT_AUGMENT_FACTOR = 0
 
 
 class DatascopeScenario(Scenario, abstract=True):
@@ -251,6 +253,7 @@ class DatascopeScenario(Scenario, abstract=True):
         trainsize: int = DEFAULT_TRAINSIZE,
         valsize: int = DEFAULT_VALSIZE,
         testsize: int = DEFAULT_TESTSIZE,
+        augment_factor: int = DEFAULT_AUGMENT_FACTOR,
         mc_timeout: int = DEFAULT_MC_TIMEOUT,
         mc_tolerance: float = DEFAULT_MC_TOLERANCE,
         nn_k: int = DEFAULT_NN_K,
@@ -275,6 +278,7 @@ class DatascopeScenario(Scenario, abstract=True):
         self._trainsize = trainsize
         self._valsize = valsize
         self._testsize = testsize
+        self._augment_factor = augment_factor
         self._mc_timeout = mc_timeout
         self._mc_tolerance = mc_tolerance
         self._nn_k = nn_k
@@ -345,6 +349,11 @@ class DatascopeScenario(Scenario, abstract=True):
         return self._testsize
 
     @attribute
+    def augment_factor(self) -> int:
+        """The augmentation factor to apply to the dataset after loading it (if applicable)."""
+        return self._augment_factor
+
+    @attribute
     def mc_timeout(self) -> int:
         """The maximum time in seconds that a Monte-Carlo importance method is allowed to run. Zero means no timeout."""
         return self._mc_timeout
@@ -397,6 +406,7 @@ class DatascopeScenario(Scenario, abstract=True):
             pipeline=self.pipeline,
             model=self.model,
             providers=self.providers,
+            augment_factor=self.augment_factor,
             mc_timeout=self.mc_timeout,
             mc_tolerance=self.mc_tolerance,
             nn_k=self.nn_k,
@@ -419,4 +429,7 @@ class DatascopeScenario(Scenario, abstract=True):
             dataset = Dataset.datasets[attributes["dataset"]]()
             pipeline = Pipeline.pipelines[attributes["pipeline"]](steps=[("hack", FunctionTransformer())])
             result = result and dataset.modality in pipeline.modalities
+        if "augment_factor" in attributes and attributes["augment_factor"] > 0 and "dataset" in attributes:
+            dataset = Dataset.datasets[attributes["dataset"]]()
+            result = result and isinstance(dataset, AugmentableMixin)
         return result and super().is_valid_config(**attributes)

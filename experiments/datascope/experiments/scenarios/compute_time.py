@@ -145,7 +145,6 @@ class ComputeTimeScenario(Scenario, id="compute-time"):
         return {**KEYWORD_REPLACEMENTS, **Pipeline.summaries}
 
     def _run(self, progress_bar: bool = True, **kwargs: Any) -> None:
-
         # Load dataset.
         seed = self._seed + self._iteration
         dataset = Dataset.datasets[self.dataset](
@@ -176,7 +175,6 @@ class ComputeTimeScenario(Scenario, id="compute-time"):
             method = IMPORTANCE_METHODS[self.method]
             mc_iterations = MC_ITERATIONS[self.method]
             mc_preextract = RepairMethod.is_tmc_nonpipe(self.method)
-            provenance = np.array(np.nan)  # TODO: Remove this hack.
             importance = ShapleyImportance(
                 method=method,
                 utility=utility,
@@ -185,7 +183,7 @@ class ComputeTimeScenario(Scenario, id="compute-time"):
                 mc_timeout=self.mc_timeout,
                 mc_preextract=mc_preextract,
             )
-            importance.fit(dataset.X_train, dataset.y_train, provenance=provenance).score(dataset.X_val, dataset.y_val)
+            importance.fit(dataset.X_train, dataset.y_train).score(dataset.X_val, dataset.y_val)
         importance_time_end = process_time_ns()
         self._importance_cputime = (importance_time_end - importance_time_start) / 1e9
         self.logger.debug("Importance computed in: %s", str(timedelta(seconds=self._importance_cputime)))

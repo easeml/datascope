@@ -45,6 +45,7 @@ from ..datasets import (
     DatasetModality,
     BiasMethod,
     BiasedMixin,
+    AugmentableMixin,
     DEFAULT_TRAINSIZE,
     DEFAULT_VALSIZE,
     DEFAULT_TESTSIZE,
@@ -148,7 +149,6 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
         return result and super().is_valid_config(**attributes)
 
     def _run(self, progress_bar: bool = True, **kwargs: Any) -> None:
-
         # Load dataset.
         seed = self._seed + self._iteration
         dataset = Dataset.datasets[self.dataset](
@@ -166,6 +166,10 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
             dataset.valsize,
             dataset.testsize,
         )
+
+        if self.augment_factor > 0:
+            assert isinstance(dataset, AugmentableMixin)
+            dataset.augment(factor=self.augment_factor, inplace=True)
 
         # Compute sensitive feature groupings.
         groupings_val: Optional[NDArray] = None
@@ -305,7 +309,6 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
         # discarded_units = np.zeros(dataset.trainsize, dtype=bool)
         dataset_current = deepcopy(dataset)
         for i in range(checkpoints):
-
             # Update the count of units that were covered and that should be covered in this checkpoint.
             n_units_covered_f += n_units_per_checkpoint_f
             n_units_per_checkpoint = round(n_units_covered_f) - n_units_covered

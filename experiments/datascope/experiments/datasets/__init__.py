@@ -6,6 +6,7 @@ from .base import (
     BiasMethod,
     BiasedMixin,
     BiasedNoisyLabelDataset,
+    AugmentableMixin,
     RandomDataset,
     UCI,
     FashionMNIST,
@@ -19,6 +20,7 @@ from .base import (
     DEFAULT_NUMFEATURES,
     DEFAULT_BIAS_METHOD,
     KEYWORD_REPLACEMENTS,
+    DEFAULT_AUGMENT_FACTOR,
     preload_datasets,
 )
 
@@ -30,6 +32,7 @@ __all__ = [
     "BiasMethod",
     "BiasedMixin",
     "BiasedNoisyLabelDataset",
+    "AugmentableMixin",
     "RandomDataset",
     "UCI",
     "FashionMNIST",
@@ -44,5 +47,6 @@ __all__ = [
     "DEFAULT_NUMFEATURES",
     "DEFAULT_BIAS_METHOD",
     "KEYWORD_REPLACEMENTS",
+    "DEFAULT_AUGMENT_FACTOR",
     "preload_datasets",
 ]

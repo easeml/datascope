@@ -7,7 +7,9 @@ import torch
 import transformers
 
 from abc import abstractmethod
+from datascope.utility import Provenance
 from hashlib import md5
+from numpy.typing import NDArray
 from scipy.ndimage.filters import gaussian_filter1d
 from sentence_transformers import SentenceTransformer
 from skimage.feature import hog
@@ -21,7 +23,7 @@ from transformers import AutoImageProcessor, ResNetModel
 from transformers.image_processing_utils import BatchFeature, BaseImageProcessor
 from transformers.modeling_outputs import BaseModelOutputWithPoolingAndNoAttention
 from transformers.modeling_utils import PreTrainedModel
-from typing import Dict, Iterable, Type, Optional
+from typing import Dict, Iterable, Type, Optional, Union
 
 # import torch.nn.functional as F
 # from transformers import MobileBertTokenizer, MobileBertModel
@@ -35,7 +37,6 @@ transformers.utils.logging.set_verbosity_error()
 
 
 class Pipeline(sklearn.pipeline.Pipeline):
-
     pipelines: Dict[str, Type["Pipeline"]] = {}
     summaries: Dict[str, str] = {}
     _pipeline: Optional[str] = None
@@ -82,6 +83,19 @@ class Pipeline(sklearn.pipeline.Pipeline):
     def construct(cls: Type["Pipeline"], dataset: Dataset) -> "Pipeline":
         raise NotImplementedError()
 
+    def fit_transform(self, X, y=None, provenance: Union[Provenance, NDArray, None] = None, **fit_params):
+        Xt = super().fit_transform(X=X, y=y, **fit_params)
+        if provenance is None:
+            return Xt
+        else:
+            provenance = self.transform_provenance(X=X, y=y, provenance=provenance)
+            return Xt, provenance
+
+    def transform_provenance(
+        self, X, y=None, provenance: Union[Provenance, NDArray, None] = None
+    ) -> Union[Provenance, NDArray, None]:
+        return provenance
+
 
 class IdentityPipeline(Pipeline, id="identity", summary="Identity", modalities=[DatasetModality.TABULAR]):
     """A pipeline that passes its input data as is."""
@@ -115,7 +129,6 @@ class LogScalerPipeline(Pipeline, id="log-scaler", summary="Logarithmic Scaler",
 
     @classmethod
     def construct(cls: Type["LogScalerPipeline"], dataset: Dataset) -> "LogScalerPipeline":
-
         ops = [("log", FunctionTransformer(cls._log1p)), ("scaler", StandardScaler())]
         return LogScalerPipeline(ops)
 
@@ -157,6 +170,25 @@ class KMeansPipeline(
         return KMeansPipeline(ops)
 
 
+class StdScalerKMeansPipeline(
+    Pipeline,
+    id="std-scaler-mi-kmeans",
+    summary="Missing Indicator + Standard Scaler + K-Means",
+    modalities=[DatasetModality.TABULAR],
+):
+    """
+    A pipeline that applies a combination of the missing value indicator, standard scaler and
+    the K-Means featurizer operators.
+    """
+
+    @classmethod
+    def construct(cls: Type["KMeansPipeline"], dataset: Dataset) -> "KMeansPipeline":
+        pipe = sklearn.pipeline.Pipeline([("scaler", StandardScaler()), ("kmeans", KMeans(random_state=0, n_init=10))])
+        union = FeatureUnion([("indicator", MissingIndicator()), ("scaler-kmeans", pipe)])
+        ops = [("union", union)]
+        return KMeansPipeline(ops)
+
+
 class GaussBlurPipeline(Pipeline, id="gauss-blur", summary="Gaussian Blur", modalities=[DatasetModality.IMAGE]):
     """
     A pipeline that applies a gaussian blure filter.
@@ -172,7 +204,6 @@ class GaussBlurPipeline(Pipeline, id="gauss-blur", summary="Gaussian Blur", moda
 
     @classmethod
     def construct(cls: Type["GaussBlurPipeline"], dataset: Dataset) -> "GaussBlurPipeline":
-
         ops = [("blur", FunctionTransformer(cls._gaussian_blur))]
         return GaussBlurPipeline(ops)
 
@@ -221,7 +252,6 @@ class HogTransformPipeline(
         cells_per_block: int = DEFAULT_HOG_CELLS_PER_BLOCK,
         block_norm: str = DEFAULT_HOG_BLOCK_NORM,
     ) -> "HogTransformPipeline":
-
         hog_transform = functools.partial(
             cls._hog_transform,
             orientations=orientations,
@@ -260,7 +290,6 @@ class ResNet18EmbeddingPipeline(
 
     @classmethod
     def construct(cls: Type["ResNet18EmbeddingPipeline"], dataset: Dataset) -> "ResNet18EmbeddingPipeline":
-
         # if dataset.X_train.ndim not in [3, 4]:
         #     raise ValueError("The provided dataset features must have either 3 or 4 dimensions.")
         # if dataset.X_train.ndim == 4 and dataset.X_train.shape[-1] not in [1, 3]:
@@ -307,7 +336,6 @@ class ToLowerUrlRemovePipeline(
 
     @classmethod
     def construct(cls: Type["ToLowerUrlRemovePipeline"], dataset: Dataset) -> "ToLowerUrlRemovePipeline":
-
         ops = [
             ("lower_case", FunctionTransformer(cls._text_lowercase)),
             ("remove_url", FunctionTransformer(cls._remove_urls)),
@@ -358,6 +386,7 @@ class ToLowerUrlRemovePipeline(
 #         ops = [("embedding", FunctionTransformer(embedding_transform))]
 #         return cls(ops)
 
+
 # Source: https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2
 class MiniLMEmbeddingPipeline(Pipeline, id="mini-lm", summary="MiniLM Embedding", modalities=[DatasetModality.TEXT]):
     """
@@ -371,7 +400,6 @@ class MiniLMEmbeddingPipeline(Pipeline, id="mini-lm", summary="MiniLM Embedding"
 
     @classmethod
     def construct(cls: Type["MiniLMEmbeddingPipeline"], dataset: Dataset) -> "MiniLMEmbeddingPipeline":
-
         # if dataset.X_train.ndim > 1:
         #     raise ValueError("The provided dataset features must have either 0 or 1 dimensions.")
 

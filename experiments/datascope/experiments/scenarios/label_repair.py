@@ -43,6 +43,7 @@ from ..datasets import (
     BiasMethod,
     BiasedNoisyLabelDataset,
     NoisyLabelDataset,
+    AugmentableMixin,
     DEFAULT_TRAINSIZE,
     DEFAULT_VALSIZE,
     DEFAULT_TESTSIZE,
@@ -152,7 +153,6 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
         return {**result, **KEYWORD_REPLACEMENTS}
 
     def _run(self, progress_bar: bool = True, **kwargs: Any) -> None:
-
         # Load dataset.
         seed = self._seed + self._iteration
         dataset = Dataset.datasets[self.dataset](
@@ -195,6 +195,11 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
             assert isinstance(dataset, BiasedNoisyLabelDataset)
             dataset_dirty = dataset.corrupt_labels_with_bias(probabilities=probabilities, groupbias=self.dirtybias)
             units_dirty = deepcopy(dataset_dirty.units_dirty)
+
+        if self.augment_factor > 0 and self.method != RepairMethod.KNN_Raw:
+            assert isinstance(dataset, AugmentableMixin) and isinstance(dataset_dirty, AugmentableMixin)
+            dataset.augment(factor=self.augment_factor, inplace=True)
+            dataset_dirty.augment(factor=self.augment_factor, inplace=True)
 
         # Load the pipeline and process the data.
         pipeline = Pipeline.pipelines[self.pipeline].construct(dataset)
@@ -311,6 +316,11 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
         argsorted_importances = (-np.array(importances)).argsort()
         # argsorted_importances = np.ma.array(importances, mask=visited_units).argsort()
 
+        if self.augment_factor > 0 and self.method == RepairMethod.KNN_Raw:
+            assert isinstance(dataset, AugmentableMixin) and isinstance(dataset_dirty, AugmentableMixin)
+            dataset.augment(factor=self.augment_factor, inplace=True)
+            dataset_dirty.augment(factor=self.augment_factor, inplace=True)
+
         # Run the model to get initial score.
         # assert y_val is not None
         dataset_f = dataset.apply(pipeline)
@@ -339,7 +349,6 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
         # Iterate over the repair process.
         # visited_units = np.zeros(dataset.trainsize, dtype=bool)
         for i in range(checkpoints):
-
             # Determine indices of data examples that should be repaired given the unit with the highest importance.
             unvisited_units = np.invert(visited_units)
             target_units = argsorted_importances[unvisited_units[argsorted_importances]]
