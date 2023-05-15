@@ -118,7 +118,7 @@ def test_eod_elementwise_score_1():
         ],
         dtype=float,
     )
-    y = np.array([1, 0, 0, 1], dtype=float)
+    y = np.array([1, 0, 0, 1], dtype=int)
     X_test = np.array(
         [
             [1, 0],
@@ -128,14 +128,12 @@ def test_eod_elementwise_score_1():
         ],
         dtype=float,
     )
-    y_test = np.array([1, 0, 1, 0], dtype=float)
+    y_test = np.array([1, 0, 1, 0], dtype=int)
     utility = SklearnModelEqualizedOddsDifference(KNeighborsClassifier(n_neighbors=1), sensitive_features=1)
 
     result = utility.elementwise_score(X, y, X_test, y_test)
     expected = np.array(
         [
-            [0, -1, 0, 1],
-            [0, 0, 0, 0],
             [0, 0, 0, 0],
             [0, -1, 0, 1],
         ]
@@ -155,7 +153,7 @@ def test_auc_elementwise_score_1():
         idx = list(idx)
         y_pred = y[idx]
         expected_score = utility.metric(y_test, y_pred)
-        obtained_score = result[idx, range(len(y_test))].sum(dtype=float)
+        obtained_score = result[y_pred, range(len(y_test))].sum(dtype=float)
         assert obtained_score == expected_score
 
 
