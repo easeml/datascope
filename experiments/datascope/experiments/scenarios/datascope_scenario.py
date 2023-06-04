@@ -401,7 +401,6 @@ class DatascopeScenario(Scenario, abstract=True):
     @property
     def dataframe(self) -> DataFrame:
         result = self._evolution.assign(
-            id=self.id,
             dataset=self.dataset,
             pipeline=self.pipeline,
             model=self.model,

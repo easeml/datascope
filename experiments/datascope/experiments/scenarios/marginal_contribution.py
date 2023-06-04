@@ -104,7 +104,6 @@ class MarginalContributionScenario(Scenario, id="marginal-contribution"):  # typ
     @property
     def dataframe(self) -> DataFrame:
         result = self._evolution.assign(
-            id=self.id,
             dataset=self.dataset,
             pipeline=self.pipeline,
             model=str(self.model),
@@ -129,7 +128,6 @@ class MarginalContributionScenario(Scenario, id="marginal-contribution"):  # typ
         return result and super().is_valid_config(**attributes)
 
     def _run(self, progress_bar: bool = True, **kwargs: Any) -> None:
-
         # Load dataset.
         seed = self._seed + self._iteration
         random = np.random.RandomState(seed=seed)
@@ -185,7 +183,6 @@ class MarginalContributionScenario(Scenario, id="marginal-contribution"):  # typ
         progress_points = list(np.linspace(cardinalities_lower, cardinalities_upper, 101, dtype=int))[1:]
 
         for cardinality in range(cardinalities_lower, cardinalities_upper):
-
             idx_without = permutation[:cardinality]
             score_without = utility(
                 dataset_processed.X_train[idx_without],

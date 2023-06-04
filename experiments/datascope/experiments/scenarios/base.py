@@ -1164,7 +1164,7 @@ class Study:
 
     @property
     def dataframe(self) -> DataFrame:
-        df = pd.concat([scenario.dataframe for scenario in self.scenarios], ignore_index=True)
+        df = pd.concat([s.dataframe.assign(scenario=s.scenario, id=s.id) for s in self.scenarios], ignore_index=True)
         df.sort_index(inplace=True)
         return df
 
