@@ -54,7 +54,6 @@ def env_default(envvar: Optional[str]):
 
 
 def main():
-
     parser = argparse.ArgumentParser(
         prog="experiments", description="This command allows interaction with datascope experiments."
     )
@@ -232,11 +231,11 @@ def main():
     )
 
     parser_report.add_argument(
-        "-g",
-        "--groupby",
+        "-p",
+        "--partby",
         type=str,
         nargs="+",
-        help="List of columns used to group results.",
+        help="List of columns used to partition results. Each partition will result in a single report instance.",
     )
 
     parser_report.add_argument(
@@ -249,7 +248,7 @@ def main():
     parser_report.add_argument(
         "--use-subdirs",
         action="store_true",
-        help="Store report artifacts in a hierarchy of subdirectories based on groupby keys.",
+        help="Store report artifacts in a hierarchy of subdirectories based on partition keys and values.",
     )
 
     parser_report.add_argument(

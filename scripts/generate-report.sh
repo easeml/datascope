@@ -10,7 +10,7 @@ fi
 if [ -z "$1" ]
 then
     python -m datascope.experiments report \
-        --groupby dataset pipeline utility \
+        --partby dataset pipeline utility \
         --index steps \
         --compare method \
         --targetval ${TARGETVAL} \
@@ -21,7 +21,7 @@ then
 
 else
     python -m datascope.experiments report \
-        --groupby dataset pipeline utility \
+        --partby dataset pipeline utility \
         --index steps \
         --compare method \
         --targetval ${TARGETVAL} \

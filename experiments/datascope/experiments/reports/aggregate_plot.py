@@ -202,7 +202,6 @@ def cross_aggregate(
     crossaggpairs: Optional[List[str]] = None,
     crossaggmode: CrossAggregationMode = CrossAggregationMode.MEAN_ABSOLUTE_ERROR,
 ):
-
     # Pivot the table so that target values from different comparison values appear side by side.
     index = [] if index is None else index
     crossaggover = [x for x in crossaggover if x not in index]
@@ -695,6 +694,9 @@ class AggregatePlot(Report, id="aggplot"):
     def __init__(
         self,
         study: Study,
+        dataframe: DataFrame,
+        partvals: Optional[Dict[str, Any]] = None,
+        id: Optional[str] = None,
         plot: Optional[Union[List[str], str]] = None,
         index: Optional[str] = None,
         targetval: Optional[Union[List[str], str]] = None,
@@ -717,17 +719,15 @@ class AggregatePlot(Report, id="aggplot"):
         linemarker: Optional[Union[List[str], str]] = None,
         annotations: Optional[Union[List[bool], bool]] = None,
         dontcompare: Optional[Union[List[str], str]] = None,
-        groupby: Optional[Dict[str, Any]] = None,
         labelformat: Optional[str] = None,
         plotsize: Optional[List[int]] = None,
         fontsize: Optional[int] = None,
         usetex: Optional[bool] = True,
         legend: Optional[bool] = True,
         titleformat: Optional[List[str]] = None,
-        id: Optional[str] = None,
         **kwargs: Any,
     ) -> None:
-        super().__init__(study, id=id, groupby=groupby, **kwargs)
+        super().__init__(study=study, dataframe=dataframe, id=id, partvals=partvals, **kwargs)
         self._plot = ensurelist(plot, default=None)
         n_plots = len(self._plot)
         self._index = index
@@ -737,7 +737,6 @@ class AggregatePlot(Report, id="aggplot"):
         self._colors: List[str] = colors if colors is not None else []
         self._summarize: List[str] = ensurelist(summarize, default=None)
         self._crossaggover: List[str] = ensurelist(crossaggover, default=None)
-        self._filter = filter
         self._sliceby: List[str] = ensurelist(sliceby, default=None)
         self._sliceop = sliceop if sliceop is not None else SliceOp.FIRST
         self._resultfilter: Optional[str] = resultfilter
@@ -770,7 +769,7 @@ class AggregatePlot(Report, id="aggplot"):
         self._usetex = usetex if usetex is not None else True
         self._legend = legend if legend is not None else True
         if titleformat is None:
-            titleformat = ["; ".join("%s=%%(%s)s" % (str(k).title(), str(k)) for k in self._groupby.keys())]
+            titleformat = ["; ".join("%s=%%(%s)s" % (str(k).title(), str(k)) for k in self._partvals.keys())]
         self._titleformat = titleformat
 
         self._view: Optional[DataFrame] = None
@@ -922,7 +921,9 @@ class AggregatePlot(Report, id="aggplot"):
         return self._titleformat
 
     def generate(self) -> None:
-        dataframe = filter(self.study.dataframe, attributes=self.groupby, resultfilter=self.resultfilter)
+        dataframe = self.dataframe
+        if self.resultfilter is not None:
+            dataframe = dataframe.query(self.resultfilter)
 
         keyword_replacements: Dict[str, str] = {}
         summarydict: Dict[str, str] = {}
@@ -931,7 +932,6 @@ class AggregatePlot(Report, id="aggplot"):
 
         if self.index is not None and len(self.targetval) > 0:
             if self._view is None:
-
                 agg_dataframe = dataframe
 
                 if len(self._crossaggover) > 0:
@@ -954,9 +954,7 @@ class AggregatePlot(Report, id="aggplot"):
                 )
 
         if len(self.summarize) > 0:
-
             if self._summary is None:
-
                 summ_dataframe = dataframe
 
                 # If slicing was specified, then we slice the dataframe first.
@@ -989,12 +987,13 @@ class AggregatePlot(Report, id="aggplot"):
         if len(self.plot) > 0:
             figsize = (len(self.plot) * self.plotsize[0], self.plotsize[1])
             self._figure = plt.figure(figsize=figsize)
-            formatdict = dict(**self.groupby)
+            formatdict = dict(**self.partvals)
             formatdict.update(summarydict)
             title = "\n".join(self.titleformat) % formatdict
             title = replace_keywords(title, keyword_replacements)
             plt.rc("text", usetex=self.usetex)
-            self._figure.suptitle(title, fontsize=self.fontsize * 0.9)
+            if not title.isspace():
+                self._figure.suptitle(title, fontsize=self.fontsize * 0.9)
             axes: plt.Axes = self._figure.subplots(nrows=1, ncols=len(self.plot))
             if len(self.plot) == 1:
                 axes = np.array([axes])
@@ -1010,7 +1009,6 @@ class AggregatePlot(Report, id="aggplot"):
                 axes[i].tick_params(axis="both", which="major", labelsize=self.fontsize)
 
                 if plottype == PlotType.LINE:
-
                     if self._index is None:
                         raise ValueError("An index must be specified when plotting line plots.")
 
@@ -1033,7 +1031,6 @@ class AggregatePlot(Report, id="aggplot"):
                         linemarker=self._linemarker[i],
                     )
                 elif plottype == PlotType.BAR:
-
                     if self._summary is None:
                         raise ValueError("A bar plot can only be generated from a summary.")
 
@@ -1053,7 +1050,6 @@ class AggregatePlot(Report, id="aggplot"):
                     )
 
                 else:
-
                     if self._summary is None:
                         raise ValueError("A dot plot can only be generated from a summary.")
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 CMD="python -m datascope.experiments report \
-        --groupby model dataset pipeline \
+        --partby model dataset pipeline \
         --index repaired_rel \
         --xtickfmt percent \
         --compare method \
@@ -19,6 +19,7 @@ CMD="python -m datascope.experiments report \
         --plotsize 5 4 \
         --annotation true \
         --fontsize 22 \
+        --legend false \
         --dontcompare shapley-knn-interactive random,shapley-knn-interactive \
         --titleformat \"Dataset: %(dataset)s; Pipeline: %(pipeline)s; Model: %(model)s\" "
 

@@ -43,7 +43,6 @@ def run(
     eventstream_host_port: Optional[int] = None,
     **attributes: Any
 ) -> None:
-
     # If we should continue the execution of an existing study, then we should load it.
     study: Optional[Study] = None
     path = output_path
@@ -111,7 +110,6 @@ def run_scenario(
     event_server: Optional[str] = None,
     **attributes: Any
 ) -> None:
-
     # If we should continue the execution of an existing scenario, then we should load it.
     scenario: Optional[Scenario] = None
     path = output_path
@@ -155,7 +153,7 @@ def run_scenario(
 
 def _report_generator(args: Tuple[Report, Optional[str], bool, Optional[Sequence[str]]]) -> str:
     report, output_path, use_subdirs, saveonly = args
-    result = "Report(%s)" % ", ".join("%s=%s" % (k, str(v)) for (k, v) in report.groupby.items())
+    result = "Report(%s)" % ", ".join("%s=%s" % (k, str(v)) for (k, v) in report.partvals.items())
     try:
         report.generate()
         if _generator_lock is not None:
@@ -181,14 +179,13 @@ def _init_pool(lock: LockType):
 
 def report(
     study_path: Optional[str] = DEFAULT_STUDY_PATH,
-    groupby: Optional[Sequence[str]] = None,
+    partby: Optional[Sequence[str]] = None,
     output_path: Optional[str] = None,
     saveonly: Optional[Sequence[str]] = None,
     use_subdirs: bool = False,
     no_multiprocessing: bool = False,
     **attributes: Any
 ) -> None:
-
     if study_path is None:
         raise ValueError("The provided study path cannot be None.")
 
@@ -210,7 +207,7 @@ def report(
         raise ValueError("Cannot find any study under the provided study path.")
 
     # Get applicable instances of reports.
-    reports = list(Report.get_instances(study=study, groupby=groupby, **attributes))
+    reports = list(Report.get_instances(study=study, partby=partby, **attributes))
 
     item_args = zip(reports, repeat(output_path), repeat(use_subdirs), repeat(saveonly))
     if no_multiprocessing:

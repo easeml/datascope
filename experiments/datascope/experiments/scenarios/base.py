@@ -68,7 +68,6 @@ class Queue(Protocol):
 
 
 class PropertyTag(property):
-
     domain: Optional[Iterable] = None
 
     @classmethod
@@ -232,7 +231,6 @@ def add_dynamic_arguments(
     all_iterable: bool = False,
     single_instance: bool = False,
 ) -> None:
-
     attribute_domains: Dict[str, Set[Any]] = {}
     attribute_helpstrings: Dict[str, Optional[str]] = {}
     attribute_types: Dict[str, Optional[type]] = {}
@@ -430,7 +428,6 @@ class Progress:
 
 
 class Scenario(ABC):
-
     scenarios: Dict[str, Type["Scenario"]] = {}
     attribute_names: Set[str] = set()
     _scenario: Optional[str] = None
@@ -858,7 +855,6 @@ class Study:
         eagersave: bool = True,
         **kwargs: Any
     ) -> None:
-
         # Set up logging.
         formatter = logging.Formatter("[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s")
         fh = logging.StreamHandler(self._logstream)
@@ -922,7 +918,6 @@ class Study:
                         self.save_scenario(scenario)
 
             elif backend == Backend.SLURM:
-
                 # If the host port was not specified, we look for the first free port.
                 if eventstream_host_port is None:
                     eventstream_host_port = get_free_port(DEFAULT_EVENTSTREAM_HOST_PORT)
@@ -960,7 +955,6 @@ class Study:
                 self.logger.info("Status event monitor listening on " + address)
 
                 try:
-
                     # Create a batch job on slurm for every scenario.
                     scenarios_pending = len(self.scenarios)
                     scenarios_running = 0
@@ -1054,7 +1048,6 @@ class Study:
         return full_exppath
 
     def save(self, save_scenarios: bool = True) -> None:
-
         # Make directory that will contain the study.
         os.makedirs(self.path, exist_ok=True)
 
@@ -1198,17 +1191,22 @@ def stringify(x: Any):
 
 
 class Report(ABC):
-
     reports: Dict[str, Type["Report"]] = {}
     _report: Optional[str] = None
 
     def __init__(
-        self, study: Study, id: Optional[str] = None, groupby: Optional[Dict[str, Any]] = None, **kwargs: Any
+        self,
+        study: Study,
+        dataframe: DataFrame,
+        id: Optional[str] = None,
+        partvals: Optional[Dict[str, Any]] = None,
+        **kwargs: Any
     ) -> None:
         super().__init__()
         self._study = study
+        self._dataframe = dataframe
         self._id = id if id is not None else "".join(random.choices(string.ascii_lowercase + string.digits, k=10))
-        self._groupby: Dict[str, Any] = {} if groupby is None else groupby
+        self._partvals: Dict[str, Any] = {} if partvals is None else partvals
 
     def __init_subclass__(cls: Type["Report"], id: str) -> None:
         cls._report = id
@@ -1226,12 +1224,16 @@ class Report(ABC):
         return self._id
 
     @property
-    def groupby(self) -> Dict[str, Any]:
-        return self._groupby
+    def partvals(self) -> Dict[str, Any]:
+        return self._partvals
 
     @property
     def study(self) -> Study:
         return self._study
+
+    @property
+    def dataframe(self) -> DataFrame:
+        return self._dataframe
 
     @classmethod
     def is_valid_config(cls, **attributes: Any) -> bool:
@@ -1244,7 +1246,7 @@ class Report(ABC):
     def save(
         self,
         path: Optional[str] = None,
-        use_groupby: bool = True,
+        use_partvals: bool = True,
         use_id: bool = False,
         use_subdirs: bool = False,
         saveonly: Optional[Sequence[str]] = None,
@@ -1253,19 +1255,19 @@ class Report(ABC):
             path = os.path.join(self._study.path, "reports")
         basename = "report"
         if use_subdirs:
-            if use_groupby:
-                groupby = ["%s=%s" % (str(key), str(self._groupby[key])) for key in sorted(self.groupby.keys())]
-                path = os.path.join(path, *groupby)
+            if use_partvals:
+                partvals = ["%s=%s" % (str(key), str(self._partvals[key])) for key in sorted(self.partvals.keys())]
+                path = os.path.join(path, *partvals)
             if use_id:
                 path = os.path.join(path, self._id)
             if os.path.splitext(path)[1] != "":
                 raise ValueError("The provided path '%s' is not a valid directory path." % path)
         else:
-            if use_groupby:
-                groupby = [self._groupby[key] for key in sorted(self.groupby.keys())]
+            if use_partvals:
+                partvals = [self._partvals[key] for key in sorted(self.partvals.keys())]
                 basename = "_".join(
                     [basename]
-                    + ["%s=%s" % (str(key), stringify(self._groupby[key])) for key in sorted(self.groupby.keys())]
+                    + ["%s=%s" % (str(key), stringify(self._partvals[key])) for key in sorted(self.partvals.keys())]
                 )
             if use_id:
                 basename = basename + "_id=" + self._id
@@ -1279,24 +1281,26 @@ class Report(ABC):
 
     @classmethod
     def get_instances(
-        cls: Type["Report"], study: Study, groupby: Optional[Sequence[str]], **kwargs: Any
+        cls: Type["Report"], study: Study, partby: Optional[Sequence[str]], **kwargs: Any
     ) -> Iterable["Report"]:
         if cls == Report:
             for id, report in Report.reports.items():
                 if kwargs.get("report", None) is None or id in kwargs["report"]:
-                    for instance in report.get_instances(study=study, groupby=groupby, **kwargs):
+                    for instance in report.get_instances(study=study, partby=partby, **kwargs):
                         yield instance
         else:
             # If grouping attributes were not specified, then we return only a single instance.
-            if groupby is None or len(groupby) == 0:
-                yield cls(study=study, **kwargs)
+            if partby is None or len(partby) == 0:
+                yield cls(study=study, dataframe=study.dataframe, **kwargs)
 
             else:
                 # Find distinct grouping attribute assignments.
                 all_values: List[Tuple] = []
+                partitioned = study.dataframe.groupby(partby)
                 if len(study.scenarios) > 0:
-                    all_values = list(study.dataframe.groupby(groupby).groups.keys())
+                    all_values = list(partitioned.groups.keys())
 
                 for values in all_values:
-                    groupby_values = dict((k, v) for (k, v) in zip(groupby, values))
-                    yield cls(study=study, groupby=groupby_values, **kwargs)
+                    dataframe = partitioned.get_group(values)
+                    partvals = dict((k, v) for (k, v) in zip(partby, values))
+                    yield cls(study=study, dataframe=dataframe, partvals=partvals, **kwargs)

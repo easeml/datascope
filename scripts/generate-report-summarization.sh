@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 CMD="python -m datascope.experiments report \
-        --groupby dataset pipeline \
+        --partby dataset pipeline \
         --index discarded_rel \
         --compare method \
         --targetval accuracy \

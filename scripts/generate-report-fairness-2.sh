@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 CMD="python -m datascope.experiments report \
-        --groupby model dataset pipeline utility \
+        --partby model dataset pipeline utility \
         --index repaired_rel \
         --xtickfmt percent \
         --compare method \
