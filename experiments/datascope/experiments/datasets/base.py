@@ -388,20 +388,23 @@ class Dataset(ABC):
 
 
 class TabularDatasetMixin:
+    @classmethod
     @abstractmethod
-    def get_element(cls, element_id: Hashable) -> Series:
+    def get_features(cls: Type["TabularDatasetMixin"], element_id: Hashable) -> Series:
         raise NotImplementedError()
 
 
 class ImageDatasetMixin:
+    @classmethod
     @abstractmethod
-    def get_element(cls, element_id: Hashable) -> Image:
+    def get_features(cls: Type["ImageDatasetMixin"], element_id: Hashable) -> Image:
         raise NotImplementedError()
 
 
 class TextDatasetMixin:
+    @classmethod
     @abstractmethod
-    def get_element(cls, element_id: Hashable) -> str:
+    def get_features(cls: Type["TextDatasetMixin"], element_id: Hashable) -> str:
         raise NotImplementedError()
 
 
