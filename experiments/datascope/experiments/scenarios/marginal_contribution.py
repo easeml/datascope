@@ -120,9 +120,9 @@ class MarginalContributionScenario(Scenario, id="marginal-contribution"):  # typ
     def is_valid_config(cls, **attributes: Any) -> bool:
         result = True
         if "pipeline" in attributes and "dataset" in attributes:
-            dataset = Dataset.datasets[attributes["dataset"]]()
+            dataset = Dataset.datasets[attributes["dataset"]]
             pipeline = Pipeline.pipelines[attributes["pipeline"]](steps=[("hack", FunctionTransformer())])
-            result = result and dataset.modality in pipeline.modalities
+            result = result and any(issubclass(dataset, modality) for modality in pipeline.modalities)
         if "utility" in attributes:
             result = result and attributes["utility"] in [UtilityType.ACCURACY, UtilityType.ROC_AUC, UtilityType.EQODDS]
         return result and super().is_valid_config(**attributes)

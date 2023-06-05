@@ -16,6 +16,7 @@ import torch
 
 from abc import ABC, abstractmethod
 from copy import deepcopy
+from datascope.utility import Provenance
 from enum import Enum
 from folktables import ACSDataSource, ACSIncome
 from glob import glob
@@ -24,19 +25,16 @@ from joblib import Memory
 from joblib.hashing import NumpyHasher
 from math import ceil, floor
 from numpy import ndarray
-from pandas import DataFrame
+from pandas import DataFrame, Series
+from PIL import Image
 from pyarrow import parquet as pq
 from sklearn.datasets import fetch_openml, fetch_20newsgroups, make_classification
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import LabelEncoder
 from tqdm import tqdm
-from typing import Dict, List, Optional, Sequence, Tuple, Type, Union, Callable
+from typing import Dict, List, Optional, Sequence, Tuple, Type, Union, Callable, Hashable
 from zipfile import ZipFile
-
-# from datascope.importance.common import binarize, get_indices, reshape
-# from datascope.importance.shapley import checknan
-from datascope.utility import Provenance
 
 
 class DatasetId(str, Enum):
@@ -171,7 +169,6 @@ def _apply_pipeline(dataset: "Dataset", pipeline: Pipeline, **kwargs) -> "Datase
 class Dataset(ABC):
     datasets: Dict[str, Type["Dataset"]] = {}
     _dataset: Optional[str] = None
-    _modality: DatasetModality
 
     def __init__(
         self,
@@ -202,13 +199,11 @@ class Dataset(ABC):
     def __init_subclass__(
         cls: Type["Dataset"],
         abstract: bool = False,
-        modality: Optional[DatasetModality] = None,
         id: Optional[str] = None,
     ) -> None:
-        if abstract or modality is None:
+        if abstract:
             return
         cls._dataset = id if id is not None else cls.__name__
-        cls._modality = modality
         Dataset.datasets[cls._dataset] = cls
 
     @classmethod
@@ -218,10 +213,6 @@ class Dataset(ABC):
     @abstractmethod
     def load(self) -> None:
         pass
-
-    @property
-    def modality(self) -> DatasetModality:
-        return self._modality
 
     @property
     def loaded(self) -> bool:
@@ -396,7 +387,25 @@ class Dataset(ABC):
     #     return result
 
 
-class RandomDataset(Dataset, modality=DatasetModality.TABULAR, id="random"):
+class TabularDatasetMixin:
+    @abstractmethod
+    def get_element(cls, element_id: Hashable) -> Series:
+        raise NotImplementedError()
+
+
+class ImageDatasetMixin:
+    @abstractmethod
+    def get_element(cls, element_id: Hashable) -> Image:
+        raise NotImplementedError()
+
+
+class TextDatasetMixin:
+    @abstractmethod
+    def get_element(cls, element_id: Hashable) -> str:
+        raise NotImplementedError()
+
+
+class RandomDataset(Dataset, TabularDatasetMixin, id="random"):
     def __init__(
         self,
         trainsize: int = DEFAULT_TRAINSIZE,
@@ -851,7 +860,7 @@ def compute_bias(X: ndarray, y: ndarray, sf: int) -> float:
     return bias
 
 
-class UCI(BiasedNoisyLabelDataset, modality=DatasetModality.TABULAR):
+class UCI(BiasedNoisyLabelDataset, TabularDatasetMixin):
     def __init__(
         self,
         trainsize: int = DEFAULT_TRAINSIZE,
@@ -1029,7 +1038,7 @@ def get_states_for_size(n: int) -> List[str]:
     return result
 
 
-class FolkUCI(BiasedNoisyLabelDataset, AugmentableMixin, modality=DatasetModality.TABULAR):
+class FolkUCI(BiasedNoisyLabelDataset, AugmentableMixin, TabularDatasetMixin):
     def __init__(
         self,
         trainsize: int = DEFAULT_TRAINSIZE,
@@ -1164,7 +1173,7 @@ class FolkUCI(BiasedNoisyLabelDataset, AugmentableMixin, modality=DatasetModalit
         return dataset
 
 
-class FashionMNIST(NoisyLabelDataset, modality=DatasetModality.IMAGE):
+class FashionMNIST(NoisyLabelDataset, ImageDatasetMixin):
     CLASSES = ["t-shirt/top", "trouser", "pullover", "dress", "coat", "sandal", "shirt", "sneaker", "bag", "ankle boot"]
 
     def __init__(
@@ -1229,7 +1238,7 @@ class FashionMNIST(NoisyLabelDataset, modality=DatasetModality.IMAGE):
         self._construct_provenance()
 
 
-class TwentyNewsGroups(NoisyLabelDataset, modality=DatasetModality.TEXT):
+class TwentyNewsGroups(NoisyLabelDataset, TextDatasetMixin):
     @classmethod
     def preload(cls) -> None:
         categories = ["comp.graphics", "sci.med"]
@@ -1269,7 +1278,7 @@ class TwentyNewsGroups(NoisyLabelDataset, modality=DatasetModality.TEXT):
         self._construct_provenance()
 
 
-class Higgs(NoisyLabelDataset, modality=DatasetModality.TABULAR):
+class Higgs(NoisyLabelDataset, TabularDatasetMixin):
     TRAINSIZES = [1000, 10000, 100000, 1000000]
     TESTSIZES = [500, 5000, 50000, 500000]
 
@@ -1340,7 +1349,7 @@ class Higgs(NoisyLabelDataset, modality=DatasetModality.TABULAR):
         self._construct_provenance()
 
 
-class DataPerfVision(NaturallyNoisyLabelDataset, modality=DatasetModality.TABULAR):
+class DataPerfVision(NaturallyNoisyLabelDataset, TabularDatasetMixin):
     DATA_DIR = os.path.join(DEFAULT_DATA_DIR, "dataperf-vision")
 
     @classmethod
@@ -1513,7 +1522,7 @@ class DataPerfVision(NaturallyNoisyLabelDataset, modality=DatasetModality.TABULA
         self._construct_provenance()
 
 
-class CifarN(NaturallyNoisyLabelDataset, modality=DatasetModality.IMAGE):
+class CifarN(NaturallyNoisyLabelDataset, ImageDatasetMixin):
     DATA_DIR = os.path.join(DEFAULT_DATA_DIR, "cifar-n")
     CIFAR_10_DATA_DIR = os.path.join(DATA_DIR, "cifar-10-batches-py")
     CIFAR_10_TRAIN_FILES = ["data_batch_%d" % i for i in [1, 2, 3, 4, 5]]

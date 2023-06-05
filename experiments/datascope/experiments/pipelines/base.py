@@ -30,8 +30,9 @@ from typing import Dict, Iterable, Type, Optional, Union
 # from transformers.tokenization_utils import BatchEncoding
 # from transformers.modeling_outputs import BaseModelOutputWithPooling
 
-from ..datasets import DatasetModality, Dataset
+from ..datasets import Dataset, TabularDatasetMixin, ImageDatasetMixin, TextDatasetMixin
 
+DatasetModality = Union[Type[TabularDatasetMixin], Type[ImageDatasetMixin], Type[TextDatasetMixin]]
 
 transformers.utils.logging.set_verbosity_error()
 
@@ -97,7 +98,7 @@ class Pipeline(sklearn.pipeline.Pipeline):
         return provenance
 
 
-class IdentityPipeline(Pipeline, id="identity", summary="Identity", modalities=[DatasetModality.TABULAR]):
+class IdentityPipeline(Pipeline, id="identity", summary="Identity", modalities=[TabularDatasetMixin]):
     """A pipeline that passes its input data as is."""
 
     @classmethod
@@ -109,9 +110,7 @@ class IdentityPipeline(Pipeline, id="identity", summary="Identity", modalities=[
         return IdentityPipeline(ops)
 
 
-class StandardScalerPipeline(
-    Pipeline, id="std-scaler", summary="Standard Scaler", modalities=[DatasetModality.TABULAR]
-):
+class StandardScalerPipeline(Pipeline, id="std-scaler", summary="Standard Scaler", modalities=[TabularDatasetMixin]):
     """A pipeline that applies a standard scaler to the input data."""
 
     @classmethod
@@ -120,7 +119,7 @@ class StandardScalerPipeline(
         return StandardScalerPipeline(ops)
 
 
-class LogScalerPipeline(Pipeline, id="log-scaler", summary="Logarithmic Scaler", modalities=[DatasetModality.TABULAR]):
+class LogScalerPipeline(Pipeline, id="log-scaler", summary="Logarithmic Scaler", modalities=[TabularDatasetMixin]):
     """A pipeline that applies a logarithmic scaler to the input data."""
 
     @staticmethod
@@ -133,7 +132,7 @@ class LogScalerPipeline(Pipeline, id="log-scaler", summary="Logarithmic Scaler",
         return LogScalerPipeline(ops)
 
 
-class PcaPipeline(Pipeline, id="pca", summary="PCA", modalities=[DatasetModality.TABULAR]):
+class PcaPipeline(Pipeline, id="pca", summary="PCA", modalities=[TabularDatasetMixin]):
     """A pipeline that applies a principal component analysis operator."""
 
     @classmethod
@@ -142,7 +141,7 @@ class PcaPipeline(Pipeline, id="pca", summary="PCA", modalities=[DatasetModality
         return PcaPipeline(ops)
 
 
-class PcaSvdPipeline(Pipeline, id="pca-svd", summary="PCA + SVD", modalities=[DatasetModality.TABULAR]):
+class PcaSvdPipeline(Pipeline, id="pca-svd", summary="PCA + SVD", modalities=[TabularDatasetMixin]):
     """
     A pipeline that applies a combination of the principal component analysis and
     singular value decomposition operators.
@@ -155,9 +154,7 @@ class PcaSvdPipeline(Pipeline, id="pca-svd", summary="PCA + SVD", modalities=[Da
         return PcaSvdPipeline(ops)
 
 
-class KMeansPipeline(
-    Pipeline, id="mi-kmeans", summary="Missing Indicator + K-Means", modalities=[DatasetModality.TABULAR]
-):
+class KMeansPipeline(Pipeline, id="mi-kmeans", summary="Missing Indicator + K-Means", modalities=[TabularDatasetMixin]):
     """
     A pipeline that applies a combination of the missing value indicator and
     the K-Means featurizer operators.
@@ -174,7 +171,7 @@ class StdScalerKMeansPipeline(
     Pipeline,
     id="std-scaler-mi-kmeans",
     summary="Missing Indicator + Standard Scaler + K-Means",
-    modalities=[DatasetModality.TABULAR],
+    modalities=[TabularDatasetMixin],
 ):
     """
     A pipeline that applies a combination of the missing value indicator, standard scaler and
@@ -189,7 +186,7 @@ class StdScalerKMeansPipeline(
         return KMeansPipeline(ops)
 
 
-class GaussBlurPipeline(Pipeline, id="gauss-blur", summary="Gaussian Blur", modalities=[DatasetModality.IMAGE]):
+class GaussBlurPipeline(Pipeline, id="gauss-blur", summary="Gaussian Blur", modalities=[ImageDatasetMixin]):
     """
     A pipeline that applies a gaussian blure filter.
     """
@@ -215,7 +212,7 @@ DEFAULT_HOG_BLOCK_NORM = "L2-Hys"
 
 
 class HogTransformPipeline(
-    Pipeline, id="hog-transform", summary="Histogram of Oriented Gradients", modalities=[DatasetModality.IMAGE]
+    Pipeline, id="hog-transform", summary="Histogram of Oriented Gradients", modalities=[ImageDatasetMixin]
 ):
     """
     A pipeline that applies a histogram of oriented gradients operator.
@@ -265,7 +262,7 @@ class HogTransformPipeline(
 
 
 class ResNet18EmbeddingPipeline(
-    Pipeline, id="resnet-18", summary="ResNet-18 Embedding", modalities=[DatasetModality.IMAGE]
+    Pipeline, id="resnet-18", summary="ResNet-18 Embedding", modalities=[ImageDatasetMixin]
 ):  # type: ignore
     """
     A pipeline that extracts embeddings using a ResNet50 model pre-trained on the ImageNet dataset.
@@ -305,7 +302,7 @@ class ResNet18EmbeddingPipeline(
         return cls(ops)
 
 
-class TfidfPipeline(Pipeline, id="tf-idf", summary="TF-IDF", modalities=[DatasetModality.TEXT]):
+class TfidfPipeline(Pipeline, id="tf-idf", summary="TF-IDF", modalities=[TextDatasetMixin]):
     """
     A pipeline that applies a count vectorizer and a TF-IDF transform.
     """
@@ -317,7 +314,7 @@ class TfidfPipeline(Pipeline, id="tf-idf", summary="TF-IDF", modalities=[Dataset
 
 
 class ToLowerUrlRemovePipeline(
-    Pipeline, id="tolower-urlremove-tfidf", summary="ToLower + URLRemove + TF-IDF", modalities=[DatasetModality.TEXT]
+    Pipeline, id="tolower-urlremove-tfidf", summary="ToLower + URLRemove + TF-IDF", modalities=[TextDatasetMixin]
 ):
     """
     A pipeline that applies a few text transformations such as converting everything to lowercase and removing URL's.
@@ -346,7 +343,7 @@ class ToLowerUrlRemovePipeline(
 
 
 # class MobileBertEmbeddingPipeline(
-#     Pipeline, id="mobile-bert", summary="Mobile-BERT Embedding", modalities=[DatasetModality.IMAGE]
+#     Pipeline, id="mobile-bert", summary="Mobile-BERT Embedding", modalities=[ImageDatasetMixin]
 # ):
 #     """
 #     A pipeline that extracts embeddings using a ResNet50 model pre-trained on the ImageNet dataset.
@@ -388,7 +385,7 @@ class ToLowerUrlRemovePipeline(
 
 
 # Source: https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2
-class MiniLMEmbeddingPipeline(Pipeline, id="mini-lm", summary="MiniLM Embedding", modalities=[DatasetModality.TEXT]):
+class MiniLMEmbeddingPipeline(Pipeline, id="mini-lm", summary="MiniLM Embedding", modalities=[TextDatasetMixin]):
     """
     A pipeline that extracts sentence embeddings using a MiniLM model pre-trained on the 1B sentences.
     """

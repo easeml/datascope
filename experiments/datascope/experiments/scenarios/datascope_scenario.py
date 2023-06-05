@@ -425,10 +425,10 @@ class DatascopeScenario(Scenario, abstract=True):
     def is_valid_config(cls, **attributes: Any) -> bool:
         result = True
         if "pipeline" in attributes and "dataset" in attributes:
-            dataset = Dataset.datasets[attributes["dataset"]]()
+            dataset = Dataset.datasets[attributes["dataset"]]
             pipeline = Pipeline.pipelines[attributes["pipeline"]](steps=[("hack", FunctionTransformer())])
-            result = result and dataset.modality in pipeline.modalities
+            result = result and any(issubclass(dataset, modality) for modality in pipeline.modalities)
         if "augment_factor" in attributes and attributes["augment_factor"] > 0 and "dataset" in attributes:
-            dataset = Dataset.datasets[attributes["dataset"]]()
-            result = result and isinstance(dataset, AugmentableMixin)
+            dataset = Dataset.datasets[attributes["dataset"]]
+            result = result and isinstance(issubclass, AugmentableMixin)
         return result and super().is_valid_config(**attributes)
