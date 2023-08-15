@@ -430,5 +430,5 @@ class DatascopeScenario(Scenario, abstract=True):
             result = result and any(issubclass(dataset, modality) for modality in pipeline.modalities)
         if "augment_factor" in attributes and attributes["augment_factor"] > 0 and "dataset" in attributes:
             dataset = Dataset.datasets[attributes["dataset"]]
-            result = result and isinstance(issubclass, AugmentableMixin)
+            result = result and issubclass(dataset, AugmentableMixin)
         return result and super().is_valid_config(**attributes)
