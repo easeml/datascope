@@ -154,7 +154,10 @@ def get_model(model_type: ModelType, **kwargs):
             early_stopping=early_stopping,
         )
     elif model_type == ModelType.XGBoost:
-        model = XGBClassifier(nthread=1, eval_metric="logloss")
+        n_estimators = kwargs.get("n_estimators", 100)
+        max_depth = kwargs.get("max_depth", 6)
+        subsample = kwargs.get("subsample", 1.0)
+        model = XGBClassifier(nthread=1, eval_metric="logloss", max_depth=max_depth, subsample=subsample)
     elif model_type == ModelType.ResNet18:
         n_epochs = kwargs.get("n_epochs", 5)
         model = ResNet18Classifier(n_epochs=n_epochs)
