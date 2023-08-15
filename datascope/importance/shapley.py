@@ -47,6 +47,15 @@ DEFAULT_MC_TRUNCATION_STEPS = 5
 DEFAULT_NN_K = 1
 DEFAULT_NN_DISTANCE = DistanceMetric.get_metric("minkowski").pairwise
 
+# This should ensure that we never need more than a few GB of memory for computing Shapley values.
+BATCH_DISTANCE_MATRIX_SIZE = 1024 * 1024 * 32
+
+
+def get_test_batch_size(n_train: int, n_test: int) -> int:
+    matrix_size = n_train * n_test
+    n_matrices = max(matrix_size // BATCH_DISTANCE_MATRIX_SIZE, 1)
+    return max(n_test // n_matrices, n_test)
+
 
 def checknan(x: NDArray) -> bool:
     if (x.ndim == 0) and np.all(np.isnan(x)):
@@ -180,7 +189,7 @@ def compute_shapley_1nn_mapfork(
     units: NDArray,
     world: NDArray,
     null_scores: Optional[NDArray] = None,
-) -> Iterable[float]:
+) -> NDArray:
     # Compute the minimal distance for each unit and each test example.
     unit_labels, unit_distances = get_unit_labels_and_distances(labels, distances, provenance, units, world)
 
@@ -203,7 +212,7 @@ def compute_shapley_add(
     num_neighbors: int = 1,
     num_classes: int = 2,
     null_scores: Optional[NDArray] = None,
-) -> Iterable[float]:
+) -> NDArray:
     if max_cardinality is None or max_cardinality >= distances.shape[0]:
         max_cardinality = distances.shape[0] - 1
     n_units, n_tuples, n_test = len(units), distances.shape[0], distances.shape[1]
@@ -541,34 +550,49 @@ class ShapleyImportance(Importance):
         if isinstance(X_test, np.matrix):
             X_test = np.asarray(X_test)
 
-        # Compute the distances between training and text data examples.
-        distances = distance(X, X_test)
+        # Compute the size of the test batch to split the X_test matrix if if X and X_test are too large.
+        n_train, n_test, n_units = X.shape[0], X_test.shape[0], units.shape[0]
+        batch_size = get_test_batch_size(n_train, n_test)
+        all_importances = np.zeros((n_units), dtype=float)
 
-        # Compute the utilitiy values between training and test labels.
-        utilities = self.utility.elementwise_score(X_train=X, y_train=y, X_test=X_test, y_test=y_test)
+        # We iterate over all batches of test data and compute importances.
+        for start in range(0, n_test, batch_size):
+            X_test_batch = X_test[start : start + batch_size]  # noqa: E203
+            n_test_batch = X_test_batch.shape[0]
 
-        # Compute null scores.
-        null_scores = self.utility.elementwise_null_score(X, y, X_test, y_test)
+            # Compute the distances between training and text data examples.
+            distances = distance(X, X_test_batch)
 
-        if k == 1 and provenance.max_conjunctions == 1:
-            return compute_shapley_1nn_mapfork(
-                y,
-                distances,
-                utilities,
-                provenance,
-                units,
-                world,
-                null_scores=null_scores,
-            )
-        else:
-            return compute_shapley_add(
-                y,
-                distances,
-                utilities,
-                provenance,
-                units,
-                world,
-                num_neighbors=k,
-                num_classes=len(self.label_encoder.classes_),
-                null_scores=null_scores,
-            )
+            # Compute the utilitiy values between training and test labels.
+            utilities = self.utility.elementwise_score(X_train=X, y_train=y, X_test=X_test_batch, y_test=y_test)
+
+            # Compute null scores.
+            null_scores = self.utility.elementwise_null_score(X, y, X_test_batch, y_test)
+
+            cur_importances: NDArray
+            if k == 1 and provenance.max_conjunctions == 1:
+                cur_importances = compute_shapley_1nn_mapfork(
+                    y,
+                    distances,
+                    utilities,
+                    provenance,
+                    units,
+                    world,
+                    null_scores=null_scores,
+                )
+            else:
+                cur_importances = compute_shapley_add(
+                    y,
+                    distances,
+                    utilities,
+                    provenance,
+                    units,
+                    world,
+                    num_neighbors=k,
+                    num_classes=len(self.label_encoder.classes_),
+                    null_scores=null_scores,
+                )
+
+            all_importances += cur_importances * (float(n_test_batch) / float(n_test))
+
+        return all_importances
