@@ -39,16 +39,17 @@ from .datascope_scenario import (
 )
 from ..datasets import (
     Dataset,
-    DatasetModality,
     BiasMethod,
     BiasedNoisyLabelDataset,
     NoisyLabelDataset,
     AugmentableMixin,
+    TabularDatasetMixin,
+    ImageDatasetMixin,
     DEFAULT_TRAINSIZE,
     DEFAULT_VALSIZE,
     DEFAULT_TESTSIZE,
 )
-from ..pipelines import Pipeline, FlattenPipeline, get_model
+from ..pipelines import Pipeline, FlattenPipeline, get_model, DistanceModelMixin
 
 
 DEFAULT_DIRTY_RATIO = 0.5
@@ -134,7 +135,9 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
                 result = result and attributes["utility"] in [UtilityType.ACCURACY, UtilityType.ROC_AUC]
         if "method" in attributes and attributes["method"] == RepairMethod.KNN_Raw:
             dataset_class = Dataset.datasets[attributes["dataset"]]
-            result = result and dataset_class._modality in [DatasetModality.TABULAR, DatasetModality.IMAGE]
+            result = result and any(
+                issubclass(dataset_class, modality) for modality in [TabularDatasetMixin, ImageDatasetMixin]
+            )
         return result and super().is_valid_config(**attributes)
 
     @attribute
@@ -306,6 +309,8 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
                 nn_k=self.nn_k,
                 logger=self.logger,
             )
+            if isinstance(model, DistanceModelMixin):
+                importance.nn_distance = model.distance
             importances = importance.fit(
                 dataset_dirty.X_train, dataset_dirty.y_train, provenance=dataset_dirty.provenance
             ).score(dataset.X_val, dataset.y_val)

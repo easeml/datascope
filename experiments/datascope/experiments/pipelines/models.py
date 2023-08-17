@@ -3,7 +3,9 @@ import tempfile
 import torch
 import torch.utils.data
 
+from abc import abstractmethod
 from enum import Enum
+from huggingface_hub import hf_hub_download
 from numpy.typing import NDArray
 from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.ensemble import RandomForestClassifier
@@ -19,8 +21,10 @@ from typing import Dict
 from xgboost import XGBClassifier
 
 
-class ModelType(str, Enum):
+from ..baselines.matchingnet import resnet12, default_transform, MatchingNetworks
 
+
+class ModelType(str, Enum):
     LogisticRegression = "logreg"
     RandomForest = "randf"
     KNeighbors = "knn"
@@ -32,6 +36,7 @@ class ModelType(str, Enum):
     XGBoost = "xgb"
     ResNet18 = "resnet-18"
     MiniLM = "mini-lm"
+    MatchingNet = "matchingnet"
 
 
 KEYWORD_REPLACEMENTS: Dict[str, str] = {
@@ -46,6 +51,7 @@ KEYWORD_REPLACEMENTS: Dict[str, str] = {
     ModelType.XGBoost.value: "XGBoost",
     ModelType.ResNet18.value: "ResNet-18",
     ModelType.MiniLM.value: "MiniLM",
+    ModelType.MatchingNet.value: "Matching Network",
 }
 
 
@@ -110,6 +116,63 @@ class ResNet18Classifier(BaseEstimator, ClassifierMixin):
         return outputs.logits.argmax(axis=1).numpy()
 
 
+MATCHING_NET_REPO = "karlasb/matchingnet-imagenet"
+MATCHING_NET_FILENAME = "matching_net_miniimagenet.zip"
+
+
+class DistanceModelMixin:
+    @abstractmethod
+    def distance(self, X: NDArray, X_test: NDArray) -> NDArray:
+        raise NotImplementedError()
+
+
+class MatchingNetworkClassifier(BaseEstimator, ClassifierMixin, DistanceModelMixin):
+    def __init__(self) -> None:
+        self.cuda_mode = torch.cuda.is_available()
+        self.device = "cuda" if self.cuda_mode else "cpu"
+        self.state_filename = hf_hub_download(repo_id=MATCHING_NET_REPO, filename=MATCHING_NET_FILENAME)
+        self.model = resnet12(use_fc=False, num_classes=64).to(self.device)
+        self.state = torch.load(self.state_filename, map_location=torch.device(self.device))
+        self.model.load_state_dict(self.state)
+        self.transform = default_transform(image_size=84, training=False)
+        self.few_shot_classifier = MatchingNetworks(self.model, feature_dimension=640).to(self.device)
+
+    @staticmethod
+    def _reshape(X: NDArray) -> NDArray:
+        if X.ndim == 3:
+            X = np.expand_dims(X, axis=X.ndim)
+        if X.shape[-1] == 1:
+            X = np.tile(X, (1, 1, 1, 3))
+        if X.shape[-1] == 3:
+            X = np.transpose(X, axes=(0, 3, 1, 2))
+        return X
+
+    def fit(self, X: NDArray, y: NDArray) -> None:
+        X = MatchingNetworkClassifier._reshape(X)
+        X_t = self.transform(torch.Tensor(X, device=self.device))
+        y_t = torch.Tensor(y.astype(int), device=self.device).long()
+        self.few_shot_classifier.process_support_set(X_t, y_t)
+
+    def predict(self, X: NDArray) -> NDArray:
+        X = MatchingNetworkClassifier._reshape(X)
+        X_t = self.transform(torch.Tensor(X, device=self.device))
+        self.few_shot_classifier.return_similarity = False
+        predictions = self.few_shot_classifier(X_t).detach().data
+        return np.array(torch.max(predictions, 1)[1].cpu())
+
+    def distance(self, X: NDArray, X_test: NDArray) -> NDArray:
+        X = MatchingNetworkClassifier._reshape(X)
+        X_test = MatchingNetworkClassifier._reshape(X_test)
+        X_t = self.transform(torch.Tensor(X, device=self.device))
+        y_t = torch.Tensor(np.zeros((X.shape[0],), dtype=int), device=self.device).long()
+        X_test_t = self.transform(torch.Tensor(X_test, device=self.device))
+        self.few_shot_classifier.process_support_set(X_t, y_t)
+        self.few_shot_classifier.return_similarity = True
+        similarities = self.few_shot_classifier(X_test_t).detach().data.cpu()
+        self.few_shot_classifier.return_similarity = False
+        return np.array(similarities).T
+
+
 def get_model(model_type: ModelType, **kwargs):
     """
     Code returning sklearn classifier for pipelines
@@ -161,6 +224,8 @@ def get_model(model_type: ModelType, **kwargs):
     elif model_type == ModelType.ResNet18:
         n_epochs = kwargs.get("n_epochs", 5)
         model = ResNet18Classifier(n_epochs=n_epochs)
+    elif model_type == ModelType.MatchingNet:
+        model = MatchingNetworkClassifier()
     else:
         raise ValueError("Unknown model type '%s'." % str(model_type))
     return model

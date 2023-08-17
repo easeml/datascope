@@ -42,16 +42,17 @@ from .datascope_scenario import (
 from .base import attribute
 from ..datasets import (
     Dataset,
-    DatasetModality,
     BiasMethod,
     BiasedMixin,
     AugmentableMixin,
+    TabularDatasetMixin,
+    ImageDatasetMixin,
     DEFAULT_TRAINSIZE,
     DEFAULT_VALSIZE,
     DEFAULT_TESTSIZE,
     DEFAULT_BIAS_METHOD,
 )
-from ..pipelines import Pipeline, FlattenPipeline, get_model
+from ..pipelines import Pipeline, FlattenPipeline, get_model, DistanceModelMixin
 
 
 DEFAULT_MAX_REMOVE = 0.5
@@ -142,7 +143,9 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
                 result = result and attributes["utility"] in [UtilityType.ACCURACY, UtilityType.ROC_AUC]
         if "method" in attributes and attributes["method"] == RepairMethod.KNN_Raw:
             dataset_class = Dataset.datasets[attributes["dataset"]]
-            result = result and dataset_class._modality in [DatasetModality.TABULAR, DatasetModality.IMAGE]
+            result = result and any(
+                issubclass(dataset_class, modality) for modality in [TabularDatasetMixin, ImageDatasetMixin]
+            )
         elif "method" in attributes and attributes["method"] == RepairMethod.INFLUENCE:
             result = result and attributes.get("model", DEFAULT_MODEL) == ModelSpec.LogisticRegression
 
@@ -274,6 +277,8 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
                 mc_preextract=mc_preextract,
                 nn_k=self.nn_k,
             )
+            if isinstance(model, DistanceModelMixin):
+                importance.nn_distance = model.distance
             importances = np.array(importance.fit(dataset.X_train, dataset.y_train).score(dataset.X_val, dataset.y_val))
         importance_time_end = process_time_ns()
         importance_cputime = (importance_time_end - importance_time_start) / 1e9

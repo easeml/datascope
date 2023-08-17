@@ -16,7 +16,7 @@ from .base import (
     FlattenPipeline,
 )
 
-from .models import get_model, ModelType, KEYWORD_REPLACEMENTS as MODEL_KEYWORD_REPLACEMENTS
+from .models import get_model, ModelType, DistanceModelMixin, KEYWORD_REPLACEMENTS as MODEL_KEYWORD_REPLACEMENTS
 
 __all__ = [
     "Pipeline",
@@ -36,5 +36,6 @@ __all__ = [
     "FlattenPipeline",
     "get_model",
     "ModelType",
+    "DistanceModelMixin",
     "MODEL_KEYWORD_REPLACEMENTS",
 ]
