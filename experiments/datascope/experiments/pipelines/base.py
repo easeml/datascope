@@ -226,7 +226,7 @@ class HogTransformPipeline(
         cells_per_block: int = DEFAULT_HOG_CELLS_PER_BLOCK,
         block_norm: str = DEFAULT_HOG_BLOCK_NORM,
     ) -> np.ndarray:
-        channel_axis = None if X.ndim == 3 else X.ndim - 2
+        channel_axis = None if X.ndim == 3 else -1
 
         def hog_single(image):
             return hog(
@@ -252,8 +252,8 @@ class HogTransformPipeline(
         hog_transform = functools.partial(
             cls._hog_transform,
             orientations=orientations,
-            pixels_per_cell=(pixels_per_cell, pixels_per_cell),
-            cells_per_block=(cells_per_block, cells_per_block),
+            pixels_per_cell=pixels_per_cell,
+            cells_per_block=cells_per_block,
             block_norm=block_norm,
         )
 
@@ -268,7 +268,7 @@ class ImageEmbeddingPipeline(Pipeline, abstract=True, modalities=[ImageDatasetMi
     """
     A pipeline that extracts embeddings using a pre-trained deep learning model.
     """
-    
+
     @classmethod
     @abstractmethod
     def get_model(cls: Type["ImageEmbeddingPipeline"]) -> Tuple[BaseImageProcessor, PreTrainedModel]:
@@ -278,9 +278,8 @@ class ImageEmbeddingPipeline(Pipeline, abstract=True, modalities=[ImageDatasetMi
     def _embedding_transform(
         X: np.ndarray, cuda_mode: bool, feature_extractor: BaseImageProcessor, model: PreTrainedModel
     ) -> np.ndarray:
-
         # torch.set_num_threads(1)
-        
+
         if X.ndim == 3:
             X = np.expand_dims(X, axis=X.ndim)
         if X.shape[-1] == 1:
@@ -294,7 +293,6 @@ class ImageEmbeddingPipeline(Pipeline, abstract=True, modalities=[ImageDatasetMi
 
         while i < len(batches) and batch_size > 0:
             try:
-
                 features: BatchFeature = feature_extractor(
                     inputs[batches[i] : batches[i] + batch_size], return_tensors="pt"  # noqa: E203
                 )
@@ -323,7 +321,6 @@ class ImageEmbeddingPipeline(Pipeline, abstract=True, modalities=[ImageDatasetMi
 
     @classmethod
     def construct(cls: Type["ImageEmbeddingPipeline"], dataset: Dataset) -> "ImageEmbeddingPipeline":
-
         cuda_mode = torch.cuda.is_available()
         feature_extractor, model = cls.get_model()
         if cuda_mode:
@@ -354,7 +351,7 @@ class ImageEmbeddingPipeline(Pipeline, abstract=True, modalities=[ImageDatasetMi
 #             X = np.expand_dims(X, axis=X.ndim)
 #         if X.shape[-1] == 1:
 #             X = np.tile(X, (1, 1, 1, 3))
-        
+
 #         inputs = list(X)
 #         results: List[np.ndarray] = []
 #         batch_size = BATCH_SIZE
@@ -398,17 +395,18 @@ class ImageEmbeddingPipeline(Pipeline, abstract=True, modalities=[ImageDatasetMi
 
 #         feature_extractor = AutoImageProcessor.from_pretrained("microsoft/resnet-18")
 #         model = ResNetModel.from_pretrained("microsoft/resnet-18")
-        
+
 #         cuda_mode = torch.cuda.is_available()
 #         if cuda_mode:
 #             model = model.to("cuda:0")
-        
+
 #         embedding_transform = functools.partial(
 #             cls._embedding_transform, cuda_mode=cuda_mode, feature_extractor=feature_extractor, model=model
 #         )
 
 #         ops = [("embedding", FunctionTransformer(embedding_transform))]
 #         return cls(ops)
+
 
 class ResNet18EmbeddingPipeline(
     ImageEmbeddingPipeline, id="resnet-18", summary="ResNet18 Embedding", modalities=[ImageDatasetMixin]
@@ -419,7 +417,6 @@ class ResNet18EmbeddingPipeline(
 
     @classmethod
     def get_model(cls: Type["ResNet18EmbeddingPipeline"]) -> Tuple[BaseImageProcessor, PreTrainedModel]:
-
         feature_extractor = AutoImageProcessor.from_pretrained("microsoft/resnet-18")
         model = ResNetModel.from_pretrained("microsoft/resnet-18")
         return feature_extractor, model
@@ -434,7 +431,6 @@ class MobileNetV2EmbeddingPipeline(
 
     @classmethod
     def get_model(cls: Type["ResNet18EmbeddingPipeline"]) -> Tuple[BaseImageProcessor, PreTrainedModel]:
-
         feature_extractor = AutoImageProcessor.from_pretrained("google/mobilenet_v2_1.0_224")
         model = ResNetModel.from_pretrained("google/mobilenet_v2_1.0_224")
         return feature_extractor, model
@@ -449,11 +445,9 @@ class MobileViTEmbeddingPipeline(
 
     @classmethod
     def get_model(cls: Type["ResNet18EmbeddingPipeline"]) -> Tuple[BaseImageProcessor, PreTrainedModel]:
-
         feature_extractor = AutoImageProcessor.from_pretrained("apple/mobilevit-small")
         model = ResNetModel.from_pretrained("apple/mobilevit-small")
         return feature_extractor, model
-
 
 
 class TfidfPipeline(Pipeline, id="tf-idf", summary="TF-IDF", modalities=[TextDatasetMixin]):
@@ -542,7 +536,7 @@ class TextEmbeddingPipeline(Pipeline, abstract=True, modalities=[TextDatasetMixi
     """
     A pipeline that extracts embeddings using a pre-trained deep learning model.
     """
-    
+
     @classmethod
     @abstractmethod
     def get_model(cls: Type["TextEmbeddingPipeline"]) -> Tuple[BaseImageProcessor, PreTrainedModel]:
@@ -552,9 +546,8 @@ class TextEmbeddingPipeline(Pipeline, abstract=True, modalities=[TextDatasetMixi
     def _embedding_transform(
         X: np.ndarray, cuda_mode: bool, feature_extractor: BaseImageProcessor, model: PreTrainedModel
     ) -> np.ndarray:
-
         # torch.set_num_threads(1)
-        
+
         if X.ndim == 3:
             X = np.expand_dims(X, axis=X.ndim)
         if X.shape[-1] == 1:
@@ -568,7 +561,6 @@ class TextEmbeddingPipeline(Pipeline, abstract=True, modalities=[TextDatasetMixi
 
         while i < len(batches) and batch_size > 0:
             try:
-
                 features: BatchFeature = feature_extractor(
                     inputs[batches[i] : batches[i] + batch_size], return_tensors="pt"  # noqa: E203
                 )
@@ -597,7 +589,6 @@ class TextEmbeddingPipeline(Pipeline, abstract=True, modalities=[TextDatasetMixi
 
     @classmethod
     def construct(cls: Type["TextEmbeddingPipeline"], dataset: Dataset) -> "TextEmbeddingPipeline":
-
         cuda_mode = torch.cuda.is_available()
         feature_extractor, model = cls.get_model()
         if cuda_mode:
@@ -611,7 +602,6 @@ class TextEmbeddingPipeline(Pipeline, abstract=True, modalities=[TextDatasetMixi
 
         ops = [("embedding", FunctionTransformer(embedding_transform))]
         return cls(ops)
-
 
 
 # Source: https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2
@@ -638,7 +628,9 @@ class MiniLMEmbeddingPipeline(Pipeline, id="mini-lm", summary="MiniLM Embedding"
 
 
 # Source: https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2
-class AlbertSmallEmbeddingPipeline(Pipeline, id="albert-small-v2", summary="ALBERT Small", modalities=[TextDatasetMixin]):
+class AlbertSmallEmbeddingPipeline(
+    Pipeline, id="albert-small-v2", summary="ALBERT Small", modalities=[TextDatasetMixin]
+):
     """
     A pipeline that extracts sentence embeddings using a ALBERT Small model pre-trained on the 1B sentences.
     """
