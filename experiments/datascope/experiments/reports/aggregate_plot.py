@@ -934,6 +934,14 @@ class AggregatePlot(Report, id="aggplot"):
             if self._view is None:
                 agg_dataframe = dataframe
 
+                # If slicing was specified, then we slice the dataframe first.
+                if len(self.sliceby) > 0:
+                    groupattrs = self.sliceby + self.compare + [self.index]
+                    groupby = agg_dataframe.groupby(groupattrs)
+                    sliceop = SLICE_OPS[self.sliceop]
+                    agg_dataframe = sliceop(groupby)
+                    agg_dataframe.reset_index(inplace=True)
+
                 if len(self._crossaggover) > 0:
                     agg_dataframe = cross_aggregate(
                         dataframe=dataframe,
@@ -1080,11 +1088,11 @@ class AggregatePlot(Report, id="aggplot"):
                     axes[i].set_yscale("log")
 
                 if self.xtickfmt[i] == TickFormat.PERCENT:
-                    axes[i].xaxis.set_major_formatter(PercentFormatter(xmax=1.0))
+                    axes[i].xaxis.set_major_formatter(PercentFormatter(xmax=1.0, decimals=0))
                 elif self.xtickfmt[i] == TickFormat.ENG:
                     axes[i].xaxis.set_major_formatter(EngFormatter(places=0, sep=""))
                 if self.ytickfmt[i] == TickFormat.PERCENT:
-                    axes[i].yaxis.set_major_formatter(PercentFormatter(xmax=1.0))
+                    axes[i].yaxis.set_major_formatter(PercentFormatter(xmax=1.0, decimals=0))
                 elif self.ytickfmt[i] == TickFormat.ENG:
                     axes[i].yaxis.set_major_formatter(EngFormatter(places=0, sep=""))
 
