@@ -157,7 +157,7 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
         dataset = Dataset.datasets[self.dataset](
             trainsize=self.trainsize, valsize=self.valsize, testsize=self.testsize, seed=seed
         )
-        if self.repairgoal == RepairGoal.FAIRNESS:
+        if self._trainbias != 0.0 or self._valbias != 0.0:
             assert isinstance(dataset, BiasedMixin)
             dataset.load_biased(train_bias=self._trainbias, val_bias=self._valbias, bias_method=self._biasmethod)
         else:
@@ -199,10 +199,10 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
         #     dataset.X_val[:] = dataset.X_val.reshape(dataset.X_val.shape[0], -1)
         #     self.logger.debug("Need to reshape. New shape: %s", str(dataset.X_train.shape))
 
-        # Construct binarized provenance matrix.
-        provenance = np.expand_dims(np.arange(dataset.trainsize, dtype=int), axis=(1, 2, 3))
-        provenance = np.pad(provenance, pad_width=((0, 0), (0, 0), (0, 0), (0, 1)))
-        provenance = binarize(provenance)
+        # # Construct binarized provenance matrix.
+        # provenance = np.expand_dims(np.arange(dataset.trainsize, dtype=int), axis=(1, 2, 3))
+        # provenance = np.pad(provenance, pad_width=((0, 0), (0, 0), (0, 0), (0, 1)))
+        # provenance = binarize(provenance)
 
         # Initialize the model and utility.
         model_type = MODEL_TYPES[self.model]
@@ -325,7 +325,7 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
             target_units = target_units[:n_units_per_checkpoint]
             discarded_units[target_units] = True
             present_units = np.invert(discarded_units).astype(int)
-            present_idx = get_indices(provenance, present_units)
+            present_idx = dataset.provenance.query(present_units)
             dataset_current.X_train = dataset.X_train[present_idx]
             dataset_current.y_train = dataset.y_train[present_idx]
 
