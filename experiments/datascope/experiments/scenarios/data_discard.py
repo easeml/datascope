@@ -8,8 +8,6 @@ from datascope.importance.common import (
     SklearnModelEqualizedOddsDifference,
     SklearnModelRocAuc,
     Utility,
-    binarize,
-    get_indices,
     compute_groupings,
 )
 from datascope.importance.importance import Importance
