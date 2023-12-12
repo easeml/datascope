@@ -1296,7 +1296,7 @@ class Report(ABC):
             else:
                 # Find distinct grouping attribute assignments.
                 all_values: List[Tuple] = []
-                partitioned = study.dataframe.groupby(partby)
+                partitioned = study.dataframe.groupby(partby)  # type: ignore
                 if len(study.scenarios) > 0:
                     all_values = list(partitioned.groups.keys())
 
