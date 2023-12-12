@@ -202,6 +202,9 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
         # provenance = np.pad(provenance, pad_width=((0, 0), (0, 0), (0, 0), (0, 1)))
         # provenance = binarize(provenance)
 
+        if self.eager_preprocessing:
+            dataset.apply(pipeline, cache_dir=self.pipeline_cache_dir, inplace=True)
+
         # Initialize the model and utility.
         model_type = MODEL_TYPES[self.model]
         model_kwargs = MODEL_KWARGS[self.model]
@@ -268,7 +271,7 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
             importance = ShapleyImportance(
                 method=method,
                 utility=target_utility,
-                pipeline=shapley_pipeline,
+                pipeline=None if self.eager_preprocessing else shapley_pipeline,
                 mc_iterations=mc_iterations,
                 mc_timeout=self.mc_timeout,
                 mc_tolerance=self.mc_tolerance,
@@ -287,7 +290,7 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
         # argsorted_importances = np.ma.array(importances, mask=discarded_units).argsort()
 
         # Run the model to get initial score.
-        dataset_f = dataset.apply(pipeline)
+        dataset_f = dataset if self.eager_preprocessing else dataset.apply(pipeline, cache_dir=self.pipeline_cache_dir)
         eqodds: Optional[float] = None
         if eqodds_utility is not None:
             eqodds = eqodds_utility(dataset_f.X_train, dataset_f.y_train, dataset_f.X_test, dataset_f.y_test)
@@ -348,7 +351,7 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
             # discarded_units[target_units] = True
 
             # Run the model.
-            dataset_current_f = dataset_current.apply(pipeline)
+            dataset_current_f = dataset_current.apply(pipeline, cache_dir=self.pipeline_cache_dir)
             if eqodds_utility is not None:
                 eqodds = eqodds_utility(
                     dataset_current_f.X_train,

@@ -11,6 +11,9 @@ from multiprocessing.synchronize import Lock as LockType
 from tqdm import tqdm
 from typing import Any, Optional, Sequence, Tuple
 
+from .datasets import DEFAULT_BATCH_SIZE, DEFAULT_CACHE_DIR, Dataset
+from .pipelines import Pipeline
+
 from .scenarios import (
     Study,
     Scenario,
@@ -218,3 +221,12 @@ def report(
         with Pool(processes=None, initializer=_init_pool, initargs=(lock,)) as pool:
             for result in tqdm(pool.imap_unordered(_report_generator, item_args), desc="Reports", total=len(reports)):
                 tqdm.write(result)
+
+
+def cache_pipeline(
+    dataset: str, pipeline: str, cache_dir: str = DEFAULT_CACHE_DIR, batch_size: int = DEFAULT_BATCH_SIZE, **kwargs
+) -> None:
+    cls_dataset = Dataset.datasets[dataset]
+    inst_dataset = cls_dataset()
+    inst_pipeline = Pipeline.pipelines[pipeline].construct(dataset=inst_dataset)
+    cls_dataset.construct_apply_cache(pipeline=inst_pipeline, cache_dir=cache_dir, batch_size=batch_size)

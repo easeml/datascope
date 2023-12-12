@@ -5,8 +5,9 @@ import sys
 
 from typing import Any, Optional
 
-from .base import run, run_scenario, report
-from .datasets import preload_datasets
+from .base import run, run_scenario, report, cache_pipeline
+from .datasets import preload_datasets, DEFAULT_BATCH_SIZE, DEFAULT_CACHE_DIR, Dataset
+from .pipelines import Pipeline
 from .scenarios import (
     Scenario,
     Report,
@@ -265,8 +266,39 @@ def main():
         single_instance=False,
     )
 
-    subparsers.add_parser("dataload")
+    subparsers.add_parser("preload-datasets")
 
+    parser_cache_pipeline = subparsers.add_parser("cache-pipeline")
+
+    parser_cache_pipeline.add_argument(
+        "-d",
+        "--dataset",
+        type=str,
+        choices=Dataset.datasets.keys(),
+        help="The target dataset for which to construct the pipeline cache.",
+    )
+
+    parser_cache_pipeline.add_argument(
+        "-p",
+        "--pipeline",
+        type=str,
+        choices=Pipeline.pipelines.keys(),
+        help="The pipeline to run over the target dataset.",
+    )
+
+    parser_cache_pipeline.add_argument(
+        "--cache-dir",
+        type=str,
+        default=DEFAULT_CACHE_DIR,
+        help="The base directory in which pipeline output data will be stored.",
+    )
+
+    parser_cache_pipeline.add_argument(
+        "--batch-size",
+        type=int,
+        default=DEFAULT_BATCH_SIZE,
+        help="The maximum size of a single batch of data that will be passed through the pipeline.",
+    )
     args = parser.parse_args()
     kwargs = vars(args)
 
@@ -276,7 +308,9 @@ def main():
         run_scenario(**kwargs)
     elif args.command == "report":
         report(**kwargs)
-    elif args.command == "dataload":
+    elif args.command == "preload-datasets":
         preload_datasets(**kwargs)
+    elif args.command == "cache-pipeline":
+        cache_pipeline(**kwargs)
     else:
         parser.print_help()

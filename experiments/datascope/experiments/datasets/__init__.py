@@ -24,7 +24,12 @@ from .base import (
     DEFAULT_BIAS_METHOD,
     KEYWORD_REPLACEMENTS,
     DEFAULT_AUGMENT_FACTOR,
+    DEFAULT_CACHE_DIR,
+    DEFAULT_BATCH_SIZE,
     preload_datasets,
+    batched_pipeline_transform,
+    save_cached_features,
+    load_cached_features,
 )
 
 __all__ = [
@@ -54,5 +59,10 @@ __all__ = [
     "DEFAULT_BIAS_METHOD",
     "KEYWORD_REPLACEMENTS",
     "DEFAULT_AUGMENT_FACTOR",
+    "DEFAULT_CACHE_DIR",
+    "DEFAULT_BATCH_SIZE",
     "preload_datasets",
+    "batched_pipeline_transform",
+    "save_cached_features",
+    "load_cached_features",
 ]

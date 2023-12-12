@@ -71,6 +71,9 @@ class Pipeline(sklearn.pipeline.Pipeline):
     def __repr__(self, N_CHAR_MAX=700):
         return "%s.%s()" % (type(self).__module__, type(self).__name__)
 
+    def __str__(self) -> str:
+        return "%s.%s" % (type(self).__module__, type(self).__name__)
+
     @property
     def modalities(self) -> Iterable[DatasetModality]:
         return self._modalities

@@ -15,6 +15,7 @@ from ..datasets import (
     DEFAULT_VALSIZE,
     DEFAULT_TESTSIZE,
     DEFAULT_BIAS_METHOD,
+    DEFAULT_CACHE_DIR,
     KEYWORD_REPLACEMENTS as DATASET_KEYWORD_REPLACEMENTS,
 )
 from ..pipelines import Pipeline, ModelType, MODEL_KEYWORD_REPLACEMENTS
@@ -254,6 +255,8 @@ class DatascopeScenario(Scenario, abstract=True):
         valsize: int = DEFAULT_VALSIZE,
         testsize: int = DEFAULT_TESTSIZE,
         augment_factor: int = DEFAULT_AUGMENT_FACTOR,
+        eager_preprocessing: bool = False,
+        pipeline_cache_dir: str = DEFAULT_CACHE_DIR,
         mc_timeout: int = DEFAULT_MC_TIMEOUT,
         mc_tolerance: float = DEFAULT_MC_TOLERANCE,
         nn_k: int = DEFAULT_NN_K,
@@ -279,6 +282,8 @@ class DatascopeScenario(Scenario, abstract=True):
         self._valsize = valsize
         self._testsize = testsize
         self._augment_factor = augment_factor
+        self._eager_preprocessing = eager_preprocessing
+        self._pipeline_cache_dir = pipeline_cache_dir
         self._mc_timeout = mc_timeout
         self._mc_tolerance = mc_tolerance
         self._nn_k = nn_k
@@ -352,6 +357,16 @@ class DatascopeScenario(Scenario, abstract=True):
     def augment_factor(self) -> int:
         """The augmentation factor to apply to the dataset after loading it (if applicable)."""
         return self._augment_factor
+
+    @attribute(domain=[None])
+    def eager_preprocessing(self) -> bool:
+        """Training data is passed through the preprocessing pipeline before being passed to importance computation."""
+        return self._eager_preprocessing
+
+    @attribute
+    def pipeline_cache_dir(self) -> str:
+        """The directory where the pipeline cache is stored."""
+        return self._pipeline_cache_dir
 
     @attribute
     def mc_timeout(self) -> int:
