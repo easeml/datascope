@@ -19,8 +19,11 @@ CMD="python -m datascope.experiments report \
         --plotsize 5 4 \
         --annotation true \
         --fontsize 22 \
-        --dontcompare shapley-knn-interactive shapley-knn-interactive random,shapley-knn-interactive \
-        --titleformat \"Dataset: %(dataset)s; Pipeline: %(pipeline)s; Model: %(model)s; Optimize for: %(utility)s\" "
+        --no-multiprocessing \
+        --usetex false \
+        --legend false \
+        --dontcompare - - random \
+        --titleformat \"Dataset: %(dataset)s; Pipeline: %(pipeline)s; Model: %(model)s\" \"Optimize for: %(utility)s\" "
 
 CMD+=" ${@}"
 
