@@ -390,7 +390,6 @@ class Dataset(ABC):
             # self._provenance = np.pad(provenance, pad_width=((0, 0), (0, 0), (0, 0), (0, 1)))
 
     @classmethod
-    @abstractmethod
     def construct_apply_cache(
         cls: Type["Dataset"],
         pipeline: Pipeline,
