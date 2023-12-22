@@ -142,7 +142,7 @@ class ComputeTimeScenario(Scenario, id="compute-time"):
 
     @property
     def keyword_replacements(self) -> Dict[str, str]:
-        return {**KEYWORD_REPLACEMENTS, **Pipeline.summaries}
+        return {**KEYWORD_REPLACEMENTS, **Pipeline.summaries, **Dataset.summaries}
 
     def _run(self, progress_bar: bool = True, **kwargs: Any) -> None:
         # Load dataset.

@@ -52,14 +52,6 @@ class DatasetModality(str, Enum):
     TEXT = "text"
 
 
-KEYWORD_REPLACEMENTS = {
-    "UCI": "UCI Adult",
-    "FolkUCI": "Folktables Adult",
-    "TwentyNewsGroups": "20NewsGroups",
-    "DataPerfVision": "DataPerf Vision",
-}
-
-
 DEFAULT_TRAINSIZE = 1000
 DEFAULT_VALSIZE = 100
 DEFAULT_TESTSIZE = 100
@@ -212,6 +204,7 @@ def load_cached_features(idx: ndarray, targetdir: str, name: str) -> ndarray:
 
 class Dataset(ABC):
     datasets: Dict[str, Type["Dataset"]] = {}
+    summaries: Dict[str, str] = {}
     _dataset: Optional[str] = None
 
     def __init__(
@@ -247,11 +240,14 @@ class Dataset(ABC):
         cls: Type["Dataset"],
         abstract: bool = False,
         id: Optional[str] = None,
+        summary: Optional[str] = None,
     ) -> None:
         if abstract:
             return
         cls._dataset = id if id is not None else cls.__name__
         Dataset.datasets[cls._dataset] = cls
+        if summary is not None:
+            Dataset.summaries[cls._dataset] = summary
 
     @classmethod
     def preload(cls) -> None:
@@ -951,7 +947,7 @@ def compute_bias(X: ndarray, y: ndarray, sf: int) -> float:
     return bias
 
 
-class UCI(BiasedNoisyLabelDataset, TabularDatasetMixin):
+class UCI(BiasedNoisyLabelDataset, TabularDatasetMixin, summary="UCI Adult"):
     def __init__(
         self,
         trainsize: int = DEFAULT_TRAINSIZE,
@@ -1137,7 +1133,7 @@ def get_states_for_size(n: int) -> List[str]:
     return result
 
 
-class FolkUCI(BiasedNoisyLabelDataset, AugmentableMixin, TabularDatasetMixin):
+class FolkUCI(BiasedNoisyLabelDataset, AugmentableMixin, TabularDatasetMixin, summary="Folktables Adult"):
     def __init__(
         self,
         trainsize: int = DEFAULT_TRAINSIZE,
@@ -1375,7 +1371,7 @@ class FashionMNIST(NoisyLabelDataset, ImageDatasetMixin):
         save_cached_features(X_test_transformed, targetdir=targetdir, name="test")
 
 
-class TwentyNewsGroups(NoisyLabelDataset, TextDatasetMixin):
+class TwentyNewsGroups(NoisyLabelDataset, TextDatasetMixin, summary="20NewsGroups"):
     @classmethod
     def preload(cls) -> None:
         categories = ["comp.graphics", "sci.med"]
@@ -1527,7 +1523,7 @@ class Higgs(NoisyLabelDataset, TabularDatasetMixin):
         self._construct_provenance()
 
 
-class DataPerfVision(NaturallyNoisyLabelDataset, TabularDatasetMixin):
+class DataPerfVision(NaturallyNoisyLabelDataset, TabularDatasetMixin, summary="DataPerf Vision"):
     DATA_DIR = os.path.join(DEFAULT_DATA_DIR, "dataperf-vision")
 
     @classmethod

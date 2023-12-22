@@ -16,7 +16,6 @@ from ..datasets import (
     DEFAULT_TESTSIZE,
     DEFAULT_BIAS_METHOD,
     DEFAULT_CACHE_DIR,
-    KEYWORD_REPLACEMENTS as DATASET_KEYWORD_REPLACEMENTS,
 )
 from ..pipelines import Pipeline, ModelType, MODEL_KEYWORD_REPLACEMENTS
 
@@ -225,7 +224,6 @@ KEYWORD_REPLACEMENTS = {
     "acc": "Accuracy",
     "eqodds-acc": "Accuracy + Equalized Odds Difference",
 }
-KEYWORD_REPLACEMENTS.update(DATASET_KEYWORD_REPLACEMENTS)
 KEYWORD_REPLACEMENTS.update(MODEL_KEYWORD_REPLACEMENTS)
 
 DEFAULT_SEED = 1
@@ -437,7 +435,7 @@ class DatascopeScenario(Scenario, abstract=True):
 
     @property
     def keyword_replacements(self) -> Dict[str, str]:
-        return {**KEYWORD_REPLACEMENTS, **Pipeline.summaries}
+        return {**KEYWORD_REPLACEMENTS, **Pipeline.summaries, **Dataset.summaries}
 
     @classmethod
     def is_valid_config(cls, **attributes: Any) -> bool:

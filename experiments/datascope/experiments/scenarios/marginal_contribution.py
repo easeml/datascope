@@ -114,7 +114,7 @@ class MarginalContributionScenario(Scenario, id="marginal-contribution"):  # typ
 
     @property
     def keyword_replacements(self) -> Dict[str, str]:
-        return {**KEYWORD_REPLACEMENTS, **Pipeline.summaries}
+        return {**KEYWORD_REPLACEMENTS, **Pipeline.summaries, **Dataset.summaries}
 
     @classmethod
     def is_valid_config(cls, **attributes: Any) -> bool:
