@@ -11,7 +11,8 @@ from matplotlib.ticker import EngFormatter, PercentFormatter
 from numpy.typing import NDArray
 from typing import Callable, Optional, Dict, Any, List, Union, TypeVar, Tuple
 
-from pandas import DataFrame
+from pandas import DataFrame, MultiIndex
+from pandas.core.groupby.generic import DataFrameGroupBy
 from pandas.core.groupby.groupby import GroupBy
 
 from ..scenarios import Report, Study, result, attribute
@@ -168,7 +169,9 @@ def aggregate(
     dataframe = pd.concat(values, axis=1)
     dataframe.sort_index(inplace=True)
     if len(compare) > 0:
-        dataframe = dataframe.unstack()
+        unstacked = dataframe.unstack()
+        dataframe = unstacked if isinstance(unstacked, DataFrame) else unstacked.to_frame()
+        assert isinstance(dataframe.columns, MultiIndex)
         dataframe.columns = dataframe.columns.swaplevel().map(lambda x: tuple(str(xx) for xx in x)).map(">".join)
     return dataframe
 
@@ -185,12 +188,14 @@ def summarize(
         compare = []
     value_measures = VALUE_MEASURES[summode]
     dataframe = dataframe[summarize + compare].dropna()
-    groups = dataframe.groupby(compare) if len(compare) > 0 else dataframe
-    values = [groups[summarize].agg(f).add_suffix(":" + k) for (k, f) in value_measures.items()]
-    axis = 0 if len(compare) == 0 else 1
-    dataframe = pd.concat(values, axis=axis)
-    dataframe.sort_index(inplace=True)
-    return dataframe.to_dict(orient="index") if isinstance(dataframe, DataFrame) else dataframe.to_dict()
+    if len(compare) > 0:
+        summary_frames = [
+            dataframe.groupby(compare)[summarize].agg(f).add_suffix(":" + k) for (k, f) in value_measures.items()
+        ]
+        return pd.concat(summary_frames, axis=1).to_dict(orient="index")
+    else:
+        summary_series = [dataframe[summarize].agg(f).add_suffix(":" + k) for (k, f) in value_measures.items()]
+        return pd.concat(summary_series, axis=0).to_dict()
 
 
 def cross_aggregate(
@@ -209,14 +214,18 @@ def cross_aggregate(
     indexlen = len(index)
     dataframe = dataframe.pivot(index=index + crossaggover, columns=compare, values=targetval)
 
-    # Produce a series of pairwise comparisons for each target value and then concatenate them into one dataframe.
+    # Produce a series of pairwise comparisons for each target value and then concatdaenate them into one dataframe.
     method = CROSS_AGGREGATION_FUNCTIONS[crossaggmode]
     correlation_parts = []
     for val in targetval:
-        target = dataframe[val]
+        target: Union[DataFrame, DataFrameGroupBy] = dataframe[[val]]
         if len(index) > 0:
+            assert isinstance(target, DataFrame)
             target = target.groupby(index)
-        correlation_parts.append(target.corr(method=method).stack(dropna=False, level=compare).rename(val))
+        target = target.corr(method=method)  # type: ignore
+        target = target.stack(dropna=False, level=compare)  # type: ignore
+        target = target.droplevel(axis=0, level=1 if len(index) > 0 else 0)  # type: ignore
+        correlation_parts.append(target)
     dataframe = pd.concat(correlation_parts, axis=1)
 
     # Keep only a single instance of each pair.
@@ -1019,6 +1028,10 @@ class AggregatePlot(Report, id="aggplot"):
                 if plottype == PlotType.LINE:
                     if self._index is None:
                         raise ValueError("An index must be specified when plotting line plots.")
+                    if self._view is None:
+                        raise ValueError(
+                            "An aggregate view must be generated for a line plot by specifying a targetval and index."
+                        )
 
                     lineplot(
                         self._view,
