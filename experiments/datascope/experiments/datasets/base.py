@@ -26,7 +26,7 @@ from hashlib import md5
 from joblib import Memory
 from joblib.hashing import NumpyHasher
 from math import ceil, floor
-from numpy import ndarray
+from numpy.typing import NDArray
 from pandas import DataFrame, Series, Index
 from PIL import Image
 from pyarrow import parquet as pq
@@ -163,10 +163,10 @@ def _apply_pipeline(dataset: "Dataset", pipeline: Pipeline, **kwargs) -> "Datase
 
 
 def batched_pipeline_transform(
-    X: ndarray, pipeline: Pipeline, batch_size: int = DEFAULT_BATCH_SIZE, desc: Optional[str] = None
-) -> ndarray:
+    X: NDArray, pipeline: Pipeline, batch_size: int = DEFAULT_BATCH_SIZE, desc: Optional[str] = None
+) -> NDArray:
     idx_max = X.shape[0]
-    X_batches: List[ndarray] = []
+    X_batches: List[NDArray] = []
     pbar = tqdm(total=idx_max, desc=desc)
     for idx_from in range(0, idx_max, batch_size):
         idx_to = min(idx_from + batch_size, idx_max)
@@ -180,7 +180,7 @@ def batched_pipeline_transform(
     return np.concatenate(X_batches, axis=0)
 
 
-def save_cached_features(X: ndarray, targetdir: str, name: str) -> str:
+def save_cached_features(X: NDArray, targetdir: str, name: str) -> str:
     shape, sctype = X.shape[1:], X.dtype.str
     filename = os.path.join(targetdir, "%s.hdf5" % name)
     file = tb.open_file(filename, "w")
@@ -193,7 +193,7 @@ def save_cached_features(X: ndarray, targetdir: str, name: str) -> str:
     return filename
 
 
-def load_cached_features(idx: ndarray, targetdir: str, name: str) -> ndarray:
+def load_cached_features(idx: NDArray, targetdir: str, name: str) -> NDArray:
     filename = os.path.join(targetdir, "%s.hdf5" % name)
     file = tb.open_file(filename, "r")
     table = file.get_node("/apply_cache")
@@ -221,19 +221,19 @@ class Dataset(ABC):
         self._seed = seed
         self._loaded: bool = False
         self._idx_train: Optional[Index] = None
-        self._X_train: Optional[ndarray] = None
-        self._y_train: Optional[ndarray] = None
+        self._X_train: Optional[NDArray] = None
+        self._y_train: Optional[NDArray] = None
         self._metadata_train: Optional[DataFrame] = None
         self._idx_val: Optional[Index] = None
-        self._X_val: Optional[ndarray] = None
-        self._y_val: Optional[ndarray] = None
+        self._X_val: Optional[NDArray] = None
+        self._y_val: Optional[NDArray] = None
         self._metadata_val: Optional[DataFrame] = None
         self._idx_test: Optional[Index] = None
-        self._X_test: Optional[ndarray] = None
-        self._y_test: Optional[ndarray] = None
+        self._X_test: Optional[NDArray] = None
+        self._y_test: Optional[NDArray] = None
         self._metadata_test: Optional[DataFrame] = None
         self._provenance: Optional[Provenance] = None
-        self._units: Optional[ndarray] = None
+        self._units: Optional[NDArray] = None
         self._fresh = True
 
     def __init_subclass__(
@@ -278,24 +278,24 @@ class Dataset(ABC):
         return self._idx_train
 
     @property
-    def X_train(self) -> ndarray:
+    def X_train(self) -> NDArray:
         if self._X_train is None:
             raise ValueError("The dataset is not loaded yet.")
         return self._X_train
 
     @X_train.setter
-    def X_train(self, value: ndarray):
+    def X_train(self, value: NDArray):
         self._X_train = value
         self._fresh = False
 
     @property
-    def y_train(self) -> ndarray:
+    def y_train(self) -> NDArray:
         if self._y_train is None:
             raise ValueError("The dataset is not loaded yet.")
         return self._y_train
 
     @y_train.setter
-    def y_train(self, value: ndarray):
+    def y_train(self, value: NDArray):
         self._y_train = value
         self._fresh = False
 
@@ -308,24 +308,24 @@ class Dataset(ABC):
         return self._idx_val
 
     @property
-    def X_val(self) -> ndarray:
+    def X_val(self) -> NDArray:
         if self._X_val is None:
             raise ValueError("The dataset is not loaded yet.")
         return self._X_val
 
     @X_val.setter
-    def X_val(self, value: ndarray):
+    def X_val(self, value: NDArray):
         self._X_val = value
         self._fresh = False
 
     @property
-    def y_val(self) -> ndarray:
+    def y_val(self) -> NDArray:
         if self._y_val is None:
             raise ValueError("The dataset is not loaded yet.")
         return self._y_val
 
     @y_val.setter
-    def y_val(self, value: ndarray):
+    def y_val(self, value: NDArray):
         self._y_val = value
         self._fresh = False
 
@@ -338,24 +338,24 @@ class Dataset(ABC):
         return self._idx_test
 
     @property
-    def X_test(self) -> ndarray:
+    def X_test(self) -> NDArray:
         if self._X_test is None:
             raise ValueError("The dataset is not loaded yet.")
         return self._X_test
 
     @X_test.setter
-    def X_test(self, value: ndarray):
+    def X_test(self, value: NDArray):
         self._X_test = value
         self._fresh = False
 
     @property
-    def y_test(self) -> ndarray:
+    def y_test(self) -> NDArray:
         if self._y_test is None:
             raise ValueError("The dataset is not loaded yet.")
         return self._y_test
 
     @y_test.setter
-    def y_test(self, value: ndarray):
+    def y_test(self, value: NDArray):
         self._y_test = value
         self._fresh = False
 
@@ -370,12 +370,12 @@ class Dataset(ABC):
         return self._provenance
 
     @property
-    def units(self) -> ndarray:
+    def units(self) -> NDArray:
         if self._units is None:
             raise ValueError("The dataset is not loaded yet.")
         return self._units
 
-    def _construct_provenance(self, groupings: Optional[ndarray] = None) -> None:
+    def _construct_provenance(self, groupings: Optional[NDArray] = None) -> None:
         if groupings is None:
             self._units = np.arange(self._trainsize, dtype=int)
             self._provenance = Provenance(units=self._trainsize)
@@ -452,6 +452,16 @@ class Dataset(ABC):
             self.testsize,
             self._seed,
         )
+
+    def select_train(self, index: Sequence[int] | Sequence[bool] | NDArray[np.int_] | NDArray[np.bool_]) -> "Dataset":
+        result = deepcopy(self)
+        result.X_train = self.X_train[index]
+        result.y_train = self.y_train[index]
+        if self._idx_train is not None:
+            result._idx_train = self._idx_train[index]
+        if self._metadata_train is not None:
+            result._metadata_train = self._metadata_train.iloc[np.array(index)]
+        return result
 
     # def corrupt_labels(self, probabilities: Union[float, Sequence[float]]) -> "Dataset":
     #     if not isinstance(probabilities, collections.Sequence):
@@ -545,12 +555,12 @@ class NoisyLabelDataset(Dataset, abstract=True):
         **kwargs
     ) -> None:
         super().__init__(trainsize=trainsize, valsize=valsize, testsize=testsize, seed=seed, **kwargs)
-        self._y_train_dirty: Optional[ndarray] = None
-        self._units_dirty: Optional[ndarray] = None
-        self._groupings: Optional[ndarray] = None
+        self._y_train_dirty: Optional[NDArray] = None
+        self._units_dirty: Optional[NDArray] = None
+        self._groupings: Optional[NDArray] = None
 
     @property
-    def units_dirty(self) -> ndarray:
+    def units_dirty(self) -> NDArray:
         if self._X_train is None:
             raise ValueError("The dataset is not loaded yet.")
         if self._units_dirty is None:
@@ -559,7 +569,7 @@ class NoisyLabelDataset(Dataset, abstract=True):
             return self._units_dirty
 
     @property
-    def y_train(self) -> ndarray:
+    def y_train(self) -> NDArray:
         y_train = super().y_train
         if self._y_train_dirty is not None:
             if self.provenance.is_simple:
@@ -570,7 +580,7 @@ class NoisyLabelDataset(Dataset, abstract=True):
         return y_train
 
     @y_train.setter
-    def y_train(self, value: ndarray):
+    def y_train(self, value: NDArray):
         self._y_train = value
         self._fresh = False
 
@@ -596,7 +606,7 @@ class NoisyLabelDataset(Dataset, abstract=True):
             dirty_idx = np.zeros(result.trainsize, dtype=bool)
             units_dirty = np.zeros(n_groups, dtype=bool)
             for i, p in enumerate(probabilities):
-                idx: ndarray = groupings == i
+                idx: NDArray = groupings == i
                 n_elements = np.sum(idx)
                 idx[idx] = random.choice(a=[False, True], size=(n_elements), p=[1 - p, p])
                 dirty_idx[idx] = True
@@ -652,7 +662,7 @@ class NaturallyNoisyLabelDataset(NoisyLabelDataset, abstract=True):
             dirty_idx = np.not_equal(result._y_train, result._y_train_dirty)
             units_dirty = np.zeros(n_groups, dtype=bool)
             for i, p in enumerate(probabilities):
-                idx: ndarray = groupings == i
+                idx: NDArray = groupings == i
                 n_elements = np.sum(idx)
                 empirical_probability = np.mean(dirty_idx[idx])
                 if empirical_probability > p:
@@ -704,8 +714,8 @@ class BiasedMixin:
 
     @staticmethod
     def _get_biased_indices(
-        X: ndarray,
-        y: ndarray,
+        X: NDArray,
+        y: NDArray,
         sensitive_feature: int,
         trainsize: int,
         valsize: int,
@@ -715,7 +725,7 @@ class BiasedMixin:
         test_bias: float = 0.0,
         bias_method: BiasMethod = DEFAULT_BIAS_METHOD,
         seed: int = DEFAULT_SEED,
-    ) -> Tuple[ndarray, ndarray, ndarray]:
+    ) -> Tuple[NDArray, NDArray, NDArray]:
         n = X.shape[0]
         sensitive_feature_values = list(sorted(np.unique(X[:, sensitive_feature])))
         if not len(sensitive_feature_values) == 2:
@@ -938,7 +948,7 @@ UCI_DEFAULT_SENSITIVE_FEATURE = 9
 FOLK_UCI_DEFAULT_SENSITIVE_FEATURE = 8
 
 
-def compute_bias(X: ndarray, y: ndarray, sf: int) -> float:
+def compute_bias(X: NDArray, y: NDArray, sf: int) -> float:
     n_f0_l0 = np.sum((X[:, sf] == 0) & (y == 0))
     n_f0_l1 = np.sum((X[:, sf] == 0) & (y == 1))
     n_f1_l0 = np.sum((X[:, sf] == 1) & (y == 0))
@@ -987,8 +997,8 @@ class UCI(BiasedNoisyLabelDataset, TabularDatasetMixin, summary="UCI Adult"):
         fetch_openml(data_id=1590, as_frame=False, data_home=DEFAULT_DATA_DIR, return_X_y=True)
 
     def load(self) -> None:
-        X: ndarray
-        y: ndarray
+        X: NDArray
+        y: NDArray
         X, y = fetch_openml(data_id=1590, as_frame=False, data_home=DEFAULT_DATA_DIR, return_X_y=True)
         X = np.nan_to_num(X)  # TODO: Maybe leave nan values.
         y = np.array(y == ">50K", dtype=int)
@@ -1182,8 +1192,8 @@ class FolkUCI(BiasedNoisyLabelDataset, AugmentableMixin, TabularDatasetMixin, su
         )
         states = get_states_for_size(n)
         acs_data = data_source.get_data(states=states, download=True)
-        X: ndarray
-        y: ndarray
+        X: NDArray
+        y: NDArray
         X, y, _ = ACSIncome.df_to_numpy(acs_data)
         del acs_data
 

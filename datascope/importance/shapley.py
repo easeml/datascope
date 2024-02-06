@@ -9,6 +9,7 @@ from scipy.special import comb
 # from numba import prange, jit
 from logging import Logger, getLogger
 from numpy.typing import NDArray
+from pandas import DataFrame
 from scipy.sparse import csr_matrix, issparse, spmatrix
 from scipy.sparse.csgraph import connected_components
 from sklearn.preprocessing import LabelEncoder
@@ -275,16 +276,20 @@ class ShapleyImportance(Importance):
         self.mc_preextract = mc_preextract
         self.nn_k = nn_k
         self.nn_distance = nn_distance
-        self.X: Optional[NDArray] = None
-        self.y: Optional[NDArray] = None
+        self.X_train: Optional[NDArray] = None
+        self.y_train: Optional[NDArray] = None
+        self.metadata_train: Optional[NDArray | DataFrame] = None
         self.provenance: Optional[Provenance] = None
         self.randomstate = np.random.RandomState(seed)
         self.label_encoder = LabelEncoder()
         self.logger = logger if logger is not None else getLogger(__name__)
 
-    def _fit(self, X: NDArray, y: NDArray, provenance: Provenance) -> "ShapleyImportance":
-        self.X = X
-        self.y = self.label_encoder.fit_transform(y)
+    def _fit(
+        self, X: NDArray, y: NDArray, metadata: Optional[NDArray | DataFrame], provenance: Provenance
+    ) -> "ShapleyImportance":
+        self.X_train = X
+        self.y_train = self.label_encoder.fit_transform(y)
+        self.metadata_train = metadata
         self.provenance = provenance
         return self
 
@@ -292,11 +297,12 @@ class ShapleyImportance(Importance):
         self,
         X: NDArray,
         y: Optional[NDArray] = None,
+        metadata: Optional[NDArray | DataFrame] = None,
         units: Union[Sequence[Hashable], NDArray[np.int32], None] = None,
         world: Union[Sequence[Hashable], NDArray[np.int32], None] = None,
         **kwargs
     ) -> Iterable[float]:
-        if self.X is None or self.y is None or self.provenance is None:
+        if self.X_train is None or self.y_train is None or self.provenance is None:
             raise ValueError("The fit function was not called first.")
         if y is None:
             raise ValueError("The 'y' argument cannot be None.")
@@ -312,69 +318,97 @@ class ShapleyImportance(Importance):
             world = np.ones_like(units, dtype=int)
         elif not isinstance(world, np.ndarray):
             world = np.array([self.provenance.candidates_index[x] for x in world], dtype=int)
-        return self._shapley(self.X, self.y, X, y, self.provenance, units, world)
+        return self._shapley(
+            X_train=self.X_train,
+            y_train=self.y_train,
+            X_test=X,
+            y_test=y,
+            metadata_train=self.metadata_train,
+            metadata_test=metadata,
+            provenance=self.provenance,
+            units=units,
+            world=world,
+        )
 
     def _shapley(
         self,
-        X: NDArray,
-        y: NDArray,
+        X_train: NDArray,
+        y_train: NDArray,
         X_test: NDArray,
         y_test: NDArray,
+        metadata_train: Optional[NDArray | DataFrame],
+        metadata_test: Optional[NDArray | DataFrame],
         provenance: Provenance,
         units: NDArray[np.int32],
         world: NDArray[np.int32],
     ) -> Iterable[float]:
         if self.method == ImportanceMethod.BRUTEFORCE:
-            return self._shapley_bruteforce(X, y, X_test, y_test, provenance, units, world)
+            return self._shapley_bruteforce(
+                X_train=X_train,
+                y_train=y_train,
+                X_test=X_test,
+                y_test=y_test,
+                provenance=provenance,
+                units=units,
+                world=world,
+                metadata_train=metadata_train,
+                metadata_test=metadata_test,
+            )
         elif self.method == ImportanceMethod.MONTECARLO:
             return self._shapley_montecarlo(
-                X,
-                y,
-                X_test,
-                y_test,
-                provenance,
-                units,
-                world,
-                self.mc_iterations,
-                self.mc_timeout,
-                self.mc_tolerance,
-                self.mc_truncation_steps,
+                X_train=X_train,
+                y_train=y_train,
+                X_test=X_test,
+                y_test=y_test,
+                metadata_train=metadata_train,
+                metadata_test=metadata_test,
+                provenance=provenance,
+                units=units,
+                world=world,
+                iterations=self.mc_iterations,
+                timeout=self.mc_timeout,
+                tolerance=self.mc_tolerance,
+                truncation_steps=self.mc_truncation_steps,
             )
         elif self.method == ImportanceMethod.NEIGHBOR:
-            return self._shapley_neighbor(X, y, X_test, y_test, provenance, units, world, self.nn_k, self.nn_distance)
+            return self._shapley_neighbor(
+                X_train=X_train,
+                y_train=y_train,
+                X_test=X_test,
+                y_test=y_test,
+                metadata_train=metadata_train,
+                metadata_test=metadata_test,
+                provenance=provenance,
+                units=units,
+                world=world,
+                k=self.nn_k,
+                distance=self.nn_distance,
+            )
         else:
             raise ValueError("Unknown method '%s'." % self.method)
 
     def _shapley_bruteforce(
         self,
-        X: NDArray,
-        y: NDArray,
+        X_train: NDArray,
+        y_train: NDArray,
         X_test: NDArray,
         y_test: NDArray,
+        metadata_train: Optional[NDArray | DataFrame],
+        metadata_test: Optional[NDArray | DataFrame],
         provenance: Provenance,
         units: NDArray[np.int32],
         world: NDArray[np.int32],
     ) -> Iterable[float]:
-        # if checknan(provenance):  # TODO: Remove this hack.
-        #     units = np.arange(X.shape[0])
-        #     world = np.zeros_like(units, dtype=int)
-        #     provenance = np.arange(X.shape[0])
-        #     provenance = reshape(provenance)
-
-        # # Convert provenance and units to bit-arrays.
-        # provenance = binarize(provenance)
 
         # Apply the feature extraction pipeline if it was provided.
         if self.pipeline is not None:
-            self.pipeline.fit(X, y=y)
+            self.pipeline.fit(X_train, y=y_train)
             X_test = self.pipeline.transform(X_test)
 
         # Compute null score.
-        null_score = self.utility.null_score(X, y, X_test, y_test)
+        null_score = self.utility.null_score(X_train, y_train, X_test, y_test)
 
         # Iterate over all subsets of units.
-        # n_units_total = provenance.shape[2]
-        # n_candidates_total = provenance.shape[3]
         n_units = len(units)
         importance = np.zeros(n_units)
         for iteration in product(*[[0, world[i]] for i in range(n_units)]):
@@ -382,8 +416,6 @@ class ShapleyImportance(Importance):
             s_iter = np.sum(iter)
 
             # Get indices of data points selected based on the iteration query.
-            # query = np.zeros((n_units_total, n_candidates_total))
-            # query[units, world] = iter
             indices = provenance.query(iter)
 
             # Train the model and score it. If we fail at any step we get zero score.
@@ -392,11 +424,19 @@ class ShapleyImportance(Importance):
                 warnings.simplefilter("error", category=RuntimeWarning)
                 warnings.simplefilter("error", category=UserWarning)
                 try:
-                    X_train = X[indices]
-                    y_train = y[indices]
+                    X_train_subset = X_train[indices]
+                    y_train_subset = y_train[indices]
                     if self.pipeline is not None:
-                        X_train = self.pipeline.fit_transform(X_train, y=y)
-                    score = self.utility(X_train, y_train, X_test, y_test, null_score)
+                        X_train_subset = self.pipeline.fit_transform(X_train_subset, y=y_train_subset)
+                    score = self.utility(
+                        X_train_subset,
+                        y_train_subset,
+                        X_test,
+                        y_test,
+                        metadata_train,
+                        metadata_test,
+                        null_score=null_score,
+                    )
                 except (ValueError, RuntimeWarning, UserWarning):
                     pass
 
@@ -409,10 +449,12 @@ class ShapleyImportance(Importance):
 
     def _shapley_montecarlo(
         self,
-        X: NDArray,
-        y: NDArray,
+        X_train: NDArray,
+        y_train: NDArray,
         X_test: NDArray,
         y_test: NDArray,
+        metadata_train: Optional[NDArray | DataFrame],
+        metadata_test: Optional[NDArray | DataFrame],
         provenance: Provenance,
         units: NDArray[np.int32],
         world: NDArray[np.int32],
@@ -421,41 +463,26 @@ class ShapleyImportance(Importance):
         tolerance: float = DEFAULT_MC_TOLERANCE,
         truncation_steps: int = DEFAULT_MC_TRUNCATION_STEPS,
     ) -> Iterable[float]:
-        # if checknan(provenance):  # TODO: Remove this hack.
-        #     units = np.arange(X.shape[0])
-        #     world = np.zeros_like(units, dtype=int)
-        #     provenance = np.arange(X.shape[0])
-        #     provenance = reshape(provenance)
-
-        # # Convert provenance and units to bit-arrays.
-        # provenance = binarize(provenance)
 
         # Apply the feature extraction pipeline if it was provided.
-        X_tr = X
-        X_ts = X_test
+        X_train_preprocessed = X_train
+        X_test_preprocessed = X_test
         if self.pipeline is not None:
-            X_tr = self.pipeline.fit_transform(X, y=y)
-            X_ts = self.pipeline.transform(X_test)
+            X_train_preprocessed = self.pipeline.fit_transform(X_train, y=y_train)
+            X_test_preprocessed = self.pipeline.transform(X_test)
 
         # Compute mean score.
-        null_score = self.utility.null_score(X_tr, y, X_ts, y_test)
-        mean_score = self.utility.mean_score(X_tr, y, X_ts, y_test)
+        null_score = self.utility.null_score(X_train_preprocessed, y_train, X_test_preprocessed, y_test)
+        mean_score = self.utility.mean_score(X_train_preprocessed, y_train, X_test_preprocessed, y_test)
 
         # If pre-extract was specified, run feature extraction once for the whole dataset.
         if self.mc_preextract:
-            X = X_tr  # TODO: Handle provenance if the pipeline is not a map pipeline.
-            X_test = X_ts
+            X_train = X_train_preprocessed  # TODO: Handle provenance if the pipeline is not a map pipeline.
+            X_test = X_test_preprocessed
 
         # Run a given number of iterations.
         n_units_total = provenance.num_units
-        # n_candidates_total = provenance.shape[3]
         n_units = len(units)
-        # simple_provenance = self._simple_provenance or bool(
-        #     provenance.shape[1] == 1
-        #     and provenance.shape[3] == 1
-        #     and provenance.shape[0] == provenance.shape[2]
-        #     and np.all(np.equal(provenance[:, 0, :, 0], np.eye(n_units)))
-        # )
         all_importances = np.zeros((n_units, iterations))
         all_truncations = np.ones(iterations, dtype=int) * n_units
         start_time = time.time()
@@ -473,7 +500,6 @@ class ShapleyImportance(Importance):
                 # Get indices of data points selected based on the iteration query.
                 query[units[idx]] = world[idx]
                 indices = provenance.query(query)
-                # indices = get_indices(provenance, query, simple_provenance=simple_provenance)
 
                 # Train the model and score it. If we fail at any step we get zero score.
                 new_score = null_score
@@ -481,13 +507,21 @@ class ShapleyImportance(Importance):
                     warnings.simplefilter("error", category=RuntimeWarning)
                     warnings.simplefilter("error", category=UserWarning)
                     try:
-                        X_train = X[indices]
-                        y_train = y[indices]
-                        X_ts = X_test
+                        X_train_subset = X_train[indices]
+                        y_train_subset = y_train[indices]
+                        X_test_preprocessed = X_test
                         if self.pipeline is not None and not self.mc_preextract:
-                            X_train = self.pipeline.fit_transform(X_train, y=y)
-                            X_ts = self.pipeline.transform(X_test)
-                        new_score = self.utility(X_train, y_train, X_ts, y_test, null_score=null_score)
+                            X_train_subset = self.pipeline.fit_transform(X_train_subset, y=y_train_subset)
+                            X_test_preprocessed = self.pipeline.transform(X_test)
+                        new_score = self.utility(
+                            X_train_subset,
+                            y_train_subset,
+                            X_test_preprocessed,
+                            y_test,
+                            metadata_train,
+                            metadata_test,
+                            null_score=null_score,
+                        )
                     except (ValueError, RuntimeWarning, UserWarning):
                         pass
 
@@ -516,10 +550,12 @@ class ShapleyImportance(Importance):
 
     def _shapley_neighbor(
         self,
-        X: NDArray,
-        y: NDArray,
+        X_train: NDArray,
+        y_train: NDArray,
         X_test: NDArray,
         y_test: NDArray,
+        metadata_train: Optional[NDArray | DataFrame],
+        metadata_test: Optional[NDArray | DataFrame],
         provenance: Provenance,
         units: NDArray[np.int32],
         world: NDArray[np.int32],
@@ -533,25 +569,25 @@ class ShapleyImportance(Importance):
 
         # Apply the feature extraction pipeline if it was provided.
         if self.pipeline is not None:
-            X = self.pipeline.fit_transform(X, y=y)
+            X_train = self.pipeline.fit_transform(X_train, y=y_train)
             X_test = self.pipeline.transform(X_test)
 
         # Ensure X and X_test are not sparse.
-        if issparse(X):
-            assert isinstance(X, spmatrix)
-            X = X.todense()
+        if issparse(X_train):
+            assert isinstance(X_train, spmatrix)
+            X_train = X_train.todense()
         if issparse(X_test):
             assert isinstance(X_test, spmatrix)
             X_test = X_test.todense()
 
         # Convert matrices to instances of ndarray.
-        if isinstance(X, np.matrix):
-            X = np.asarray(X)
+        if isinstance(X_train, np.matrix):
+            X_train = np.asarray(X_train)
         if isinstance(X_test, np.matrix):
             X_test = np.asarray(X_test)
 
         # Compute the size of the test batch to split the X_test matrix if if X and X_test are too large.
-        n_train, n_test, n_units = X.shape[0], X_test.shape[0], units.shape[0]
+        n_train, n_test, n_units = X_train.shape[0], X_test.shape[0], units.shape[0]
         batch_size = get_test_batch_size(n_train, n_test)
         all_importances = np.zeros((n_units), dtype=float)
 
@@ -561,18 +597,20 @@ class ShapleyImportance(Importance):
             n_test_batch = X_test_batch.shape[0]
 
             # Compute the distances between training and text data examples.
-            distances = distance(X, X_test_batch)
+            distances = distance(X_train, X_test_batch)
 
             # Compute the utilitiy values between training and test labels.
-            utilities = self.utility.elementwise_score(X_train=X, y_train=y, X_test=X_test_batch, y_test=y_test)
+            utilities = self.utility.elementwise_score(
+                X_train=X_train, y_train=y_train, X_test=X_test_batch, y_test=y_test
+            )
 
             # Compute null scores.
-            null_scores = self.utility.elementwise_null_score(X, y, X_test_batch, y_test)
+            null_scores = self.utility.elementwise_null_score(X_train, y_train, X_test_batch, y_test)
 
             cur_importances: NDArray
             if k == 1 and provenance.max_conjunctions == 1:
                 cur_importances = compute_shapley_1nn_mapfork(
-                    y,
+                    y_train,
                     distances,
                     utilities,
                     provenance,
@@ -582,7 +620,7 @@ class ShapleyImportance(Importance):
                 )
             else:
                 cur_importances = compute_shapley_add(
-                    y,
+                    y_train,
                     distances,
                     utilities,
                     provenance,

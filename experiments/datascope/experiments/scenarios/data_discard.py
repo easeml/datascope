@@ -280,7 +280,11 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
             )
             if isinstance(model, DistanceModelMixin):
                 importance.nn_distance = model.distance
-            importances = np.array(importance.fit(dataset.X_train, dataset.y_train).score(dataset.X_val, dataset.y_val))
+            importances = np.array(
+                importance.fit(
+                    dataset.X_train, dataset.y_train, dataset.metadata_train, provenance=dataset.provenance
+                ).score(dataset.X_val, dataset.y_val, dataset.metadata_val)
+            )
         importance_time_end = process_time_ns()
         importance_cputime = (importance_time_end - importance_time_start) / 1e9
         self.logger.debug("Importance computed in: %s", str(timedelta(seconds=importance_cputime)))
@@ -327,8 +331,7 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
             discarded_units[target_units] = True
             present_units = np.invert(discarded_units).astype(int)
             present_idx = dataset.provenance.query(present_units)
-            dataset_current.X_train = dataset.X_train[present_idx]
-            dataset_current.y_train = dataset.y_train[present_idx]
+            dataset_current = dataset.select_train(present_idx)
 
             # Display message about current target units that are going to be discarded.
             # y_train_target = y_train_orig[target_units]
@@ -358,9 +361,16 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
                     dataset_current_f.y_train,
                     dataset_current_f.X_test,
                     dataset_current_f.y_test,
+                    metadata_train=dataset_current_f.metadata_train,
+                    metadata_test=dataset_current_f.metadata_test,
                 )
             accuracy = accuracy_utility(
-                dataset_current_f.X_train, dataset_current_f.y_train, dataset_current_f.X_test, dataset_current_f.y_test
+                dataset_current_f.X_train,
+                dataset_current_f.y_train,
+                dataset_current_f.X_test,
+                dataset_current_f.y_test,
+                metadata_train=dataset_current_f.metadata_train,
+                metadata_test=dataset_current_f.metadata_test,
             )
 
             # Update result table.
@@ -388,9 +398,12 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
             if importance is not None and self.method == RepairMethod.KNN_Interactive:
                 importance_time_start = process_time_ns()
                 assert importances is not None
-                importances[present_idx] = importance.fit(dataset_current.X_train, dataset_current.y_train).score(
-                    dataset_current.X_val, dataset_current.y_val
-                )
+                importances[present_idx] = importance.fit(
+                    dataset_current.X_train,
+                    dataset_current.y_train,
+                    dataset_current.metadata_train,
+                    provenance=dataset_current.provenance,
+                ).score(dataset_current.X_val, dataset_current.y_val, dataset_current.metadata_val)
                 importance_time_end = process_time_ns()
                 importance_cputime += (importance_time_end - importance_time_start) / 1e9
                 argsorted_importances = (-np.array(importances)).argsort()

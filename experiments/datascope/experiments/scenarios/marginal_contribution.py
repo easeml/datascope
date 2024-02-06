@@ -7,6 +7,7 @@ from datascope.importance.common import (
     SklearnModelRocAuc,
 )
 from datetime import timedelta
+from numpy.typing import NDArray
 from pandas import DataFrame
 from sklearn.preprocessing import FunctionTransformer
 from sklearn.utils.multiclass import unique_labels
@@ -168,7 +169,7 @@ class MarginalContributionScenario(Scenario, id="marginal-contribution"):  # typ
 
         # Construct a permutation such that each of the first M elements has one of the M class labels.
         labels = unique_labels(dataset.y_train)
-        permutation = random.permutation(range(dataset.trainsize))
+        permutation: NDArray[np.int_] = random.permutation(np.arange(dataset.trainsize, dtype=np.int_))
         for i, label in enumerate(labels):
             j = np.where(dataset.y_train[permutation] == label)[0][0]
             permutation[[i, j]] = permutation[[j, i]]
@@ -184,18 +185,28 @@ class MarginalContributionScenario(Scenario, id="marginal-contribution"):  # typ
 
         for cardinality in range(cardinalities_lower, cardinalities_upper):
             idx_without = permutation[:cardinality]
+            metadata_train_without = (
+                dataset_processed.metadata_train.iloc[idx_without] if dataset_processed.metadata_train else None
+            )
             score_without = utility(
                 dataset_processed.X_train[idx_without],
                 dataset_processed.y_train[idx_without],
                 dataset_processed.X_test,
                 dataset_processed.y_test,
+                metadata_train=metadata_train_without,
+                metadata_test=dataset_processed.metadata_test,
             )
             idx_with = np.concatenate((permutation[:cardinality], permutation[-1:]), axis=0)
+            metadata_train_with = (
+                dataset_processed.metadata_train.iloc[idx_with] if dataset_processed.metadata_train else None
+            )
             score_with = utility(
                 dataset_processed.X_train[idx_with],
                 dataset_processed.y_train[idx_with],
                 dataset_processed.X_test,
                 dataset_processed.y_test,
+                metadata_train=metadata_train_with,
+                metadata_test=dataset_processed.metadata_test,
             )
             evolution.append([cardinality, score_without, score_with, score_with - score_without])
 

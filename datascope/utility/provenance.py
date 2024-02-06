@@ -9,7 +9,6 @@ from typing import (
     List,
     Dict,
     Optional,
-    Union,
     Sequence,
     Mapping,
     MutableSequence,
@@ -99,8 +98,8 @@ class Units(Mapping[Hashable, "Units.Unit"]):
 
     def __init__(
         self,
-        units: Union[Sequence[Hashable], int, None] = None,
-        candidates: Union[Sequence[Hashable], int, None] = None,
+        units: Sequence[Hashable] | int | None = None,
+        candidates: Sequence[Hashable] | int | None = None,
         *,
         name: str = "x",
     ) -> None:
@@ -202,12 +201,12 @@ class Expression(ABC):
         self._units = units
 
     @abstractmethod
-    def eval(self, values: Union[Sequence[Hashable], Dict[Hashable, Hashable], NDArray[np.int32]]) -> bool:
+    def eval(self, values: Sequence[Hashable] | Dict[Hashable, Hashable] | NDArray[np.int_]) -> bool:
         pass
 
     @property
     @abstractmethod
-    def data(self) -> NDArray[np.int32]:
+    def data(self) -> NDArray[np.int_]:
         pass
 
     @property
@@ -215,7 +214,7 @@ class Expression(ABC):
         return self._units
 
     @classmethod
-    def from_data(cls: Type["Expression"], data: NDArray[np.int32], units: Units) -> "Expression":
+    def from_data(cls: Type["Expression"], data: NDArray[np.int_], units: Units) -> "Expression":
         if data.ndim == 1:
             return Equality.from_data(data=data, units=units)
         elif data.ndim == 2:
@@ -240,7 +239,7 @@ class Equality(Expression):
     def value(self) -> Hashable:
         return self._value
 
-    def eval(self, values: Union[Sequence[Hashable], Dict[Hashable, Hashable], NDArray[np.int32]]) -> bool:
+    def eval(self, values: Sequence[Hashable] | Dict[Hashable, Hashable] | NDArray[np.int_]) -> bool:
         if isinstance(values, dict):
             default_candidate = next(iter(self._units.candidates))
             return values.get(self._unit.key, default_candidate) == self.value
@@ -255,12 +254,10 @@ class Equality(Expression):
         return Equality(unit=deepcopy(self._unit, memo), value=self._value)
 
     @overload
-    def __and__(self, other: Union["Equality", "Conjunction"]) -> "Conjunction":
-        ...
+    def __and__(self, other: "Equality" | "Conjunction") -> "Conjunction": ...
 
     @overload
-    def __and__(self, other: "Disjunction") -> "Disjunction":
-        ...
+    def __and__(self, other: "Disjunction") -> "Disjunction": ...
 
     def __and__(self, other: Expression) -> "Expression":
         if isinstance(other, Equality):
@@ -283,12 +280,12 @@ class Equality(Expression):
             raise ValueError("Unsupported operand type '%s'." % type(other))
 
     @property
-    def data(self) -> NDArray[np.int32]:
+    def data(self) -> NDArray[np.int_]:
         units = self._unit.parent
-        return np.array([units.units_index[self._unit._key], units.candidates_index[self._value]], dtype=np.int32)
+        return np.array([units.units_index[self._unit._key], units.candidates_index[self._value]], dtype=np.int_)
 
     @classmethod
-    def from_data(cls: Type["Expression"], data: NDArray[np.int32], units: Units) -> "Equality":
+    def from_data(cls: Type["Expression"], data: NDArray[np.int_], units: Units) -> "Equality":
         if data.ndim != 1:
             raise ValueError("The provided data array has %d dimensions but 1 was expected." % data.ndim)
         if data.shape[0] != 2:
@@ -303,19 +300,17 @@ class Conjunction(Expression):
         super().__init__(units=elements[0].units)
         self._elements = list(elements)
 
-    def eval(self, values: Union[Sequence[Hashable], Dict[Hashable, Hashable], NDArray[np.int32]]) -> bool:
+    def eval(self, values: Sequence[Hashable] | Dict[Hashable, Hashable] | NDArray[np.int_]) -> bool:
         return all(e.eval(values) for e in self._elements)
 
     def __repr__(self) -> str:
         return " & ".join("(%s)" % repr(element) for element in self._elements)
 
     @overload
-    def __and__(self, other: Union[Equality, "Conjunction"]) -> "Conjunction":
-        ...
+    def __and__(self, other: Equality | "Conjunction") -> "Conjunction": ...
 
     @overload
-    def __and__(self, other: "Disjunction") -> "Disjunction":
-        ...
+    def __and__(self, other: "Disjunction") -> "Disjunction": ...
 
     def __and__(self, other: Expression) -> "Expression":
         if isinstance(other, Equality):
@@ -338,11 +333,11 @@ class Conjunction(Expression):
             raise ValueError("Unsupported operand type '%s'." % type(other))
 
     @property
-    def data(self) -> NDArray[np.int32]:
-        return np.stack([element.data for element in self._elements], axis=0, dtype=np.int32)
+    def data(self) -> NDArray[np.int_]:
+        return np.stack([element.data for element in self._elements], axis=0, dtype=np.int_)
 
     @classmethod
-    def from_data(cls: Type["Expression"], data: NDArray[np.int32], units: Units) -> "Conjunction":
+    def from_data(cls: Type["Expression"], data: NDArray[np.int_], units: Units) -> "Conjunction":
         if data.ndim != 2:
             raise ValueError("The provided data array has %d dimensions but 2 was expected." % data.ndim)
         elements = [Equality.from_data(data[i], units) for i in range(data.shape[0]) if not np.any(data[i] == -1)]
@@ -358,7 +353,7 @@ class Disjunction(Expression):
             raise ValueError("The provided elements must be either a conjunction or a disjunction.")
         self._elements: List[Conjunction] = list(elements)
 
-    def eval(self, values: Union[Sequence[Hashable], Dict[Hashable, Hashable], NDArray[np.int32]]) -> bool:
+    def eval(self, values: Sequence[Hashable] | Dict[Hashable, Hashable] | NDArray[np.int_]) -> bool:
         return any(e.eval(values) for e in self._elements)
 
     def __repr__(self) -> str:
@@ -383,13 +378,13 @@ class Disjunction(Expression):
             raise ValueError("Unsupported operand type '%s'." % type(other))
 
     @property
-    def data(self) -> NDArray[np.int32]:
+    def data(self) -> NDArray[np.int_]:
         element_data = [element.data for element in self._elements]
         shape = (max(data.shape[0] for data in element_data), 2)
-        return np.stack([_pad_array(data, shape) for data in element_data], axis=0, dtype=np.int32)
+        return np.stack([_pad_array(data, shape) for data in element_data], axis=0, dtype=np.int_)
 
     @classmethod
-    def from_data(cls: Type["Expression"], data: NDArray[np.int32], units: Units) -> "Disjunction":
+    def from_data(cls: Type["Expression"], data: NDArray[np.int_], units: Units) -> "Disjunction":
         if data.ndim != 3:
             raise ValueError("The provided data array has %d dimensions but 3 was expected." % data.ndim)
         elements = [Conjunction.from_data(data[i], units) for i in range(data.shape[0]) if not np.all(data[i] == -1)]
@@ -428,7 +423,7 @@ class Provenance(MutableSequence[Expression]):
         going from `0` to `M-1`. If we would like to speficy custom candidate identifiers,
         we can pass a sequence of integers.
 
-    data: None or Sequence[int] or NDArray[np.int32]
+    data: None or Sequence[int] or NDArray[np.int_]
         Allows us to initialize the object with provenance data. If we pass `None` (default), provenance data
         is generated by simply assuming that each unit corresponds to a unique tuple and the order of tuples is the
         same as the order of units.
@@ -443,9 +438,9 @@ class Provenance(MutableSequence[Expression]):
         self,
         expressions: Optional[Sequence[Expression]] = None,
         *,
-        units: Union[Units, Sequence[Hashable], int, None] = None,
-        candidates: Union[Sequence[Hashable], int] = 2,
-        data: Union[None, Sequence[int], NDArray[np.int32]] = None,
+        units: Optional[Units | Sequence[Hashable] | int] = None,
+        candidates: Sequence[Hashable] | int = 2,
+        data: Optional[Sequence[int] | NDArray[np.int_]] = None,
     ) -> None:
         self._is_simple = False
 
@@ -467,11 +462,11 @@ class Provenance(MutableSequence[Expression]):
             # Extract expression data and ensure it is 3-dimensional.
             expression_data = list(e.data for e in expressions)
             expression_data = [
-                d
-                if d.ndim == 3
-                else d.reshape([1, d.shape[0], d.shape[1]])
-                if d.ndim == 2
-                else d.reshape([1, 1, d.shape[0]])
+                (
+                    d
+                    if d.ndim == 3
+                    else d.reshape([1, d.shape[0], d.shape[1]]) if d.ndim == 2 else d.reshape([1, 1, d.shape[0]])
+                )
                 for d in expression_data
             ]
 
@@ -481,7 +476,7 @@ class Provenance(MutableSequence[Expression]):
             expression_data = [_pad_array(d, shape=(max_disjunctions, max_conjunctions, 2)) for d in expression_data]
 
             # Stack expression data to produce the data array.
-            self._data: NDArray[np.int32] = np.stack(expression_data, axis=0, dtype=np.int32)
+            self._data: NDArray[np.int_] = np.stack(expression_data, axis=0, dtype=np.int_)
 
         else:
             # If units were not provided, we will gather all unique units we encounter in the data array.
@@ -500,10 +495,10 @@ class Provenance(MutableSequence[Expression]):
             num_candidates = len(self._units.candidates)
 
             if data is None:
-                data = np.arange(num_units, dtype=np.int32)
+                data = np.arange(num_units, dtype=np.int_)
                 self._is_simple = True
             elif isinstance(data, collections.abc.Sequence):
-                data = np.array(data, dtype=np.int32)
+                data = np.array(data, dtype=np.int_)
             elif not np.issubdtype(data.dtype, np.integer):
                 raise ValueError("The data must be an integer array.")
 
@@ -535,7 +530,7 @@ class Provenance(MutableSequence[Expression]):
         return self._units.candidates_index
 
     @property
-    def data(self) -> NDArray[np.int32]:
+    def data(self) -> NDArray[np.int_]:
         return self._data
 
     @property
@@ -563,35 +558,48 @@ class Provenance(MutableSequence[Expression]):
         return self._is_simple
 
     @overload
-    def __getitem__(self, index: int) -> Expression:
-        ...
+    def __getitem__(self, index: int) -> Expression: ...
 
     @overload
-    def __getitem__(self, index: slice) -> "Provenance":
-        ...
+    def __getitem__(self, index: slice) -> "Provenance": ...
 
-    def __getitem__(self, index: Union[int, slice]) -> Union[Expression, "Provenance"]:
+    @overload
+    def __getitem__(
+        self, index: Sequence[int] | Sequence[bool] | NDArray[np.int_] | NDArray[np.bool_]
+    ) -> "Provenance": ...
+
+    def __getitem__(
+        self, index: int | slice | Sequence[int] | Sequence[bool] | NDArray[np.int_] | NDArray[np.bool_]
+    ) -> Expression | "Provenance":
         if isinstance(index, int):
             return Expression.from_data(self._data[index], self._units)
         else:
             return Provenance(units=self._units, data=self._data[index])
 
     @overload
-    def __setitem__(self, index: int, value: Expression) -> None:
-        ...
+    def __setitem__(self, index: int, value: Expression) -> None: ...
 
     @overload
-    def __setitem__(self, index: slice, value: Iterable[Expression]) -> None:
-        ...
+    def __setitem__(self, index: slice, value: Iterable[Expression]) -> None: ...
 
-    def __setitem__(self, index: Union[int, slice], value: Union[Expression, Iterable[Expression]]) -> None:
+    @overload
+    def __setitem__(self, index: Sequence[int], value: Iterable[Expression]) -> None: ...
+
+    @overload
+    def __setitem__(self, index: NDArray, value: Iterable[Expression]) -> None: ...
+
+    def __setitem__(
+        self,
+        index: int | slice | Sequence[int] | Sequence[bool] | NDArray[np.int_] | NDArray[np.bool_],
+        value: Expression | Iterable[Expression],
+    ) -> None:
         expression_data = [value.data] if isinstance(value, Expression) else list(v.data for v in value)
         expression_data = [
-            d
-            if d.ndim == 3
-            else d.reshape([1, d.shape[0], d.shape[1]])
-            if d.ndim == 2
-            else d.reshape([1, 1, d.shape[0]])
+            (
+                d
+                if d.ndim == 3
+                else d.reshape([1, d.shape[0], d.shape[1]]) if d.ndim == 2 else d.reshape([1, 1, d.shape[0]])
+            )
             for d in expression_data
         ]
         max_disjunctions = max(d.shape[0] for d in expression_data)
@@ -600,17 +608,20 @@ class Provenance(MutableSequence[Expression]):
         if isinstance(index, int):
             self._data[index] = expression_data[0]
         else:
-            self._data[index] = np.stack(expression_data, axis=0, dtype=np.int32)
+            self._data[index] = np.stack(expression_data, axis=0, dtype=np.int_)
 
     @overload
-    def __delitem__(self, index: int) -> None:
-        ...
+    def __delitem__(self, index: int) -> None: ...
 
     @overload
-    def __delitem__(self, index: slice) -> None:
-        ...
+    def __delitem__(self, index: slice) -> None: ...
 
-    def __delitem__(self, index: Union[int, slice]) -> None:
+    @overload
+    def __delitem__(self, index: Sequence[int] | Sequence[bool] | NDArray[np.int_] | NDArray[np.bool_]) -> None: ...
+
+    def __delitem__(
+        self, index: int | slice | Sequence[int] | Sequence[bool] | NDArray[np.int_] | NDArray[np.bool_]
+    ) -> None:
         self._data = np.delete(self._data, index, axis=0)
 
     def __len__(self) -> int:
@@ -621,8 +632,8 @@ class Provenance(MutableSequence[Expression]):
         self[index] = value
 
     def query(
-        self, values: Union[Sequence[int], Dict[Hashable, Hashable], NDArray[np.int32]], dtype: type = bool
-    ) -> NDArray[np.int32]:
+        self, values: Sequence[int] | Dict[Hashable, Hashable] | NDArray[np.int_], dtype: type = bool
+    ) -> NDArray[np.int_] | NDArray[np.bool_]:
         if isinstance(values, dict):
             default_candidate = self._units.candidates[0]
             values = [self._units.candidates_index[values.get(x, default_candidate)] for x in self.units]
@@ -643,15 +654,15 @@ class Provenance(MutableSequence[Expression]):
             result = np.argwhere(result)
         return result
 
-    def fork(self, size: Union[int, Sequence[int], NDArray[np.int32]]) -> "Provenance":
+    def fork(self, size: int | Sequence[int] | NDArray[np.int_]) -> "Provenance":
         return Provenance(units=self._units, data=self._data.repeat(size, axis=0))
 
     def join(self, other: "Provenance", prefix: Optional[Hashable], other_prefix: Optional[Hashable]) -> "Provenance":
         units = self._units.union(other=other._units, prefix=prefix, other_prefix=other_prefix)
         self_data = np.repeat(self._data, len(other), axis=0)
         other_data = np.tile(other._data, (len(self), 1, 1, 1))
-        data = np.stack([self_data, other_data], axis=2, dtype=np.int32)
+        data = np.stack([self_data, other_data], axis=2, dtype=np.int_)
         return Provenance(units=units, data=data)
 
-    def filter(self, selector: Union[Sequence[bool], NDArray[np.bool_]]) -> "Provenance":
+    def filter(self, selector: Sequence[bool] | NDArray[np.bool_]) -> "Provenance":
         return Provenance(units=self._units, data=np.delete(self._data, selector, axis=0))

@@ -316,8 +316,11 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
             if isinstance(model, DistanceModelMixin):
                 importance.nn_distance = model.distance
             importances = importance.fit(
-                dataset_dirty.X_train, dataset_dirty.y_train, provenance=dataset_dirty.provenance
-            ).score(dataset.X_val, dataset.y_val)
+                dataset_dirty.X_train,
+                dataset_dirty.y_train,
+                dataset_dirty.metadata_train,
+                provenance=dataset_dirty.provenance,
+            ).score(dataset.X_val, dataset.y_val, dataset.metadata_val)
         importance_time_end = process_time_ns()
         importance_cputime = (importance_time_end - importance_time_start) / 1e9
         self.logger.debug("Importance computed in: %s", str(timedelta(seconds=importance_cputime)))
@@ -341,10 +344,20 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
         eqodds: Optional[float] = None
         if eqodds_utility is not None:
             eqodds = eqodds_utility(
-                dataset_dirty_f.X_train, dataset_dirty_f.y_train, dataset_f.X_test, dataset_f.y_test
+                dataset_dirty_f.X_train,
+                dataset_dirty_f.y_train,
+                dataset_f.X_test,
+                dataset_f.y_test,
+                metadata_train=dataset_dirty_f.metadata_train,
+                metadata_test=dataset_f.metadata_test,
             )
         accuracy = accuracy_utility(
-            dataset_dirty_f.X_train, dataset_dirty_f.y_train, dataset_f.X_test, dataset_f.y_test
+            dataset_dirty_f.X_train,
+            dataset_dirty_f.y_train,
+            dataset_f.X_test,
+            dataset_f.y_test,
+            metadata_train=dataset_dirty_f.metadata_train,
+            metadata_test=dataset_f.metadata_test,
         )
 
         # Update result table.
@@ -385,9 +398,16 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
                     dataset_dirty.y_train,
                     dataset_dirty_f.X_test,
                     dataset_dirty_f.y_test,
+                    metadata_train=dataset_dirty_f.metadata_train,
+                    metadata_test=dataset_dirty_f.metadata_test,
                 )
             accuracy = accuracy_utility(
-                dataset_dirty_f.X_train, dataset_dirty.y_train, dataset_dirty_f.X_test, dataset_dirty_f.y_test
+                dataset_dirty_f.X_train,
+                dataset_dirty.y_train,
+                dataset_dirty_f.X_test,
+                dataset_dirty_f.y_test,
+                metadata_train=dataset_dirty_f.metadata_train,
+                metadata_test=dataset_dirty_f.metadata_test,
             )
 
             # self.logger.debug("Dirty units: %.2f", np.sum(dataset_dirty.units_dirty))
@@ -418,8 +438,11 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
             if importance is not None and self.method == RepairMethod.KNN_Interactive:
                 importance_time_start = process_time_ns()
                 importances = importance.fit(
-                    dataset_dirty.X_train, dataset_dirty.y_train, provenance=dataset_dirty.provenance
-                ).score(dataset.X_val, dataset.y_val)
+                    dataset_dirty.X_train,
+                    dataset_dirty.y_train,
+                    dataset_dirty.metadata_train,
+                    provenance=dataset_dirty.provenance,
+                ).score(dataset.X_val, dataset.y_val, dataset.metadata_val)
                 importance_time_end = process_time_ns()
                 importance_cputime += (importance_time_end - importance_time_start) / 1e9
                 argsorted_importances = (-np.array(importances)).argsort()

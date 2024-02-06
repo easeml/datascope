@@ -6,54 +6,76 @@ from abc import ABC, abstractmethod
 from collections import defaultdict
 from functools import partial
 from numpy import ndarray
-from typing import Iterable, Optional, Callable, Sequence, Tuple, Union, List
+from numpy.typing import NDArray
+from pandas import DataFrame
+from typing import Iterable, Optional, Callable, Sequence, Tuple, List
 from typing_extensions import Protocol
 from sklearn.base import clone
 from sklearn.metrics import accuracy_score, roc_auc_score
 
 
 class SklearnModel(Protocol):
-    def fit(self, X: ndarray, y: ndarray, sample_weight: Optional[ndarray] = None) -> None:
+    def fit(self, X: NDArray, y: NDArray, sample_weight: Optional[NDArray] = None) -> None:
         pass
 
-    def predict(self, X: ndarray) -> ndarray:
+    def predict(self, X: NDArray) -> NDArray:
         pass
 
-    def predict_proba(self, X: ndarray) -> ndarray:
+    def predict_proba(self, X: NDArray) -> NDArray:
         pass
 
 
 class SklearnTransformer(Protocol):
-    def fit(self, X: ndarray, y: ndarray, sample_weight: Optional[ndarray] = None) -> None:
+    def fit(self, X: NDArray, y: NDArray, sample_weight: Optional[NDArray] = None) -> None:
         pass
 
-    def transform(self, X: ndarray) -> ndarray:
+    def transform(self, X: NDArray) -> NDArray:
         pass
 
 
 class SklearnPipeline(SklearnModel, SklearnTransformer):
-    steps: List[Tuple[str, Union[SklearnModel, SklearnTransformer]]]
+    steps: List[Tuple[str, SklearnModel | SklearnTransformer]]
 
 
-SklearnModelOrPipeline = Union[SklearnModel, SklearnPipeline]
+SklearnModelOrPipeline = SklearnModel | SklearnPipeline
 
 
-MetricCallable = Callable[[ndarray, ndarray], float]
-DistanceCallable = Callable[[ndarray, ndarray], ndarray]
+MetricCallable = Callable[[NDArray, NDArray], float]
+DistanceCallable = Callable[[NDArray, NDArray], NDArray]
 
 
 DEFAULT_SCORING_MAXITER = 100
 DEFAULT_SEED = 7
 
 
+class Postprocessor(ABC):
+    @abstractmethod
+    def fit(self, X: NDArray, y: NDArray, metadata: Optional[NDArray | DataFrame] = None) -> "Postprocessor":
+        pass
+
+    @abstractmethod
+    def transform(self, X: NDArray, y: NDArray, metadata: Optional[NDArray | DataFrame] = None) -> NDArray:
+        pass
+
+
+class IdentityPostprocessor(Postprocessor):
+    def fit(self, X: NDArray, y: NDArray, metadata: Optional[NDArray | DataFrame] = None) -> "Postprocessor":
+        return self
+
+    def transform(self, X: NDArray, y: NDArray, metadata: Optional[NDArray | DataFrame] = None) -> NDArray:
+        return y
+
+
 class Utility(ABC):
     @abstractmethod
     def __call__(
         self,
-        X_train: ndarray,
-        y_train: ndarray,
-        X_test: ndarray,
-        y_test: ndarray,
+        X_train: NDArray,
+        y_train: NDArray,
+        X_test: NDArray,
+        y_test: NDArray,
+        metadata_train: Optional[NDArray | DataFrame] = None,
+        metadata_test: Optional[NDArray | DataFrame] = None,
         null_score: Optional[float] = None,
         seed: int = DEFAULT_SEED,
     ) -> float:
@@ -62,20 +84,20 @@ class Utility(ABC):
     @abstractmethod
     def null_score(
         self,
-        X_train: ndarray,
-        y_train: ndarray,
-        X_test: ndarray,
-        y_test: ndarray,
+        X_train: NDArray,
+        y_train: NDArray,
+        X_test: NDArray,
+        y_test: NDArray,
     ) -> float:
         pass
 
     @abstractmethod
     def mean_score(
         self,
-        X_train: ndarray,
-        y_train: ndarray,
-        X_test: ndarray,
-        y_test: ndarray,
+        X_train: NDArray,
+        y_train: NDArray,
+        X_test: NDArray,
+        y_test: NDArray,
         maxiter: int = DEFAULT_SCORING_MAXITER,
         seed: int = DEFAULT_SEED,
     ) -> float:
@@ -83,20 +105,20 @@ class Utility(ABC):
 
     def elementwise_score(
         self,
-        X_train: ndarray,
-        y_train: ndarray,
-        X_test: ndarray,
-        y_test: ndarray,
-    ) -> ndarray:
+        X_train: NDArray,
+        y_train: NDArray,
+        X_test: NDArray,
+        y_test: NDArray,
+    ) -> NDArray:
         raise NotImplementedError("This utility does not implement elementwise scoring.")
 
     def elementwise_null_score(
         self,
-        X_train: ndarray,
-        y_train: ndarray,
-        X_test: ndarray,
-        y_test: ndarray,
-    ) -> ndarray:
+        X_train: NDArray,
+        y_train: NDArray,
+        X_test: NDArray,
+        y_test: NDArray,
+    ) -> NDArray:
         raise NotImplementedError("This utility does not implement elementwise scoring.")
 
 
@@ -115,33 +137,47 @@ class JointUtility(Utility):
 
     def __call__(
         self,
-        X_train: ndarray,
-        y_train: ndarray,
-        X_test: ndarray,
-        y_test: ndarray,
+        X_train: NDArray,
+        y_train: NDArray,
+        X_test: NDArray,
+        y_test: NDArray,
+        metadata_train: Optional[NDArray | DataFrame] = None,
+        metadata_test: Optional[NDArray | DataFrame] = None,
         null_score: Optional[float] = None,
         seed: int = DEFAULT_SEED,
     ) -> float:
-        scores = [u(X_train, y_train, X_test, y_test, null_score=np.nan, seed=seed) for u in self._utilities]
+        scores = [
+            u(
+                X_train,
+                y_train,
+                X_test,
+                y_test,
+                metadata_train=metadata_train,
+                metadata_test=metadata_test,
+                null_score=np.nan,
+                seed=seed,
+            )
+            for u in self._utilities
+        ]
         if any(np.isnan(x) for x in scores):
             return null_score if null_score is not None else self.null_score(X_train, y_train, X_test, y_test)
         return sum(w * s for w, s in zip(self._weights, scores))
 
     def null_score(
         self,
-        X_train: ndarray,
-        y_train: ndarray,
-        X_test: ndarray,
-        y_test: ndarray,
+        X_train: NDArray,
+        y_train: NDArray,
+        X_test: NDArray,
+        y_test: NDArray,
     ) -> float:
         return sum(w * u.null_score(X_train, y_train, X_test, y_test) for w, u in zip(self._weights, self._utilities))
 
     def mean_score(
         self,
-        X_train: ndarray,
-        y_train: ndarray,
-        X_test: ndarray,
-        y_test: ndarray,
+        X_train: NDArray,
+        y_train: NDArray,
+        X_test: NDArray,
+        y_test: NDArray,
         maxiter: int = DEFAULT_SCORING_MAXITER,
         seed: int = DEFAULT_SEED,
     ) -> float:
@@ -152,11 +188,11 @@ class JointUtility(Utility):
 
     def elementwise_score(
         self,
-        X_train: ndarray,
-        y_train: ndarray,
-        X_test: ndarray,
-        y_test: ndarray,
-    ) -> ndarray:
+        X_train: NDArray,
+        y_train: NDArray,
+        X_test: NDArray,
+        y_test: NDArray,
+    ) -> NDArray:
         scores = np.stack(
             [w * u.elementwise_score(X_train, y_train, X_test, y_test) for w, u in zip(self._weights, self._utilities)]
         )
@@ -164,11 +200,11 @@ class JointUtility(Utility):
 
     def elementwise_null_score(
         self,
-        X_train: ndarray,
-        y_train: ndarray,
-        X_test: ndarray,
-        y_test: ndarray,
-    ) -> ndarray:
+        X_train: NDArray,
+        y_train: NDArray,
+        X_test: NDArray,
+        y_test: NDArray,
+    ) -> NDArray:
         scores = np.stack(
             [
                 w * u.elementwise_null_score(X_train, y_train, X_test, y_test)
@@ -179,16 +215,24 @@ class JointUtility(Utility):
 
 
 class SklearnModelUtility(Utility):
-    def __init__(self, model: SklearnModelOrPipeline, metric: Optional[MetricCallable]) -> None:
+    def __init__(
+        self,
+        model: SklearnModelOrPipeline,
+        metric: Optional[MetricCallable],
+        postprocessor: Optional[Postprocessor] = None,
+    ) -> None:
         self.model = model
         self.metric = metric
+        self.postprocessor = postprocessor if postprocessor is not None else IdentityPostprocessor()
 
     def __call__(
         self,
-        X_train: ndarray,
-        y_train: ndarray,
-        X_test: ndarray,
-        y_test: ndarray,
+        X_train: NDArray,
+        y_train: NDArray,
+        X_test: NDArray,
+        y_test: NDArray,
+        metadata_train: Optional[NDArray | DataFrame] = None,
+        metadata_test: Optional[NDArray | DataFrame] = None,
         null_score: Optional[float] = None,
         seed: int = DEFAULT_SEED,
     ) -> float:
@@ -200,8 +244,10 @@ class SklearnModelUtility(Utility):
                 # TODO: Ensure fit clears the model.
                 np.random.seed(seed)
                 model = self._model_fit(self.model, X_train, y_train)
+                postprocessor = self._postprocessor_fit(self.postprocessor, X_train, y_train, metadata_train)
                 y_pred = self._model_predict(model, X_test)
-                score = self._metric_score(self.metric, y_test, y_pred, X_test=X_test)
+                y_pred_processed = self._postprocessor_transform(postprocessor, X_test, y_pred, metadata_test)
+                score = self._metric_score(self.metric, y_test, y_pred_processed, X_test=X_test)
             except (ValueError, RuntimeWarning):
                 try:
                     return null_score if null_score is not None else self.null_score(X_train, y_train, X_test, y_test)
@@ -209,22 +255,42 @@ class SklearnModelUtility(Utility):
                     return score
         return score
 
-    def _model_fit(self, model: SklearnModelOrPipeline, X_train: ndarray, y_train: ndarray) -> SklearnModelOrPipeline:
+    def _model_fit(self, model: SklearnModelOrPipeline, X_train: NDArray, y_train: NDArray) -> SklearnModelOrPipeline:
         model = clone(model)
         model.fit(X_train, y_train)
         return model
 
-    def _model_predict(self, model: SklearnModelOrPipeline, X_test: ndarray) -> ndarray:
+    def _model_predict(self, model: SklearnModelOrPipeline, X_test: NDArray) -> NDArray:
         return model.predict(X_test)
+
+    def _postprocessor_fit(
+        self,
+        postprocessor: Postprocessor,
+        X_train: NDArray,
+        y_train: NDArray,
+        metadata_train: Optional[NDArray | DataFrame],
+    ) -> Postprocessor:
+        postprocessor = clone(postprocessor)
+        postprocessor.fit(X=X_train, y=y_train, metadata=metadata_train)
+        return postprocessor
+
+    def _postprocessor_transform(
+        self,
+        postprocessor: Postprocessor,
+        X_test: NDArray,
+        y_pred: NDArray,
+        metadata_test: Optional[NDArray | DataFrame],
+    ) -> NDArray:
+        return postprocessor.transform(X=X_test, y=y_pred, metadata=metadata_test)
 
     def _metric_score(
         self,
         metric: Optional[MetricCallable],
-        y_test: ndarray,
-        y_pred: ndarray,
+        y_test: NDArray,
+        y_pred: NDArray,
         *,
-        X_test: Optional[ndarray] = None,
-        indices: Optional[ndarray] = None,
+        X_test: Optional[NDArray] = None,
+        indices: Optional[NDArray] = None,
     ) -> float:
         if metric is None:
             raise ValueError("The metric was not provided.")
@@ -232,10 +298,10 @@ class SklearnModelUtility(Utility):
 
     def null_score(
         self,
-        X_train: ndarray,
-        y_train: ndarray,
-        X_test: ndarray,
-        y_test: ndarray,
+        X_train: NDArray,
+        y_train: NDArray,
+        X_test: NDArray,
+        y_test: NDArray,
     ) -> float:
         scores = []
         for x in np.unique(y_train):
@@ -246,10 +312,10 @@ class SklearnModelUtility(Utility):
 
     def mean_score(
         self,
-        X_train: ndarray,
-        y_train: ndarray,
-        X_test: ndarray,
-        y_test: ndarray,
+        X_train: NDArray,
+        y_train: NDArray,
+        X_test: NDArray,
+        y_test: NDArray,
         maxiter: int = DEFAULT_SCORING_MAXITER,
         seed: int = DEFAULT_SEED,
     ) -> float:
@@ -270,21 +336,21 @@ class SklearnModelAccuracy(SklearnModelUtility):
 
     def elementwise_score(
         self,
-        X_train: ndarray,
-        y_train: ndarray,
-        X_test: ndarray,
-        y_test: ndarray,
-    ) -> ndarray:
+        X_train: NDArray,
+        y_train: NDArray,
+        X_test: NDArray,
+        y_test: NDArray,
+    ) -> NDArray:
         classes = np.unique(y_train)
         return np.equal.outer(classes, y_test).astype(float)
 
     def elementwise_null_score(
         self,
-        X_train: ndarray,
-        y_train: ndarray,
-        X_test: ndarray,
-        y_test: ndarray,
-    ) -> ndarray:
+        X_train: NDArray,
+        y_train: NDArray,
+        X_test: NDArray,
+        y_test: NDArray,
+    ) -> NDArray:
         min_score = np.inf
         result = np.zeros_like(y_test)
         for x in np.unique(y_train):
@@ -303,7 +369,7 @@ class SklearnModelRocAuc(SklearnModelUtility):
         metric = partial(roc_auc_score, multi_class="ovr")  # We multi-class mode to be one-vs-rest.
         super().__init__(model, metric)
 
-    def _model_predict(self, model: SklearnModelOrPipeline, X_test: ndarray) -> ndarray:
+    def _model_predict(self, model: SklearnModelOrPipeline, X_test: NDArray) -> NDArray:
         y_test_pred_proba = model.predict_proba(X_test)
         if y_test_pred_proba.shape[1] == 2:
             y_test_pred_proba = y_test_pred_proba[:, 1]
@@ -311,10 +377,10 @@ class SklearnModelRocAuc(SklearnModelUtility):
 
     def null_score(
         self,
-        X_train: ndarray,
-        y_train: ndarray,
-        X_test: ndarray,
-        y_test: ndarray,
+        X_train: NDArray,
+        y_train: NDArray,
+        X_test: NDArray,
+        y_test: NDArray,
     ) -> float:
         scores = []
         classes = np.unique(y_train)
@@ -328,11 +394,11 @@ class SklearnModelRocAuc(SklearnModelUtility):
 
     def elementwise_score(
         self,
-        X_train: ndarray,
-        y_train: ndarray,
-        X_test: ndarray,
-        y_test: ndarray,
-    ) -> ndarray:
+        X_train: NDArray,
+        y_train: NDArray,
+        X_test: NDArray,
+        y_test: NDArray,
+    ) -> NDArray:
         classes = np.unique(y_train)
         result = np.zeros((len(classes), len(y_test)))
         for c in classes:
@@ -347,11 +413,11 @@ class SklearnModelRocAuc(SklearnModelUtility):
 
     def elementwise_null_score(
         self,
-        X_train: ndarray,
-        y_train: ndarray,
-        X_test: ndarray,
-        y_test: ndarray,
-    ) -> ndarray:
+        X_train: NDArray,
+        y_train: NDArray,
+        X_test: NDArray,
+        y_test: NDArray,
+    ) -> NDArray:
         result = np.zeros_like(y_test, dtype=float)
         classes, counts = np.unique(y_test, return_counts=True)
         least_frequent_class = classes[np.argmin(counts)]
@@ -369,7 +435,7 @@ class SklearnModelRocAuc(SklearnModelUtility):
         return result / float(len(classes))
 
 
-def compute_groupings(X: ndarray, sensitive_features: Union[int, Sequence[int]]) -> ndarray:
+def compute_groupings(X: NDArray, sensitive_features: int | Sequence[int]) -> NDArray:
     if not isinstance(sensitive_features, collections.abc.Sequence):
         sensitive_features = [sensitive_features]
     X_sf = X[:, sensitive_features]
@@ -381,7 +447,7 @@ def compute_groupings(X: ndarray, sensitive_features: Union[int, Sequence[int]])
     return groupings
 
 
-def compute_tpr_and_fpr(y_test: ndarray, y_pred: ndarray, *, groupings: ndarray) -> Tuple[ndarray, ndarray]:
+def compute_tpr_and_fpr(y_test: NDArray, y_pred: NDArray, *, groupings: NDArray) -> Tuple[NDArray, NDArray]:
     groups = sorted(np.unique(groupings))
     n_groups = len(groups)
     tpr = np.zeros(n_groups, dtype=float)
@@ -405,7 +471,7 @@ def compute_tpr_and_fpr(y_test: ndarray, y_pred: ndarray, *, groupings: ndarray)
     return tpr, fpr
 
 
-def equalized_odds_diff(y_test: ndarray, y_pred: ndarray, *, groupings: ndarray) -> float:
+def equalized_odds_diff(y_test: NDArray, y_pred: NDArray, *, groupings: NDArray) -> float:
 
     tpr, fpr = compute_tpr_and_fpr(y_test, y_pred, groupings=groupings)
 
@@ -418,8 +484,8 @@ class SklearnModelEqualizedOddsDifference(SklearnModelUtility):
     def __init__(
         self,
         model: SklearnModelOrPipeline,
-        sensitive_features: Union[int, Sequence[int]],
-        groupings: Optional[ndarray] = None,
+        sensitive_features: int | Sequence[int],
+        groupings: Optional[NDArray] = None,
     ) -> None:
         super().__init__(model, None)
         if not isinstance(sensitive_features, collections.abc.Sequence):
@@ -430,11 +496,11 @@ class SklearnModelEqualizedOddsDifference(SklearnModelUtility):
     def _metric_score(
         self,
         metric: Optional[MetricCallable],
-        y_test: ndarray,
-        y_pred: ndarray,
+        y_test: NDArray,
+        y_pred: NDArray,
         *,
-        X_test: Optional[ndarray] = None,
-        indices: Optional[ndarray] = None,
+        X_test: Optional[NDArray] = None,
+        indices: Optional[NDArray] = None,
     ) -> float:
         assert X_test is not None
         if list(sorted(np.unique(y_test))) != [0, 1]:
@@ -449,11 +515,11 @@ class SklearnModelEqualizedOddsDifference(SklearnModelUtility):
 
     def elementwise_score(
         self,
-        X_train: ndarray,
-        y_train: ndarray,
-        X_test: ndarray,
-        y_test: ndarray,
-    ) -> ndarray:
+        X_train: NDArray,
+        y_train: NDArray,
+        X_test: NDArray,
+        y_test: NDArray,
+    ) -> NDArray:
         if list(sorted(np.unique(y_test))) != [0, 1]:
             raise ValueError("This utility works only on binary classification problems.")
 
@@ -497,11 +563,11 @@ class SklearnModelEqualizedOddsDifference(SklearnModelUtility):
 
     def elementwise_null_score(
         self,
-        X_train: ndarray,
-        y_train: ndarray,
-        X_test: ndarray,
-        y_test: ndarray,
-    ) -> ndarray:
+        X_train: NDArray,
+        y_train: NDArray,
+        X_test: NDArray,
+        y_test: NDArray,
+    ) -> NDArray:
         return np.zeros_like(y_test, dtype=float)
 
 
@@ -537,7 +603,7 @@ def pad_jagged_array(array, fill_value):
     return result
 
 
-def reshape(provenance: ndarray) -> ndarray:
+def reshape(provenance: NDArray) -> NDArray:
     provenance = pad_jagged_array(provenance, fill_value=-1)
     result = provenance
     if result.ndim == 1:
@@ -553,7 +619,7 @@ def reshape(provenance: ndarray) -> ndarray:
     return result
 
 
-def one_hot_encode(array: ndarray, mergelast: bool = False) -> ndarray:
+def one_hot_encode(array: NDArray, mergelast: bool = False) -> NDArray:
     vmax = array.max()
     resultshape = (array.shape[:-1] if mergelast else array.shape) + (vmax + 1,)
     result = np.zeros(resultshape, dtype=int)
@@ -567,7 +633,7 @@ def one_hot_encode(array: ndarray, mergelast: bool = False) -> ndarray:
     return result
 
 
-def binarize(provenance: ndarray) -> ndarray:
+def binarize(provenance: NDArray) -> NDArray:
     assert provenance.ndim == 4
     assert provenance.shape[-1] == 2
     umax = provenance[..., 0].max()
@@ -582,7 +648,7 @@ def binarize(provenance: ndarray) -> ndarray:
     return result
 
 
-def get_indices(provenance: ndarray, query: ndarray, simple_provenance: bool = False) -> ndarray:
+def get_indices(provenance: NDArray, query: NDArray, simple_provenance: bool = False) -> NDArray:
     assert provenance.ndim == 4
     assert query.ndim in [1, 2]
     if query.ndim == 1:
@@ -606,7 +672,7 @@ def get_indices(provenance: ndarray, query: ndarray, simple_provenance: bool = F
     return a2
 
 
-class Provenance(ndarray):
+class Provenance(NDArray):
     def __new__(cls, a):
         obj = np.asarray(a).view(cls)
         cls._validate(obj)
@@ -622,7 +688,7 @@ class Provenance(ndarray):
         if obj.ndim != 4:
             raise ValueError("The provided provenance array must have 4 dimensions.")
 
-    def get_indices(self, query: ndarray) -> ndarray:
+    def get_indices(self, query: NDArray) -> NDArray:
         assert query.ndim in [1, 2]
         if query.ndim == 1:
             query = np.broadcast_to(query[:, np.newaxis], query.shape + (self.shape[-1],))
@@ -633,7 +699,7 @@ class Provenance(ndarray):
         a2 = np.any(a1, axis=1)
         return a2
 
-    def indices(self, units: Optional[ndarray] = None, world: Optional[Union[ndarray, int]] = None) -> ndarray:
+    def indices(self, units: Optional[NDArray] = None, world: Optional[NDArray | int] = None) -> NDArray:
         if units is None:
             if world is None:
                 return np.ones(self.shape[0], dtype=int)
@@ -669,5 +735,5 @@ class Provenance(ndarray):
             pad_width[2] = [0, units]
         if candidates is not None:
             pad_width[3] = [0, candidates]
-        result: ndarray = np.pad(self, pad_width=pad_width)
+        result: NDArray = np.pad(self, pad_width=pad_width)
         return result.view(Provenance)

@@ -183,7 +183,9 @@ class ComputeTimeScenario(Scenario, id="compute-time"):
                 mc_timeout=self.mc_timeout,
                 mc_preextract=mc_preextract,
             )
-            importance.fit(dataset.X_train, dataset.y_train).score(dataset.X_val, dataset.y_val)
+            importance.fit(dataset.X_train, dataset.y_train, dataset.metadata_train).score(
+                dataset.X_val, dataset.y_val, dataset.metadata_val
+            )
         importance_time_end = process_time_ns()
         self._importance_cputime = (importance_time_end - importance_time_start) / 1e9
         self.logger.debug("Importance computed in: %s", str(timedelta(seconds=self._importance_cputime)))
