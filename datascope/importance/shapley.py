@@ -8,8 +8,9 @@ from scipy.special import comb
 
 # from numba import prange, jit
 from logging import Logger, getLogger
+from numpy import ndarray
 from numpy.typing import NDArray
-from pandas import DataFrame
+from pandas import DataFrame, Series
 from scipy.sparse import csr_matrix, issparse, spmatrix
 from scipy.sparse.csgraph import connected_components
 from sklearn.preprocessing import LabelEncoder
@@ -22,7 +23,7 @@ except ImportError:
 from sklearn.pipeline import Pipeline
 
 from typing_extensions import Literal
-from typing import Dict, List, Optional, Iterable, Set, Tuple, Sequence, Hashable, Union
+from typing import Dict, List, Optional, Iterable, Set, Tuple, Sequence, Hashable
 
 from ..utility import Provenance
 from .common import DEFAULT_SEED, DistanceCallable, Utility
@@ -276,7 +277,7 @@ class ShapleyImportance(Importance):
         self.mc_preextract = mc_preextract
         self.nn_k = nn_k
         self.nn_distance = nn_distance
-        self.X_train: Optional[NDArray] = None
+        self.X_train: Optional[NDArray | DataFrame] = None
         self.y_train: Optional[NDArray] = None
         self.metadata_train: Optional[NDArray | DataFrame] = None
         self.provenance: Optional[Provenance] = None
@@ -285,21 +286,25 @@ class ShapleyImportance(Importance):
         self.logger = logger if logger is not None else getLogger(__name__)
 
     def _fit(
-        self, X: NDArray, y: NDArray, metadata: Optional[NDArray | DataFrame], provenance: Provenance
+        self,
+        X: NDArray | DataFrame,
+        y: NDArray | Series,
+        metadata: Optional[NDArray | DataFrame],
+        provenance: Provenance,
     ) -> "ShapleyImportance":
         self.X_train = X
-        self.y_train = self.label_encoder.fit_transform(y)
+        self.y_train = np.array(self.label_encoder.fit_transform(y))
         self.metadata_train = metadata
         self.provenance = provenance
         return self
 
     def _score(
         self,
-        X: NDArray,
-        y: Optional[NDArray] = None,
+        X: NDArray | DataFrame,
+        y: Optional[NDArray | Series] = None,
         metadata: Optional[NDArray | DataFrame] = None,
-        units: Union[Sequence[Hashable], NDArray[np.int32], None] = None,
-        world: Union[Sequence[Hashable], NDArray[np.int32], None] = None,
+        units: Optional[Sequence[Hashable] | NDArray[np.int32]] = None,
+        world: Optional[Sequence[Hashable] | NDArray[np.int32]] = None,
         **kwargs
     ) -> Iterable[float]:
         if self.X_train is None or self.y_train is None or self.provenance is None:
@@ -307,16 +312,16 @@ class ShapleyImportance(Importance):
         if y is None:
             raise ValueError("The 'y' argument cannot be None.")
         else:
-            y = self.label_encoder.transform(y)
+            y = np.array(self.label_encoder.transform(y))
             assert y is not None
 
         if units is None:
             units = np.arange(self.provenance.num_units)
-        elif not isinstance(units, np.ndarray):
+        elif not isinstance(units, ndarray):
             units = np.array([self.provenance.units_index[x] for x in units], dtype=int)
         if world is None:
             world = np.ones_like(units, dtype=int)
-        elif not isinstance(world, np.ndarray):
+        elif not isinstance(world, ndarray):
             world = np.array([self.provenance.candidates_index[x] for x in world], dtype=int)
         return self._shapley(
             X_train=self.X_train,
@@ -332,9 +337,9 @@ class ShapleyImportance(Importance):
 
     def _shapley(
         self,
-        X_train: NDArray,
+        X_train: NDArray | DataFrame,
         y_train: NDArray,
-        X_test: NDArray,
+        X_test: NDArray | DataFrame,
         y_test: NDArray,
         metadata_train: Optional[NDArray | DataFrame],
         metadata_test: Optional[NDArray | DataFrame],
@@ -389,9 +394,9 @@ class ShapleyImportance(Importance):
 
     def _shapley_bruteforce(
         self,
-        X_train: NDArray,
+        X_train: NDArray | DataFrame,
         y_train: NDArray,
-        X_test: NDArray,
+        X_test: NDArray | DataFrame,
         y_test: NDArray,
         metadata_train: Optional[NDArray | DataFrame],
         metadata_test: Optional[NDArray | DataFrame],
@@ -407,6 +412,8 @@ class ShapleyImportance(Importance):
 
         # Compute null score.
         null_score = self.utility.null_score(X_train, y_train, X_test, y_test)
+
+        # Ensure X_train
 
         # Iterate over all subsets of units.
         n_units = len(units)
@@ -449,9 +456,9 @@ class ShapleyImportance(Importance):
 
     def _shapley_montecarlo(
         self,
-        X_train: NDArray,
+        X_train: NDArray | DataFrame,
         y_train: NDArray,
-        X_test: NDArray,
+        X_test: NDArray | DataFrame,
         y_test: NDArray,
         metadata_train: Optional[NDArray | DataFrame],
         metadata_test: Optional[NDArray | DataFrame],
@@ -550,9 +557,9 @@ class ShapleyImportance(Importance):
 
     def _shapley_neighbor(
         self,
-        X_train: NDArray,
+        X_train: NDArray | DataFrame,
         y_train: NDArray,
-        X_test: NDArray,
+        X_test: NDArray | DataFrame,
         y_test: NDArray,
         metadata_train: Optional[NDArray | DataFrame],
         metadata_test: Optional[NDArray | DataFrame],
@@ -572,7 +579,13 @@ class ShapleyImportance(Importance):
             X_train = self.pipeline.fit_transform(X_train, y=y_train)
             X_test = self.pipeline.transform(X_test)
 
-        # Ensure X and X_test are not sparse.
+        # Ensure that X_train and X_test are not dataframes.
+        if isinstance(X_train, DataFrame):
+            X_train = X_train.to_numpy()
+        if isinstance(X_test, DataFrame):
+            X_test = X_test.to_numpy()
+
+        # Ensure X_train and X_test are not sparse.
         if issparse(X_train):
             assert isinstance(X_train, spmatrix)
             X_train = X_train.todense()
@@ -590,6 +603,9 @@ class ShapleyImportance(Importance):
         n_train, n_test, n_units = X_train.shape[0], X_test.shape[0], units.shape[0]
         batch_size = get_test_batch_size(n_train, n_test)
         all_importances = np.zeros((n_units), dtype=float)
+
+        assert isinstance(X_train, ndarray)
+        assert isinstance(X_test, ndarray)
 
         # We iterate over all batches of test data and compute importances.
         for start in range(0, n_test, batch_size):

@@ -7,7 +7,7 @@ from collections import defaultdict
 from functools import partial
 from numpy import ndarray
 from numpy.typing import NDArray
-from pandas import DataFrame
+from pandas import DataFrame, Series
 from typing import Iterable, Optional, Callable, Sequence, Tuple, List
 from typing_extensions import Protocol
 from sklearn.base import clone
@@ -15,21 +15,21 @@ from sklearn.metrics import accuracy_score, roc_auc_score
 
 
 class SklearnModel(Protocol):
-    def fit(self, X: NDArray, y: NDArray, sample_weight: Optional[NDArray] = None) -> None:
+    def fit(self, X: NDArray | DataFrame, y: NDArray | Series, sample_weight: Optional[NDArray] = None) -> None:
         pass
 
-    def predict(self, X: NDArray) -> NDArray:
+    def predict(self, X: NDArray | DataFrame) -> NDArray:
         pass
 
-    def predict_proba(self, X: NDArray) -> NDArray:
+    def predict_proba(self, X: NDArray | DataFrame) -> NDArray:
         pass
 
 
 class SklearnTransformer(Protocol):
-    def fit(self, X: NDArray, y: NDArray, sample_weight: Optional[NDArray] = None) -> None:
+    def fit(self, X: NDArray | DataFrame, y: NDArray | Series, sample_weight: Optional[NDArray] = None) -> None:
         pass
 
-    def transform(self, X: NDArray) -> NDArray:
+    def transform(self, X: NDArray | DataFrame) -> NDArray:
         pass
 
 
@@ -50,19 +50,27 @@ DEFAULT_SEED = 7
 
 class Postprocessor(ABC):
     @abstractmethod
-    def fit(self, X: NDArray, y: NDArray, metadata: Optional[NDArray | DataFrame] = None) -> "Postprocessor":
+    def fit(
+        self, X: NDArray | DataFrame, y: NDArray | Series, metadata: Optional[NDArray | DataFrame] = None
+    ) -> "Postprocessor":
         pass
 
     @abstractmethod
-    def transform(self, X: NDArray, y: NDArray, metadata: Optional[NDArray | DataFrame] = None) -> NDArray:
+    def transform(
+        self, X: NDArray | DataFrame, y: NDArray | Series, metadata: Optional[NDArray | DataFrame] = None
+    ) -> NDArray | Series:
         pass
 
 
 class IdentityPostprocessor(Postprocessor):
-    def fit(self, X: NDArray, y: NDArray, metadata: Optional[NDArray | DataFrame] = None) -> "Postprocessor":
+    def fit(
+        self, X: NDArray | DataFrame, y: NDArray | Series, metadata: Optional[NDArray | DataFrame] = None
+    ) -> "Postprocessor":
         return self
 
-    def transform(self, X: NDArray, y: NDArray, metadata: Optional[NDArray | DataFrame] = None) -> NDArray:
+    def transform(
+        self, X: NDArray | DataFrame, y: NDArray | Series, metadata: Optional[NDArray | DataFrame] = None
+    ) -> NDArray | Series:
         return y
 
 
@@ -70,10 +78,10 @@ class Utility(ABC):
     @abstractmethod
     def __call__(
         self,
-        X_train: NDArray,
-        y_train: NDArray,
-        X_test: NDArray,
-        y_test: NDArray,
+        X_train: NDArray | DataFrame,
+        y_train: NDArray | Series,
+        X_test: NDArray | DataFrame,
+        y_test: NDArray | Series,
         metadata_train: Optional[NDArray | DataFrame] = None,
         metadata_test: Optional[NDArray | DataFrame] = None,
         null_score: Optional[float] = None,
@@ -84,20 +92,20 @@ class Utility(ABC):
     @abstractmethod
     def null_score(
         self,
-        X_train: NDArray,
-        y_train: NDArray,
-        X_test: NDArray,
-        y_test: NDArray,
+        X_train: NDArray | DataFrame,
+        y_train: NDArray | Series,
+        X_test: NDArray | DataFrame,
+        y_test: NDArray | Series,
     ) -> float:
         pass
 
     @abstractmethod
     def mean_score(
         self,
-        X_train: NDArray,
-        y_train: NDArray,
-        X_test: NDArray,
-        y_test: NDArray,
+        X_train: NDArray | DataFrame,
+        y_train: NDArray | Series,
+        X_test: NDArray | DataFrame,
+        y_test: NDArray | Series,
         maxiter: int = DEFAULT_SCORING_MAXITER,
         seed: int = DEFAULT_SEED,
     ) -> float:
@@ -105,19 +113,19 @@ class Utility(ABC):
 
     def elementwise_score(
         self,
-        X_train: NDArray,
-        y_train: NDArray,
-        X_test: NDArray,
-        y_test: NDArray,
+        X_train: NDArray | DataFrame,
+        y_train: NDArray | Series,
+        X_test: NDArray | DataFrame,
+        y_test: NDArray | Series,
     ) -> NDArray:
         raise NotImplementedError("This utility does not implement elementwise scoring.")
 
     def elementwise_null_score(
         self,
-        X_train: NDArray,
-        y_train: NDArray,
-        X_test: NDArray,
-        y_test: NDArray,
+        X_train: NDArray | DataFrame,
+        y_train: NDArray | Series,
+        X_test: NDArray | DataFrame,
+        y_test: NDArray | Series,
     ) -> NDArray:
         raise NotImplementedError("This utility does not implement elementwise scoring.")
 
@@ -137,10 +145,10 @@ class JointUtility(Utility):
 
     def __call__(
         self,
-        X_train: NDArray,
-        y_train: NDArray,
-        X_test: NDArray,
-        y_test: NDArray,
+        X_train: NDArray | DataFrame,
+        y_train: NDArray | Series,
+        X_test: NDArray | DataFrame,
+        y_test: NDArray | Series,
         metadata_train: Optional[NDArray | DataFrame] = None,
         metadata_test: Optional[NDArray | DataFrame] = None,
         null_score: Optional[float] = None,
@@ -165,19 +173,19 @@ class JointUtility(Utility):
 
     def null_score(
         self,
-        X_train: NDArray,
-        y_train: NDArray,
-        X_test: NDArray,
-        y_test: NDArray,
+        X_train: NDArray | DataFrame,
+        y_train: NDArray | Series,
+        X_test: NDArray | DataFrame,
+        y_test: NDArray | Series,
     ) -> float:
         return sum(w * u.null_score(X_train, y_train, X_test, y_test) for w, u in zip(self._weights, self._utilities))
 
     def mean_score(
         self,
-        X_train: NDArray,
-        y_train: NDArray,
-        X_test: NDArray,
-        y_test: NDArray,
+        X_train: NDArray | DataFrame,
+        y_train: NDArray | Series,
+        X_test: NDArray | DataFrame,
+        y_test: NDArray | Series,
         maxiter: int = DEFAULT_SCORING_MAXITER,
         seed: int = DEFAULT_SEED,
     ) -> float:
@@ -188,10 +196,10 @@ class JointUtility(Utility):
 
     def elementwise_score(
         self,
-        X_train: NDArray,
-        y_train: NDArray,
-        X_test: NDArray,
-        y_test: NDArray,
+        X_train: NDArray | DataFrame,
+        y_train: NDArray | Series,
+        X_test: NDArray | DataFrame,
+        y_test: NDArray | Series,
     ) -> NDArray:
         scores = np.stack(
             [w * u.elementwise_score(X_train, y_train, X_test, y_test) for w, u in zip(self._weights, self._utilities)]
@@ -200,10 +208,10 @@ class JointUtility(Utility):
 
     def elementwise_null_score(
         self,
-        X_train: NDArray,
-        y_train: NDArray,
-        X_test: NDArray,
-        y_test: NDArray,
+        X_train: NDArray | DataFrame,
+        y_train: NDArray | Series,
+        X_test: NDArray | DataFrame,
+        y_test: NDArray | Series,
     ) -> NDArray:
         scores = np.stack(
             [
@@ -227,16 +235,18 @@ class SklearnModelUtility(Utility):
 
     def __call__(
         self,
-        X_train: NDArray,
-        y_train: NDArray,
-        X_test: NDArray,
-        y_test: NDArray,
+        X_train: NDArray | DataFrame,
+        y_train: NDArray | Series,
+        X_test: NDArray | DataFrame,
+        y_test: NDArray | Series,
         metadata_train: Optional[NDArray | DataFrame] = None,
         metadata_test: Optional[NDArray | DataFrame] = None,
         null_score: Optional[float] = None,
         seed: int = DEFAULT_SEED,
     ) -> float:
         score = 0.0
+        if not isinstance(y_test, ndarray):
+            y_test = y_test.to_numpy()
         with warnings.catch_warnings():
             warnings.simplefilter("error", category=RuntimeWarning)
             warnings.simplefilter("ignore", category=FutureWarning)
@@ -255,19 +265,21 @@ class SklearnModelUtility(Utility):
                     return score
         return score
 
-    def _model_fit(self, model: SklearnModelOrPipeline, X_train: NDArray, y_train: NDArray) -> SklearnModelOrPipeline:
+    def _model_fit(
+        self, model: SklearnModelOrPipeline, X_train: NDArray | DataFrame, y_train: NDArray | Series
+    ) -> SklearnModelOrPipeline:
         model = clone(model)
         model.fit(X_train, y_train)
         return model
 
-    def _model_predict(self, model: SklearnModelOrPipeline, X_test: NDArray) -> NDArray:
+    def _model_predict(self, model: SklearnModelOrPipeline, X_test: NDArray | DataFrame) -> NDArray:
         return model.predict(X_test)
 
     def _postprocessor_fit(
         self,
         postprocessor: Postprocessor,
-        X_train: NDArray,
-        y_train: NDArray,
+        X_train: NDArray | DataFrame,
+        y_train: NDArray | Series,
         metadata_train: Optional[NDArray | DataFrame],
     ) -> Postprocessor:
         postprocessor = clone(postprocessor)
@@ -277,11 +289,16 @@ class SklearnModelUtility(Utility):
     def _postprocessor_transform(
         self,
         postprocessor: Postprocessor,
-        X_test: NDArray,
-        y_pred: NDArray,
+        X_test: NDArray | DataFrame,
+        y_pred: NDArray | Series,
         metadata_test: Optional[NDArray | DataFrame],
     ) -> NDArray:
-        return postprocessor.transform(X=X_test, y=y_pred, metadata=metadata_test)
+        if not isinstance(y_pred, ndarray):
+            y_pred = y_pred.to_numpy()
+        result = postprocessor.transform(X=X_test, y=y_pred, metadata=metadata_test)
+        if not isinstance(result, ndarray):
+            result = result.to_numpy()
+        return result
 
     def _metric_score(
         self,
@@ -289,7 +306,7 @@ class SklearnModelUtility(Utility):
         y_test: NDArray,
         y_pred: NDArray,
         *,
-        X_test: Optional[NDArray] = None,
+        X_test: Optional[NDArray | DataFrame] = None,
         indices: Optional[NDArray] = None,
     ) -> float:
         if metric is None:
@@ -298,12 +315,14 @@ class SklearnModelUtility(Utility):
 
     def null_score(
         self,
-        X_train: NDArray,
-        y_train: NDArray,
-        X_test: NDArray,
-        y_test: NDArray,
+        X_train: NDArray | DataFrame,
+        y_train: NDArray | Series,
+        X_test: NDArray | DataFrame,
+        y_test: NDArray | Series,
     ) -> float:
         scores = []
+        if not isinstance(y_test, ndarray):
+            y_test = y_test.to_numpy()
         for x in np.unique(y_train):
             y_spoof = np.full_like(y_test, x, dtype=y_test.dtype)
             scores.append(self._metric_score(self.metric, y_test, y_spoof, X_test=X_test))
@@ -312,21 +331,24 @@ class SklearnModelUtility(Utility):
 
     def mean_score(
         self,
-        X_train: NDArray,
-        y_train: NDArray,
-        X_test: NDArray,
-        y_test: NDArray,
+        X_train: NDArray | DataFrame,
+        y_train: NDArray | Series,
+        X_test: NDArray | DataFrame,
+        y_test: NDArray | Series,
         maxiter: int = DEFAULT_SCORING_MAXITER,
         seed: int = DEFAULT_SEED,
     ) -> float:
         np.random.seed(seed)
         model = self._model_fit(self.model, X_train, y_train)
         y_pred = self._model_predict(model, X_test)
+        if not isinstance(y_test, ndarray):
+            y_test = y_test.to_numpy()
         scores = []
         np.random.seed(seed)
         for _ in range(maxiter):
             idx = np.random.choice(len(y_test), int(len(y_test) * 0.5))
-            scores.append(self._metric_score(self.metric, y_test[idx], y_pred[idx], X_test=X_test[idx, :], indices=idx))
+            X_test_subset: NDArray | DataFrame = X_test.iloc[idx] if isinstance(X_test, DataFrame) else X_test[idx, :]
+            scores.append(self._metric_score(self.metric, y_test[idx], y_pred[idx], X_test=X_test_subset, indices=idx))
         return np.mean(scores).item()
 
 
@@ -336,22 +358,24 @@ class SklearnModelAccuracy(SklearnModelUtility):
 
     def elementwise_score(
         self,
-        X_train: NDArray,
-        y_train: NDArray,
-        X_test: NDArray,
-        y_test: NDArray,
+        X_train: NDArray | DataFrame,
+        y_train: NDArray | Series,
+        X_test: NDArray | DataFrame,
+        y_test: NDArray | Series,
     ) -> NDArray:
         classes = np.unique(y_train)
         return np.equal.outer(classes, y_test).astype(float)
 
     def elementwise_null_score(
         self,
-        X_train: NDArray,
-        y_train: NDArray,
-        X_test: NDArray,
-        y_test: NDArray,
+        X_train: NDArray | DataFrame,
+        y_train: NDArray | Series,
+        X_test: NDArray | DataFrame,
+        y_test: NDArray | Series,
     ) -> NDArray:
         min_score = np.inf
+        if not isinstance(y_test, ndarray):
+            y_test = y_test.to_numpy()
         result = np.zeros_like(y_test)
         for x in np.unique(y_train):
             y_spoof = np.full_like(y_test, x, dtype=y_test.dtype)
@@ -369,7 +393,7 @@ class SklearnModelRocAuc(SklearnModelUtility):
         metric = partial(roc_auc_score, multi_class="ovr")  # We multi-class mode to be one-vs-rest.
         super().__init__(model, metric)
 
-    def _model_predict(self, model: SklearnModelOrPipeline, X_test: NDArray) -> NDArray:
+    def _model_predict(self, model: SklearnModelOrPipeline, X_test: NDArray | DataFrame) -> NDArray:
         y_test_pred_proba = model.predict_proba(X_test)
         if y_test_pred_proba.shape[1] == 2:
             y_test_pred_proba = y_test_pred_proba[:, 1]
@@ -377,13 +401,15 @@ class SklearnModelRocAuc(SklearnModelUtility):
 
     def null_score(
         self,
-        X_train: NDArray,
-        y_train: NDArray,
-        X_test: NDArray,
-        y_test: NDArray,
+        X_train: NDArray | DataFrame,
+        y_train: NDArray | Series,
+        X_test: NDArray | DataFrame,
+        y_test: NDArray | Series,
     ) -> float:
         scores = []
         classes = np.unique(y_train)
+        if not isinstance(y_test, ndarray):
+            y_test = y_test.to_numpy()
         for x in classes:
             y_spoof = np.full((y_test.shape[0], len(classes)), np.eye(len(classes))[x])
             if y_spoof.shape[1] == 2:
@@ -394,10 +420,10 @@ class SklearnModelRocAuc(SklearnModelUtility):
 
     def elementwise_score(
         self,
-        X_train: NDArray,
-        y_train: NDArray,
-        X_test: NDArray,
-        y_test: NDArray,
+        X_train: NDArray | DataFrame,
+        y_train: NDArray | Series,
+        X_test: NDArray | DataFrame,
+        y_test: NDArray | Series,
     ) -> NDArray:
         classes = np.unique(y_train)
         result = np.zeros((len(classes), len(y_test)))
@@ -413,11 +439,13 @@ class SklearnModelRocAuc(SklearnModelUtility):
 
     def elementwise_null_score(
         self,
-        X_train: NDArray,
-        y_train: NDArray,
-        X_test: NDArray,
-        y_test: NDArray,
+        X_train: NDArray | DataFrame,
+        y_train: NDArray | Series,
+        X_test: NDArray | DataFrame,
+        y_test: NDArray | Series,
     ) -> NDArray:
+        if not isinstance(y_test, ndarray):
+            y_test = y_test.to_numpy()
         result = np.zeros_like(y_test, dtype=float)
         classes, counts = np.unique(y_test, return_counts=True)
         least_frequent_class = classes[np.argmin(counts)]
@@ -435,19 +463,27 @@ class SklearnModelRocAuc(SklearnModelUtility):
         return result / float(len(classes))
 
 
-def compute_groupings(X: NDArray, sensitive_features: int | Sequence[int]) -> NDArray:
+def compute_groupings(
+    X: NDArray | DataFrame, sensitive_features: int | Sequence[int] | str | Sequence[str]
+) -> NDArray[np.int_]:
     if not isinstance(sensitive_features, collections.abc.Sequence):
         sensitive_features = [sensitive_features]
-    X_sf = X[:, sensitive_features]
+    X_sf: NDArray
+    if isinstance(X, ndarray):
+        if not all(isinstance(x, int) for x in sensitive_features):
+            raise ValueError("The provided sensitive_features must be integers if the data is a numpy array.")
+        X_sf = X[:, np.array(sensitive_features)]
+    else:
+        X_sf = X[sensitive_features].to_numpy()
     unique_values = np.unique(X_sf, axis=0)
-    groupings = np.zeros(X.shape[0], dtype=int)
+    groupings: NDArray[np.int_] = np.zeros(X.shape[0], dtype=int)
     for i, unique in enumerate(unique_values):
         idx = (X_sf == unique).all(axis=1).nonzero()
         groupings[idx] = i
     return groupings
 
 
-def compute_tpr_and_fpr(y_test: NDArray, y_pred: NDArray, *, groupings: NDArray) -> Tuple[NDArray, NDArray]:
+def compute_tpr_and_fpr(y_test: NDArray, y_pred: NDArray, *, groupings: NDArray[np.int_]) -> Tuple[NDArray, NDArray]:
     groups = sorted(np.unique(groupings))
     n_groups = len(groups)
     tpr = np.zeros(n_groups, dtype=float)
@@ -471,7 +507,7 @@ def compute_tpr_and_fpr(y_test: NDArray, y_pred: NDArray, *, groupings: NDArray)
     return tpr, fpr
 
 
-def equalized_odds_diff(y_test: NDArray, y_pred: NDArray, *, groupings: NDArray) -> float:
+def equalized_odds_diff(y_test: NDArray, y_pred: NDArray, *, groupings: NDArray[np.int_]) -> float:
 
     tpr, fpr = compute_tpr_and_fpr(y_test, y_pred, groupings=groupings)
 
@@ -484,7 +520,7 @@ class SklearnModelEqualizedOddsDifference(SklearnModelUtility):
     def __init__(
         self,
         model: SklearnModelOrPipeline,
-        sensitive_features: int | Sequence[int],
+        sensitive_features: int | Sequence[int] | str | Sequence[str],
         groupings: Optional[NDArray] = None,
     ) -> None:
         super().__init__(model, None)
@@ -499,7 +535,7 @@ class SklearnModelEqualizedOddsDifference(SklearnModelUtility):
         y_test: NDArray,
         y_pred: NDArray,
         *,
-        X_test: Optional[NDArray] = None,
+        X_test: Optional[NDArray | DataFrame] = None,
         indices: Optional[NDArray] = None,
     ) -> float:
         assert X_test is not None
@@ -515,10 +551,10 @@ class SklearnModelEqualizedOddsDifference(SklearnModelUtility):
 
     def elementwise_score(
         self,
-        X_train: NDArray,
-        y_train: NDArray,
-        X_test: NDArray,
-        y_test: NDArray,
+        X_train: NDArray | DataFrame,
+        y_train: NDArray | Series,
+        X_test: NDArray | DataFrame,
+        y_test: NDArray | Series,
     ) -> NDArray:
         if list(sorted(np.unique(y_test))) != [0, 1]:
             raise ValueError("This utility works only on binary classification problems.")
@@ -526,6 +562,8 @@ class SklearnModelEqualizedOddsDifference(SklearnModelUtility):
         n_test = X_test.shape[0]
         classes = np.unique(y_train)
         utilities = np.zeros((len(classes), n_test), dtype=float)
+        if not isinstance(y_test, ndarray):
+            y_test = y_test.to_numpy()
 
         try:
             # Precompute the true positive rate and false positive rate by using the entire training dataset.
@@ -563,10 +601,10 @@ class SklearnModelEqualizedOddsDifference(SklearnModelUtility):
 
     def elementwise_null_score(
         self,
-        X_train: NDArray,
-        y_train: NDArray,
-        X_test: NDArray,
-        y_test: NDArray,
+        X_train: NDArray | DataFrame,
+        y_train: NDArray | Series,
+        X_test: NDArray | DataFrame,
+        y_test: NDArray | Series,
     ) -> NDArray:
         return np.zeros_like(y_test, dtype=float)
 
