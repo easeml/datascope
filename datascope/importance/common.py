@@ -8,13 +8,16 @@ from functools import partial
 from numpy import ndarray
 from numpy.typing import NDArray
 from pandas import DataFrame, Series
-from typing import Iterable, Optional, Callable, Sequence, Tuple, List
+from typing import Iterable, Optional, Callable, Sequence, Tuple, List, Hashable
 from typing_extensions import Protocol
 from sklearn.base import clone
 from sklearn.metrics import accuracy_score, roc_auc_score
+from sklearn.preprocessing import OneHotEncoder
 
 
 class SklearnModel(Protocol):
+    classes_: List[Hashable]
+
     def fit(self, X: NDArray | DataFrame, y: NDArray | Series, sample_weight: Optional[NDArray] = None) -> None:
         pass
 
@@ -49,6 +52,11 @@ DEFAULT_SEED = 7
 
 
 class Postprocessor(ABC):
+
+    def __init__(self, require_probabilities: bool = False) -> None:
+        super().__init__()
+        self.require_probabilities = require_probabilities
+
     @abstractmethod
     def fit(
         self, X: NDArray | DataFrame, y: NDArray | Series, metadata: Optional[NDArray | DataFrame] = None
@@ -57,7 +65,11 @@ class Postprocessor(ABC):
 
     @abstractmethod
     def transform(
-        self, X: NDArray | DataFrame, y: NDArray | Series, metadata: Optional[NDArray | DataFrame] = None
+        self,
+        X: NDArray | DataFrame,
+        y: NDArray | Series,
+        metadata: Optional[NDArray | DataFrame] = None,
+        output_probabilities: bool = False,
     ) -> NDArray | Series:
         pass
 
@@ -69,7 +81,11 @@ class IdentityPostprocessor(Postprocessor):
         return self
 
     def transform(
-        self, X: NDArray | DataFrame, y: NDArray | Series, metadata: Optional[NDArray | DataFrame] = None
+        self,
+        X: NDArray | DataFrame,
+        y: NDArray | Series,
+        metadata: Optional[NDArray | DataFrame] = None,
+        output_probabilities: bool = False,
     ) -> NDArray | Series:
         return y
 
@@ -228,10 +244,12 @@ class SklearnModelUtility(Utility):
         model: SklearnModelOrPipeline,
         metric: Optional[MetricCallable],
         postprocessor: Optional[Postprocessor] = None,
+        metric_requires_probabilities: bool = False,
     ) -> None:
         self.model = model
         self.metric = metric
         self.postprocessor = postprocessor if postprocessor is not None else IdentityPostprocessor()
+        self.metric_requires_probabilities = metric_requires_probabilities
 
     def __call__(
         self,
@@ -255,8 +273,14 @@ class SklearnModelUtility(Utility):
                 np.random.seed(seed)
                 model = self._model_fit(self.model, X_train, y_train)
                 postprocessor = self._postprocessor_fit(self.postprocessor, X_train, y_train, metadata_train)
-                y_pred = self._model_predict(model, X_test)
+                y_pred = self._model_predict(
+                    model,
+                    X_test,
+                    output_probabilities=self.metric_requires_probabilities or self.postprocessor.require_probabilities,
+                )
                 y_pred_processed = self._postprocessor_transform(postprocessor, X_test, y_pred, metadata_test)
+                if self.metric_requires_probabilities and y_pred_processed.shape[1] == 2:
+                    y_pred_processed = y_pred_processed[:, 1]
                 score = self._metric_score(self.metric, y_test, y_pred_processed, X_test=X_test)
             except (ValueError, RuntimeWarning):
                 try:
@@ -272,8 +296,17 @@ class SklearnModelUtility(Utility):
         model.fit(X_train, y_train)
         return model
 
-    def _model_predict(self, model: SklearnModelOrPipeline, X_test: NDArray | DataFrame) -> NDArray:
-        return model.predict(X_test)
+    def _model_predict(
+        self, model: SklearnModelOrPipeline, X_test: NDArray | DataFrame, output_probabilities: bool = False
+    ) -> NDArray:
+        if output_probabilities:
+            if hasattr(model, "predict_proba"):
+                return model.predict_proba(X_test)
+            else:
+                result = model.predict(X_test)
+                return OneHotEncoder(categories=model.classes_).transform(result)
+        else:
+            return model.predict(X_test)
 
     def _postprocessor_fit(
         self,
@@ -292,10 +325,13 @@ class SklearnModelUtility(Utility):
         X_test: NDArray | DataFrame,
         y_pred: NDArray | Series,
         metadata_test: Optional[NDArray | DataFrame],
+        output_probabilities: bool = False,
     ) -> NDArray:
         if not isinstance(y_pred, ndarray):
             y_pred = y_pred.to_numpy()
-        result = postprocessor.transform(X=X_test, y=y_pred, metadata=metadata_test)
+        result = postprocessor.transform(
+            X=X_test, y=y_pred, metadata=metadata_test, output_probabilities=output_probabilities
+        )
         if not isinstance(result, ndarray):
             result = result.to_numpy()
         return result
@@ -391,13 +427,13 @@ class SklearnModelAccuracy(SklearnModelUtility):
 class SklearnModelRocAuc(SklearnModelUtility):
     def __init__(self, model: SklearnModelOrPipeline) -> None:
         metric = partial(roc_auc_score, multi_class="ovr")  # We multi-class mode to be one-vs-rest.
-        super().__init__(model, metric)
+        super().__init__(model, metric, metric_requires_probabilities=True)
 
-    def _model_predict(self, model: SklearnModelOrPipeline, X_test: NDArray | DataFrame) -> NDArray:
-        y_test_pred_proba = model.predict_proba(X_test)
-        if y_test_pred_proba.shape[1] == 2:
-            y_test_pred_proba = y_test_pred_proba[:, 1]
-        return y_test_pred_proba
+    # def _model_predict(self, model: SklearnModelOrPipeline, X_test: NDArray | DataFrame) -> NDArray:
+    #     y_test_pred_proba = model.predict_proba(X_test)
+    #     if y_test_pred_proba.shape[1] == 2:
+    #         y_test_pred_proba = y_test_pred_proba[:, 1]
+    #     return y_test_pred_proba
 
     def null_score(
         self,
