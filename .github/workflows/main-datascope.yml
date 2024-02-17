@@ -62,7 +62,7 @@ jobs:
       id: version
       run: |
         VERSION=$(./dev/scripts/update-version.py datascope/version.py)
-        echo VERSION=$VERSION
+        echo "VERSION=${VERSION}"
         echo "VERSION=${VERSION}" >> "$GITHUB_OUTPUT"
   
   publish:
@@ -91,6 +91,7 @@ jobs:
         echo github.ref_name=${{ github.ref_name }}
         echo github.ref_type=${{ github.ref_type }}
         echo "(github.ref_type == 'tag') == ${{ github.ref_type == 'tag' }}"
+        echo "needs.version.output == ${{ needs.version.output }}"
         echo "format('v{0}', needs.version.output.version) == ${{ format('v{0}', needs.version.output.version) }}"
         echo "(github.ref_name == format('v{0}', needs.version.output.version)) == ${{ github.ref_name == format('v{0}', needs.version.output.version) }}"
         echo "(github.ref_type == 'tag' && github.ref_name == format('v{0}', needs.version.output.version) ) == ${{ (github.ref_type == 'tag' && github.ref_name == format('v{0}', needs.version.output.version) ) }}"
