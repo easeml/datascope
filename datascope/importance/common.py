@@ -389,8 +389,8 @@ class SklearnModelUtility(Utility):
 
 
 class SklearnModelAccuracy(SklearnModelUtility):
-    def __init__(self, model: SklearnModelOrPipeline) -> None:
-        super().__init__(model, accuracy_score)
+    def __init__(self, model: SklearnModelOrPipeline, postprocessor: Optional[Postprocessor] = None) -> None:
+        super().__init__(model, accuracy_score, postprocessor=postprocessor)
 
     def elementwise_score(
         self,
@@ -425,9 +425,9 @@ class SklearnModelAccuracy(SklearnModelUtility):
 
 
 class SklearnModelRocAuc(SklearnModelUtility):
-    def __init__(self, model: SklearnModelOrPipeline) -> None:
+    def __init__(self, model: SklearnModelOrPipeline, postprocessor: Optional[Postprocessor] = None) -> None:
         metric = partial(roc_auc_score, multi_class="ovr")  # We multi-class mode to be one-vs-rest.
-        super().__init__(model, metric, metric_requires_probabilities=True)
+        super().__init__(model, metric, postprocessor=postprocessor, metric_requires_probabilities=True)
 
     # def _model_predict(self, model: SklearnModelOrPipeline, X_test: NDArray | DataFrame) -> NDArray:
     #     y_test_pred_proba = model.predict_proba(X_test)
@@ -558,8 +558,9 @@ class SklearnModelEqualizedOddsDifference(SklearnModelUtility):
         model: SklearnModelOrPipeline,
         sensitive_features: int | Sequence[int] | str | Sequence[str],
         groupings: Optional[NDArray] = None,
+        postprocessor: Optional[Postprocessor] = None,
     ) -> None:
-        super().__init__(model, None)
+        super().__init__(model, None, postprocessor=postprocessor)
         if not isinstance(sensitive_features, collections.abc.Sequence):
             sensitive_features = [sensitive_features]
         self._sensitive_features = sensitive_features
