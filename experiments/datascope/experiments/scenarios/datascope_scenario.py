@@ -169,7 +169,6 @@ IMPORTANCE_METHODS = {
     RepairMethod.TMC_PIPE_1000: ImportanceMethod.MONTECARLO,
 }
 
-
 MC_ITERATIONS = {
     RepairMethod.KNN_Single: 0,
     RepairMethod.KNN_Interactive: 0,
@@ -245,6 +244,7 @@ class DatascopeScenario(Scenario, abstract=True):
         utility: UtilityType,
         iteration: int,
         model: ModelSpec = DEFAULT_MODEL,
+        postprocessor: Optional[str] = None,
         trainbias: float = DEFAULT_TRAIN_BIAS,
         valbias: float = DEFAULT_VAL_BIAS,
         biasmethod: BiasMethod = DEFAULT_BIAS_METHOD,
@@ -272,6 +272,7 @@ class DatascopeScenario(Scenario, abstract=True):
         self._utility = utility
         self._iteration = iteration
         self._model = model
+        self._postprocessor = postprocessor
         self._trainbias = trainbias
         self._valbias = valbias
         self._biasmethod = biasmethod
@@ -310,6 +311,11 @@ class DatascopeScenario(Scenario, abstract=True):
     def model(self) -> ModelSpec:
         """Model used to make predictions."""
         return self._model
+
+    @attribute(domain=[None])
+    def postprocessor(self) -> Optional[str]:
+        """Postprocessor used to perform final processing of model predictions."""
+        return self._postprocessor
 
     @attribute
     def trainbias(self) -> float:

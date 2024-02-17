@@ -630,7 +630,7 @@ class MiniLMEmbeddingPipeline(Pipeline, id="mini-lm", summary="MiniLM Embedding"
         return cls(ops)
 
 
-# Source: https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2
+# Source: https://huggingface.co/sentence-transformers/paraphrase-albert-small-v2
 class AlbertSmallEmbeddingPipeline(
     Pipeline, id="albert-small-v2", summary="ALBERT Small", modalities=[TextDatasetMixin]
 ):

@@ -247,35 +247,45 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
         # pipeline.steps.append(("model", model))
         # if RepairMethod.is_pipe(self.method):
         #     model = model_pipeline
-        accuracy_utility = SklearnModelAccuracy(model)
+        accuracy_utility = SklearnModelAccuracy(model, postprocessor=self.postprocessor)
+        roc_auc_utility = SklearnModelRocAuc(model, postprocessor=self.postprocessor)
         eqodds_utility: Optional[SklearnModelEqualizedOddsDifference] = None
         if self.repairgoal == RepairGoal.FAIRNESS:
             assert isinstance(dataset, BiasedNoisyLabelDataset)
             eqodds_utility = SklearnModelEqualizedOddsDifference(
-                model, sensitive_features=dataset.sensitive_feature, groupings=groupings_test
+                model,
+                sensitive_features=dataset.sensitive_feature,
+                groupings=groupings_test,
+                postprocessor=self.postprocessor,
             )
 
         # target_model = model if RepairMethod.is_tmc_nonpipe(self.method) else pipeline
         target_utility: Utility
         if self.utility == UtilityType.ACCURACY:
-            target_utility = JointUtility(SklearnModelAccuracy(model), weights=[-1.0])
+            target_utility = JointUtility(SklearnModelAccuracy(model, postprocessor=self.postprocessor), weights=[-1.0])
             # target_utility = SklearnModelAccuracy(model)
         elif self.utility == UtilityType.EQODDS:
             assert self.repairgoal == RepairGoal.FAIRNESS and isinstance(dataset, BiasedNoisyLabelDataset)
             target_utility = SklearnModelEqualizedOddsDifference(
-                model, sensitive_features=dataset.sensitive_feature, groupings=groupings_val
+                model,
+                sensitive_features=dataset.sensitive_feature,
+                groupings=groupings_val,
+                postprocessor=self.postprocessor,
             )
         elif self.utility == UtilityType.EQODDS_AND_ACCURACY:
             assert self.repairgoal == RepairGoal.FAIRNESS and isinstance(dataset, BiasedNoisyLabelDataset)
             target_utility = JointUtility(
-                SklearnModelAccuracy(model),
+                SklearnModelAccuracy(model, postprocessor=self.postprocessor),
                 SklearnModelEqualizedOddsDifference(
-                    model, sensitive_features=dataset.sensitive_feature, groupings=groupings_val
+                    model,
+                    sensitive_features=dataset.sensitive_feature,
+                    groupings=groupings_val,
+                    postprocessor=self.postprocessor,
                 ),
                 weights=[-0.5, 0.5],
             )
         elif self.utility == UtilityType.ROC_AUC:
-            target_utility = JointUtility(SklearnModelRocAuc(model), weights=[-1.0])
+            target_utility = JointUtility(SklearnModelRocAuc(model, postprocessor=self.postprocessor), weights=[-1.0])
         else:
             raise ValueError("Unknown utility type '%s'." % repr(self.utility))
 
@@ -359,11 +369,20 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
             metadata_train=dataset_dirty_f.metadata_train,
             metadata_test=dataset_f.metadata_test,
         )
+        roc_auc = roc_auc_utility(
+            dataset_dirty_f.X_train,
+            dataset_dirty_f.y_train,
+            dataset_f.X_test,
+            dataset_f.y_test,
+            metadata_train=dataset_dirty_f.metadata_train,
+            metadata_test=dataset_f.metadata_test,
+        )
 
         # Update result table.
-        evolution = [[0.0, eqodds, eqodds, accuracy, accuracy, 0, 0.0, 0, 0.0, 0.0]]
+        evolution = [[0.0, eqodds, eqodds, accuracy, accuracy, roc_auc, roc_auc, 0, 0.0, 0, 0.0, 0.0]]
         eqodds_start = eqodds
         accuracy_start = accuracy
+        roc_auc_start = roc_auc
 
         # Set up progress bar.
         checkpoints = self.checkpoints if self.checkpoints > 0 and self.checkpoints < n_units else n_units
@@ -409,6 +428,14 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
                 metadata_train=dataset_dirty_f.metadata_train,
                 metadata_test=dataset_dirty_f.metadata_test,
             )
+            roc_auc = roc_auc_utility(
+                dataset_dirty_f.X_train,
+                dataset_dirty.y_train,
+                dataset_dirty_f.X_test,
+                dataset_dirty_f.y_test,
+                metadata_train=dataset_dirty_f.metadata_train,
+                metadata_test=dataset_dirty_f.metadata_test,
+            )
 
             # self.logger.debug("Dirty units: %.2f", np.sum(dataset_dirty.units_dirty))
             # self.logger.debug("Same labels: %.2f", np.sum(dataset_dirty.y_train == dataset.y_train))
@@ -426,6 +453,8 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
                     eqodds,
                     accuracy,
                     accuracy,
+                    roc_auc,
+                    roc_auc,
                     repaired,
                     repaired_rel,
                     discovered,
@@ -461,6 +490,8 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
                 "eqodds_rel",
                 "accuracy",
                 "accuracy_rel",
+                "roc_auc",
+                "roc_auc_rel",
                 "repaired",
                 "repaired_rel",
                 "discovered",
@@ -483,11 +514,17 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
             # Otherwise drop those columns.
             self._evolution.drop(["eqodds", "eqodds_rel"], axis=1, inplace=True)
 
-        # Recompute relative accuracy.
+        # Recompute relative accuracy and ROC AUC.
         accuracy_end = accuracy
         accuracy_delta = accuracy_end - accuracy_start
         self._evolution["accuracy_rel"] = self._evolution["accuracy_rel"].apply(
             lambda x: (x - accuracy_start) / accuracy_delta
+        )
+        roc_auc_end = roc_auc
+        roc_auc_min = min(roc_auc_start, roc_auc_end)
+        roc_auc_delta = abs(roc_auc_end - roc_auc_start)
+        self._evolution["roc_auc_rel"] = self._evolution["roc_auc_rel"].apply(
+            lambda x: (x - roc_auc_min) / roc_auc_delta
         )
 
         # Close progress bar.
