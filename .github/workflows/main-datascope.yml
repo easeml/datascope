@@ -93,6 +93,7 @@ jobs:
         echo "(github.ref_type == 'tag') == ${{ github.ref_type == 'tag' }}"
         echo "needs.version.outputs == ${{ needs.version.outputs }}"
         echo "format('v{0}', needs.version.outputs.version) == ${{ format('v{0}', needs.version.outputs.version) }}"
+        echo "github.ref_name == ${{ github.ref_name }}"
         echo "(github.ref_name == format('v{0}', needs.version.outputs.version)) == ${{ github.ref_name == format('v{0}', needs.version.outputs.version) }}"
         echo "(github.ref_type == 'tag' && github.ref_name == format('v{0}', needs.version.outputs.version) ) == ${{ (github.ref_type == 'tag' && github.ref_name == format('v{0}', needs.version.outputs.version) ) }}"
         echo "(inputs.publish == true) == ${{ inputs.publish == true }}"
