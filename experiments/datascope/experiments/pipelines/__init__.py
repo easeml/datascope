@@ -18,6 +18,8 @@ from .base import (
 
 from .models import get_model, ModelType, DistanceModelMixin, KEYWORD_REPLACEMENTS as MODEL_KEYWORD_REPLACEMENTS
 
+from .postprocessors import Postprocessor
+
 __all__ = [
     "Pipeline",
     "IdentityPipeline",
@@ -38,4 +40,5 @@ __all__ = [
     "ModelType",
     "DistanceModelMixin",
     "MODEL_KEYWORD_REPLACEMENTS",
+    "Postprocessor",
 ]
