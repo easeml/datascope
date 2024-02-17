@@ -69,7 +69,7 @@ jobs:
     name: Packge and Publish
     needs: [test, version]
     uses: easeml/datascope/.github/workflows/reusable-publish.yml@main
-    if: ${{ (github.ref_type == 'tag' && github.ref_name == format('v{0}', needs.version.output.version) ) || inputs.publish == true }}
+    if: ${{ (github.ref_type == 'tag' && github.ref_name == format('v{0}', needs.version.outputs.version) ) || inputs.publish == true }}
     secrets: inherit
     with:
       package-path: "."
@@ -91,9 +91,9 @@ jobs:
         echo github.ref_name=${{ github.ref_name }}
         echo github.ref_type=${{ github.ref_type }}
         echo "(github.ref_type == 'tag') == ${{ github.ref_type == 'tag' }}"
-        echo "needs.version.output == ${{ needs.version.output }}"
-        echo "format('v{0}', needs.version.output.version) == ${{ format('v{0}', needs.version.output.version) }}"
-        echo "(github.ref_name == format('v{0}', needs.version.output.version)) == ${{ github.ref_name == format('v{0}', needs.version.output.version) }}"
-        echo "(github.ref_type == 'tag' && github.ref_name == format('v{0}', needs.version.output.version) ) == ${{ (github.ref_type == 'tag' && github.ref_name == format('v{0}', needs.version.output.version) ) }}"
+        echo "needs.version.outputs == ${{ needs.version.outputs }}"
+        echo "format('v{0}', needs.version.outputs.version) == ${{ format('v{0}', needs.version.outputs.version) }}"
+        echo "(github.ref_name == format('v{0}', needs.version.outputs.version)) == ${{ github.ref_name == format('v{0}', needs.version.outputs.version) }}"
+        echo "(github.ref_type == 'tag' && github.ref_name == format('v{0}', needs.version.outputs.version) ) == ${{ (github.ref_type == 'tag' && github.ref_name == format('v{0}', needs.version.outputs.version) ) }}"
         echo "(inputs.publish == true) == ${{ inputs.publish == true }}"
-        echo "((github.ref_type == 'tag' && github.ref_name == format('v{0}', needs.version.output.version) ) || inputs.publish == true) == ${{ (github.ref_type == 'tag' && github.ref_name == format('v{0}', needs.version.output.version) ) || inputs.publish == true }}"
+        echo "((github.ref_type == 'tag' && github.ref_name == format('v{0}', needs.version.outputs.version) ) || inputs.publish == true) == ${{ (github.ref_type == 'tag' && github.ref_name == format('v{0}', needs.version.outputs.version) ) || inputs.publish == true }}"
