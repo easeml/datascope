@@ -60,11 +60,9 @@ from typing import (
 
 
 class Queue(Protocol):
-    def get(self, block: bool = True, timeout: Optional[float] = None) -> Any:
-        ...
+    def get(self, block: bool = True, timeout: Optional[float] = None) -> Any: ...
 
-    def put(self, item: Any, block: bool = True, timeout: Optional[float] = None) -> None:
-        ...
+    def put(self, item: Any, block: bool = True, timeout: Optional[float] = None) -> None: ...
 
 
 class PropertyTag(property):
@@ -337,7 +335,7 @@ def load_dict(dirpath: str, basename: str) -> Dict[str, Any]:
         if ext == ".npy":
             res[name] = np.load(path)
         elif ext == ".csv":
-            res[name] = pd.read_csv(path)
+            res[name] = pd.read_csv(path, index_col=0)
         elif ext == ".yaml":
             with open(path) as f:
                 res[name] = yaml.safe_load(f)
