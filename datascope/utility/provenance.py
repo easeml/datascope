@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import collections.abc
 import itertools
 import numpy as np
@@ -74,7 +76,7 @@ class Units(Mapping[Hashable, "Units.Unit"]):
             return self._key
 
         @property
-        def parent(self) -> "Units":
+        def parent(self) -> Units:
             return self._parent
 
         def __repr__(self) -> str:
@@ -83,7 +85,7 @@ class Units(Mapping[Hashable, "Units.Unit"]):
         def __deepcopy__(self, memo):
             return Units.Unit(key=self._key, parent=self._parent)
 
-        def __eq__(self, other: object) -> "Equality":  # type: ignore
+        def __eq__(self, other: object) -> Equality:  # type: ignore
             if not isinstance(other, Hashable):
                 raise ValueError(
                     "An equality predicate must involve a unit on the LHS and a hashable object on the RHS."
@@ -175,9 +177,7 @@ class Units(Mapping[Hashable, "Units.Unit"]):
         )
         return target
 
-    def union(
-        self, other: "Units", prefix: Optional[Hashable] = None, other_prefix: Optional[Hashable] = None
-    ) -> "Units":
+    def union(self, other: Units, prefix: Optional[Hashable] = None, other_prefix: Optional[Hashable] = None) -> Units:
         target = self if prefix is None else self.prefix(prefix)
         other = other if other_prefix is None else other.prefix(other_prefix)
         for key in other._units_index:
@@ -214,7 +214,7 @@ class Expression(ABC):
         return self._units
 
     @classmethod
-    def from_data(cls: Type["Expression"], data: NDArray[np.int_], units: Units) -> "Expression":
+    def from_data(cls: Type[Expression], data: NDArray[np.int_], units: Units) -> Expression:
         if data.ndim == 1:
             return Equality.from_data(data=data, units=units)
         elif data.ndim == 2:
@@ -250,16 +250,16 @@ class Equality(Expression):
     def __repr__(self) -> str:
         return "%s == %s" % (repr(self._unit), repr(self._value))
 
-    def __deepcopy__(self, memo: dict) -> "Equality":
+    def __deepcopy__(self, memo: dict) -> Equality:
         return Equality(unit=deepcopy(self._unit, memo), value=self._value)
 
     @overload
-    def __and__(self, other: "Equality" | "Conjunction") -> "Conjunction": ...
+    def __and__(self, other: Equality | Conjunction) -> Conjunction: ...
 
     @overload
-    def __and__(self, other: "Disjunction") -> "Disjunction": ...
+    def __and__(self, other: Disjunction) -> Disjunction: ...
 
-    def __and__(self, other: Expression) -> "Expression":
+    def __and__(self, other: Expression) -> Expression:
         if isinstance(other, Equality):
             return Conjunction(deepcopy(self), deepcopy(other))
         elif isinstance(other, Conjunction):
@@ -269,7 +269,7 @@ class Equality(Expression):
         else:
             raise ValueError("Unsupported operand type '%s'." % type(other))
 
-    def __or__(self, other: Expression) -> "Disjunction":
+    def __or__(self, other: Expression) -> Disjunction:
         if isinstance(other, Equality):
             return Disjunction(Conjunction(deepcopy(self)), Conjunction(deepcopy(other)))
         elif isinstance(other, Conjunction):
@@ -285,7 +285,7 @@ class Equality(Expression):
         return np.array([units.units_index[self._unit._key], units.candidates_index[self._value]], dtype=np.int_)
 
     @classmethod
-    def from_data(cls: Type["Expression"], data: NDArray[np.int_], units: Units) -> "Equality":
+    def from_data(cls: Type[Expression], data: NDArray[np.int_], units: Units) -> Equality:
         if data.ndim != 1:
             raise ValueError("The provided data array has %d dimensions but 1 was expected." % data.ndim)
         if data.shape[0] != 2:
@@ -307,12 +307,12 @@ class Conjunction(Expression):
         return " & ".join("(%s)" % repr(element) for element in self._elements)
 
     @overload
-    def __and__(self, other: Equality | "Conjunction") -> "Conjunction": ...
+    def __and__(self, other: Equality | Conjunction) -> Conjunction: ...
 
     @overload
-    def __and__(self, other: "Disjunction") -> "Disjunction": ...
+    def __and__(self, other: Disjunction) -> Disjunction: ...
 
-    def __and__(self, other: Expression) -> "Expression":
+    def __and__(self, other: Expression) -> Expression:
         if isinstance(other, Equality):
             return Conjunction(*[deepcopy(e) for e in self._elements] + [deepcopy(other)])
         elif isinstance(other, Conjunction):
@@ -322,7 +322,7 @@ class Conjunction(Expression):
         else:
             raise ValueError("Unsupported operand type '%s'." % type(other))
 
-    def __or__(self, other: Expression) -> "Disjunction":
+    def __or__(self, other: Expression) -> Disjunction:
         if isinstance(other, Equality):
             return Disjunction(deepcopy(self), Conjunction(deepcopy(other)))
         elif isinstance(other, Conjunction):
@@ -337,7 +337,7 @@ class Conjunction(Expression):
         return np.stack([element.data for element in self._elements], axis=0, dtype=np.int_)
 
     @classmethod
-    def from_data(cls: Type["Expression"], data: NDArray[np.int_], units: Units) -> "Conjunction":
+    def from_data(cls: Type[Expression], data: NDArray[np.int_], units: Units) -> Conjunction:
         if data.ndim != 2:
             raise ValueError("The provided data array has %d dimensions but 2 was expected." % data.ndim)
         elements = [Equality.from_data(data[i], units) for i in range(data.shape[0]) if not np.any(data[i] == -1)]
@@ -359,7 +359,7 @@ class Disjunction(Expression):
     def __repr__(self) -> str:
         return " | ".join("(%s)" % repr(element) for element in self._elements)
 
-    def __and__(self, other: Expression) -> "Disjunction":
+    def __and__(self, other: Expression) -> Disjunction:
         if isinstance(other, Equality) or isinstance(other, Conjunction):
             return Disjunction(*[e & other for e in self._elements])
         elif isinstance(other, Disjunction):
@@ -367,7 +367,7 @@ class Disjunction(Expression):
         else:
             raise ValueError("Unsupported operand type '%s'." % type(other))
 
-    def __or__(self, other: Expression) -> "Disjunction":
+    def __or__(self, other: Expression) -> Disjunction:
         if isinstance(other, Equality):
             return Disjunction(*[deepcopy(e) for e in self._elements] + [Conjunction(deepcopy(other))])
         elif isinstance(other, Conjunction):
@@ -384,7 +384,7 @@ class Disjunction(Expression):
         return np.stack([_pad_array(data, shape) for data in element_data], axis=0, dtype=np.int_)
 
     @classmethod
-    def from_data(cls: Type["Expression"], data: NDArray[np.int_], units: Units) -> "Disjunction":
+    def from_data(cls: Type[Expression], data: NDArray[np.int_], units: Units) -> Disjunction:
         if data.ndim != 3:
             raise ValueError("The provided data array has %d dimensions but 3 was expected." % data.ndim)
         elements = [Conjunction.from_data(data[i], units) for i in range(data.shape[0]) if not np.all(data[i] == -1)]
@@ -561,12 +561,12 @@ class Provenance(MutableSequence[Expression]):
     def __getitem__(self, index: int) -> Expression: ...
 
     @overload
-    def __getitem__(self, index: slice) -> "Provenance": ...
+    def __getitem__(self, index: slice) -> Provenance: ...
 
     @overload
     def __getitem__(
         self, index: Sequence[int] | Sequence[bool] | NDArray[np.int_] | NDArray[np.bool_]
-    ) -> "Provenance": ...
+    ) -> Provenance: ...
 
     def __getitem__(
         self, index: int | slice | Sequence[int] | Sequence[bool] | NDArray[np.int_] | NDArray[np.bool_]
@@ -654,15 +654,15 @@ class Provenance(MutableSequence[Expression]):
             result = np.argwhere(result)
         return result
 
-    def fork(self, size: int | Sequence[int] | NDArray[np.int_]) -> "Provenance":
+    def fork(self, size: int | Sequence[int] | NDArray[np.int_]) -> Provenance:
         return Provenance(units=self._units, data=self._data.repeat(size, axis=0))
 
-    def join(self, other: "Provenance", prefix: Optional[Hashable], other_prefix: Optional[Hashable]) -> "Provenance":
+    def join(self, other: Provenance, prefix: Optional[Hashable], other_prefix: Optional[Hashable]) -> Provenance:
         units = self._units.union(other=other._units, prefix=prefix, other_prefix=other_prefix)
         self_data = np.repeat(self._data, len(other), axis=0)
         other_data = np.tile(other._data, (len(self), 1, 1, 1))
         data = np.stack([self_data, other_data], axis=2, dtype=np.int_)
         return Provenance(units=units, data=data)
 
-    def filter(self, selector: Sequence[bool] | NDArray[np.bool_]) -> "Provenance":
+    def filter(self, selector: Sequence[bool] | NDArray[np.bool_]) -> Provenance:
         return Provenance(units=self._units, data=np.delete(self._data, selector, axis=0))
