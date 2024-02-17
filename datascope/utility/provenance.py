@@ -19,6 +19,7 @@ from typing import (
     Hashable,
     TypeVar,
     Type,
+    Union,
     overload,
 )
 
@@ -100,8 +101,8 @@ class Units(Mapping[Hashable, "Units.Unit"]):
 
     def __init__(
         self,
-        units: Sequence[Hashable] | int | None = None,
-        candidates: Sequence[Hashable] | int | None = None,
+        units: Optional[Union[Sequence[Hashable], int]] = None,
+        candidates: Optional[Union[Sequence[Hashable], int]] = None,
         *,
         name: str = "x",
     ) -> None:
@@ -201,7 +202,7 @@ class Expression(ABC):
         self._units = units
 
     @abstractmethod
-    def eval(self, values: Sequence[Hashable] | Dict[Hashable, Hashable] | NDArray[np.int_]) -> bool:
+    def eval(self, values: Union[Sequence[Hashable], Dict[Hashable, Hashable], NDArray[np.int_]]) -> bool:
         pass
 
     @property
@@ -239,7 +240,7 @@ class Equality(Expression):
     def value(self) -> Hashable:
         return self._value
 
-    def eval(self, values: Sequence[Hashable] | Dict[Hashable, Hashable] | NDArray[np.int_]) -> bool:
+    def eval(self, values: Union[Sequence[Hashable], Dict[Hashable, Hashable], NDArray[np.int_]]) -> bool:
         if isinstance(values, dict):
             default_candidate = next(iter(self._units.candidates))
             return values.get(self._unit.key, default_candidate) == self.value
@@ -254,7 +255,7 @@ class Equality(Expression):
         return Equality(unit=deepcopy(self._unit, memo), value=self._value)
 
     @overload
-    def __and__(self, other: Equality | Conjunction) -> Conjunction: ...
+    def __and__(self, other: Union[Equality, Conjunction]) -> Conjunction: ...
 
     @overload
     def __and__(self, other: Disjunction) -> Disjunction: ...
@@ -300,14 +301,14 @@ class Conjunction(Expression):
         super().__init__(units=elements[0].units)
         self._elements = list(elements)
 
-    def eval(self, values: Sequence[Hashable] | Dict[Hashable, Hashable] | NDArray[np.int_]) -> bool:
+    def eval(self, values: Union[Sequence[Hashable], Dict[Hashable, Hashable], NDArray[np.int_]]) -> bool:
         return all(e.eval(values) for e in self._elements)
 
     def __repr__(self) -> str:
         return " & ".join("(%s)" % repr(element) for element in self._elements)
 
     @overload
-    def __and__(self, other: Equality | Conjunction) -> Conjunction: ...
+    def __and__(self, other: Union[Equality, Conjunction]) -> Conjunction: ...
 
     @overload
     def __and__(self, other: Disjunction) -> Disjunction: ...
@@ -353,7 +354,7 @@ class Disjunction(Expression):
             raise ValueError("The provided elements must be either a conjunction or a disjunction.")
         self._elements: List[Conjunction] = list(elements)
 
-    def eval(self, values: Sequence[Hashable] | Dict[Hashable, Hashable] | NDArray[np.int_]) -> bool:
+    def eval(self, values: Union[Sequence[Hashable], Dict[Hashable, Hashable], NDArray[np.int_]]) -> bool:
         return any(e.eval(values) for e in self._elements)
 
     def __repr__(self) -> str:
@@ -438,9 +439,9 @@ class Provenance(MutableSequence[Expression]):
         self,
         expressions: Optional[Sequence[Expression]] = None,
         *,
-        units: Optional[Units | Sequence[Hashable] | int] = None,
-        candidates: Sequence[Hashable] | int = 2,
-        data: Optional[Sequence[int] | NDArray[np.int_]] = None,
+        units: Optional[Union[Units, Sequence[Hashable], int]] = None,
+        candidates: Union[Sequence[Hashable], int] = 2,
+        data: Optional[Union[Sequence[int], NDArray[np.int_]]] = None,
     ) -> None:
         self._is_simple = False
 
@@ -565,12 +566,12 @@ class Provenance(MutableSequence[Expression]):
 
     @overload
     def __getitem__(
-        self, index: Sequence[int] | Sequence[bool] | NDArray[np.int_] | NDArray[np.bool_]
+        self, index: Union[Sequence[int], Sequence[bool], NDArray[np.int_], NDArray[np.bool_]]
     ) -> Provenance: ...
 
     def __getitem__(
-        self, index: int | slice | Sequence[int] | Sequence[bool] | NDArray[np.int_] | NDArray[np.bool_]
-    ) -> Expression | "Provenance":
+        self, index: Union[int, slice, Sequence[int], Sequence[bool], NDArray[np.int_], NDArray[np.bool_]]
+    ) -> Union[Expression, "Provenance"]:
         if isinstance(index, int):
             return Expression.from_data(self._data[index], self._units)
         else:
@@ -590,8 +591,8 @@ class Provenance(MutableSequence[Expression]):
 
     def __setitem__(
         self,
-        index: int | slice | Sequence[int] | Sequence[bool] | NDArray[np.int_] | NDArray[np.bool_],
-        value: Expression | Iterable[Expression],
+        index: Union[int, slice, Sequence[int], Sequence[bool], NDArray[np.int_], NDArray[np.bool_]],
+        value: Union[Expression, Iterable[Expression]],
     ) -> None:
         expression_data = [value.data] if isinstance(value, Expression) else list(v.data for v in value)
         expression_data = [
@@ -617,10 +618,10 @@ class Provenance(MutableSequence[Expression]):
     def __delitem__(self, index: slice) -> None: ...
 
     @overload
-    def __delitem__(self, index: Sequence[int] | Sequence[bool] | NDArray[np.int_] | NDArray[np.bool_]) -> None: ...
+    def __delitem__(self, index: Union[Sequence[int], Sequence[bool], NDArray[np.int_], NDArray[np.bool_]]) -> None: ...
 
     def __delitem__(
-        self, index: int | slice | Sequence[int] | Sequence[bool] | NDArray[np.int_] | NDArray[np.bool_]
+        self, index: Union[int, slice, Sequence[int], Sequence[bool], NDArray[np.int_], NDArray[np.bool_]]
     ) -> None:
         self._data = np.delete(self._data, index, axis=0)
 
@@ -632,8 +633,8 @@ class Provenance(MutableSequence[Expression]):
         self[index] = value
 
     def query(
-        self, values: Sequence[int] | Dict[Hashable, Hashable] | NDArray[np.int_], dtype: type = bool
-    ) -> NDArray[np.int_] | NDArray[np.bool_]:
+        self, values: Union[Sequence[int], Dict[Hashable, Hashable], NDArray[np.int_]], dtype: type = bool
+    ) -> Union[NDArray[np.int_], NDArray[np.bool_]]:
         if isinstance(values, dict):
             default_candidate = self._units.candidates[0]
             values = [self._units.candidates_index[values.get(x, default_candidate)] for x in self.units]
@@ -654,7 +655,7 @@ class Provenance(MutableSequence[Expression]):
             result = np.argwhere(result)
         return result
 
-    def fork(self, size: int | Sequence[int] | NDArray[np.int_]) -> Provenance:
+    def fork(self, size: Union[int, Sequence[int], NDArray[np.int_]]) -> Provenance:
         return Provenance(units=self._units, data=self._data.repeat(size, axis=0))
 
     def join(self, other: Provenance, prefix: Optional[Hashable], other_prefix: Optional[Hashable]) -> Provenance:
@@ -664,5 +665,5 @@ class Provenance(MutableSequence[Expression]):
         data = np.stack([self_data, other_data], axis=2, dtype=np.int_)
         return Provenance(units=units, data=data)
 
-    def filter(self, selector: Sequence[bool] | NDArray[np.bool_]) -> Provenance:
+    def filter(self, selector: Union[Sequence[bool], NDArray[np.bool_]]) -> Provenance:
         return Provenance(units=self._units, data=np.delete(self._data, selector, axis=0))

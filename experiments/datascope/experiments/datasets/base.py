@@ -453,7 +453,7 @@ class Dataset(ABC):
             self._seed,
         )
 
-    def select_train(self, index: Sequence[int] | Sequence[bool] | NDArray[np.int_] | NDArray[np.bool_]) -> "Dataset":
+    def select_train(self, index: Union[Sequence[int], Sequence[bool], NDArray[np.int_], NDArray[np.bool_]]) -> "Dataset":
         result = deepcopy(self)
         result.X_train = self.X_train[index]
         result.y_train = self.y_train[index]

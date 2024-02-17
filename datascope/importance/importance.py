@@ -2,7 +2,7 @@ from abc import abstractmethod
 from numpy import ndarray
 from numpy.typing import NDArray
 from pandas import DataFrame
-from typing import Optional, Iterable
+from typing import Optional, Iterable, Union
 
 from ..utility import Provenance
 
@@ -16,16 +16,16 @@ class Importance:
 
     @abstractmethod
     def _fit(
-        self, X: NDArray, y: NDArray, metadata: Optional[NDArray | DataFrame], provenance: Provenance
+        self, X: NDArray, y: NDArray, metadata: Optional[Union[NDArray, DataFrame]], provenance: Provenance
     ) -> "Importance":
         raise NotImplementedError()
 
     def fit(
         self,
-        X: NDArray | DataFrame,
-        y: NDArray | DataFrame,
-        metadata: Optional[NDArray | DataFrame] = None,
-        provenance: Optional[Provenance | NDArray] = None,
+        X: Union[NDArray, DataFrame],
+        y: Union[NDArray, DataFrame],
+        metadata: Optional[Union[NDArray, DataFrame]] = None,
+        provenance: Optional[Union[Provenance, NDArray]] = None,
     ) -> "Importance":
         if hasattr(X, "provenance") and provenance is None:
             provenance = getattr(X, "provenance")
@@ -41,15 +41,15 @@ class Importance:
 
     @abstractmethod
     def _score(
-        self, X: NDArray, y: Optional[NDArray] = None, metadata: Optional[NDArray | DataFrame] = None, **kwargs
+        self, X: NDArray, y: Optional[NDArray] = None, metadata: Optional[Union[NDArray, DataFrame]] = None, **kwargs
     ) -> Iterable[float]:
         raise NotImplementedError()
 
     def score(
         self,
-        X: NDArray | DataFrame,
-        y: Optional[NDArray | DataFrame] = None,
-        metadata: Optional[NDArray | DataFrame] = None,
+        X: Union[NDArray, DataFrame],
+        y: Optional[Union[NDArray, DataFrame]] = None,
+        metadata: Optional[Union[NDArray, DataFrame]] = None,
         **kwargs
     ) -> Iterable[float]:
         if isinstance(X, DataFrame):

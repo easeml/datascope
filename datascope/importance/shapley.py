@@ -23,7 +23,7 @@ except ImportError:
 from sklearn.pipeline import Pipeline
 
 from typing_extensions import Literal
-from typing import Dict, List, Optional, Iterable, Set, Tuple, Sequence, Hashable
+from typing import Dict, List, Optional, Iterable, Set, Tuple, Sequence, Hashable, Union
 
 from ..utility import Provenance
 from .common import DEFAULT_SEED, DistanceCallable, Utility
@@ -277,9 +277,9 @@ class ShapleyImportance(Importance):
         self.mc_preextract = mc_preextract
         self.nn_k = nn_k
         self.nn_distance = nn_distance
-        self.X_train: Optional[NDArray | DataFrame] = None
+        self.X_train: Optional[Union[NDArray, DataFrame]] = None
         self.y_train: Optional[NDArray] = None
-        self.metadata_train: Optional[NDArray | DataFrame] = None
+        self.metadata_train: Optional[Union[NDArray, DataFrame]] = None
         self.provenance: Optional[Provenance] = None
         self.randomstate = np.random.RandomState(seed)
         self.label_encoder = LabelEncoder()
@@ -287,9 +287,9 @@ class ShapleyImportance(Importance):
 
     def _fit(
         self,
-        X: NDArray | DataFrame,
-        y: NDArray | Series,
-        metadata: Optional[NDArray | DataFrame],
+        X: Union[NDArray, DataFrame],
+        y: Union[NDArray, Series],
+        metadata: Optional[Union[NDArray, DataFrame]],
         provenance: Provenance,
     ) -> "ShapleyImportance":
         self.X_train = X
@@ -300,11 +300,11 @@ class ShapleyImportance(Importance):
 
     def _score(
         self,
-        X: NDArray | DataFrame,
-        y: Optional[NDArray | Series] = None,
-        metadata: Optional[NDArray | DataFrame] = None,
-        units: Optional[Sequence[Hashable] | NDArray[np.int32]] = None,
-        world: Optional[Sequence[Hashable] | NDArray[np.int32]] = None,
+        X: Union[NDArray, DataFrame],
+        y: Optional[Union[NDArray, Series]] = None,
+        metadata: Optional[Union[NDArray, DataFrame]] = None,
+        units: Optional[Union[Sequence[Hashable], NDArray[np.int32]]] = None,
+        world: Optional[Union[Sequence[Hashable], NDArray[np.int32]]] = None,
         **kwargs
     ) -> Iterable[float]:
         if self.X_train is None or self.y_train is None or self.provenance is None:
@@ -337,12 +337,12 @@ class ShapleyImportance(Importance):
 
     def _shapley(
         self,
-        X_train: NDArray | DataFrame,
+        X_train: Union[NDArray, DataFrame],
         y_train: NDArray,
-        X_test: NDArray | DataFrame,
+        X_test: Union[NDArray, DataFrame],
         y_test: NDArray,
-        metadata_train: Optional[NDArray | DataFrame],
-        metadata_test: Optional[NDArray | DataFrame],
+        metadata_train: Optional[Union[NDArray, DataFrame]],
+        metadata_test: Optional[Union[NDArray, DataFrame]],
         provenance: Provenance,
         units: NDArray[np.int32],
         world: NDArray[np.int32],
@@ -394,12 +394,12 @@ class ShapleyImportance(Importance):
 
     def _shapley_bruteforce(
         self,
-        X_train: NDArray | DataFrame,
+        X_train: Union[NDArray, DataFrame],
         y_train: NDArray,
-        X_test: NDArray | DataFrame,
+        X_test: Union[NDArray, DataFrame],
         y_test: NDArray,
-        metadata_train: Optional[NDArray | DataFrame],
-        metadata_test: Optional[NDArray | DataFrame],
+        metadata_train: Optional[Union[NDArray, DataFrame]],
+        metadata_test: Optional[Union[NDArray, DataFrame]],
         provenance: Provenance,
         units: NDArray[np.int32],
         world: NDArray[np.int32],
@@ -456,12 +456,12 @@ class ShapleyImportance(Importance):
 
     def _shapley_montecarlo(
         self,
-        X_train: NDArray | DataFrame,
+        X_train: Union[NDArray, DataFrame],
         y_train: NDArray,
-        X_test: NDArray | DataFrame,
+        X_test: Union[NDArray, DataFrame],
         y_test: NDArray,
-        metadata_train: Optional[NDArray | DataFrame],
-        metadata_test: Optional[NDArray | DataFrame],
+        metadata_train: Optional[Union[NDArray, DataFrame]],
+        metadata_test: Optional[Union[NDArray, DataFrame]],
         provenance: Provenance,
         units: NDArray[np.int32],
         world: NDArray[np.int32],
@@ -557,12 +557,12 @@ class ShapleyImportance(Importance):
 
     def _shapley_neighbor(
         self,
-        X_train: NDArray | DataFrame,
+        X_train: Union[NDArray, DataFrame],
         y_train: NDArray,
-        X_test: NDArray | DataFrame,
+        X_test: Union[NDArray, DataFrame],
         y_test: NDArray,
-        metadata_train: Optional[NDArray | DataFrame],
-        metadata_test: Optional[NDArray | DataFrame],
+        metadata_train: Optional[Union[NDArray, DataFrame]],
+        metadata_test: Optional[Union[NDArray, DataFrame]],
         provenance: Provenance,
         units: NDArray[np.int32],
         world: NDArray[np.int32],
