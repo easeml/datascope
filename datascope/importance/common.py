@@ -3,6 +3,7 @@ import numpy as np
 import warnings
 
 from abc import ABC, abstractmethod
+from copy import deepcopy
 from collections import defaultdict
 from functools import partial
 from numpy import ndarray
@@ -315,7 +316,7 @@ class SklearnModelUtility(Utility):
         y_train: NDArray | Series,
         metadata_train: Optional[NDArray | DataFrame],
     ) -> Postprocessor:
-        postprocessor = clone(postprocessor)
+        postprocessor = deepcopy(postprocessor)
         postprocessor.fit(X=X_train, y=y_train, metadata=metadata_train)
         return postprocessor
 
