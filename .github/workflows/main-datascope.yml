@@ -63,7 +63,7 @@ jobs:
       run: |
         VERSION=$(./dev/scripts/update-version.py datascope/version.py)
         echo VERSION=$VERSION
-        echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+        echo "VERSION=${VERSION}" >> "$GITHUB_OUTPUT"
   
   publish:
     name: Packge and Publish
