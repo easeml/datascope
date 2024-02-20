@@ -75,10 +75,10 @@ class Postprocessor(ABC):
     def transform(
         self,
         X: Union[NDArray, DataFrame],
-        y: Union[NDArray, Series],
+        y: Union[NDArray, Series, DataFrame],
         metadata: Optional[Union[NDArray, DataFrame]] = None,
         output_probabilities: bool = False,
-    ) -> Union[NDArray, Series]:
+    ) -> Union[NDArray, Series, DataFrame]:
         pass
 
 
@@ -94,10 +94,10 @@ class IdentityPostprocessor(Postprocessor):
     def transform(
         self,
         X: Union[NDArray, DataFrame],
-        y: Union[NDArray, Series],
+        y: Union[NDArray, Series, DataFrame],
         metadata: Optional[Union[NDArray, DataFrame]] = None,
         output_probabilities: bool = False,
-    ) -> Union[NDArray, Series]:
+    ) -> Union[NDArray, Series, DataFrame]:
         return y
 
 
@@ -289,10 +289,30 @@ class SklearnModelUtility(Utility):
                     X_test,
                     output_probabilities=self.metric_requires_probabilities or self.postprocessor.require_probabilities,
                 )
-                y_pred_processed = self._postprocessor_transform(postprocessor, X_test, y_pred, metadata_test)
-                if self.metric_requires_probabilities and y_pred_processed.shape[1] == 2:
-                    y_pred_processed = y_pred_processed[:, 1]
-                score = self._metric_score(self.metric, y_test, y_pred_processed, X_test=X_test)
+                y_pred_processed = self._postprocessor_transform(
+                    postprocessor,
+                    X_test,
+                    y_pred,
+                    metadata_test,
+                    output_probabilities=self.metric_requires_probabilities,
+                )
+                y_test_processed = self._postprocessor_transform(
+                    postprocessor,
+                    X_test,
+                    y_test,
+                    metadata_test,
+                    output_probabilities=False,
+                )
+
+                # If the processed targets are a Series or DataFrame instance, then will try to make sure they
+                # are shuffled the same way.
+                if isinstance(y_pred_processed, (Series, DataFrame)) and isinstance(
+                    y_test_processed, (Series, DataFrame)
+                ):
+                    y_pred_processed = y_pred_processed.loc[y_test_processed.index]
+
+                score = self._metric_score(self.metric, y_test_processed, y_pred_processed, X_test=X_test)
+
             except (ValueError, RuntimeWarning):
                 try:
                     return null_score if null_score is not None else self.null_score(X_train, y_train, X_test, y_test)
@@ -337,28 +357,61 @@ class SklearnModelUtility(Utility):
         y_pred: Union[NDArray, Series],
         metadata_test: Optional[Union[NDArray, DataFrame]],
         output_probabilities: bool = False,
-    ) -> NDArray:
+    ) -> Union[NDArray, Series, DataFrame]:
         if not isinstance(y_pred, ndarray):
             y_pred = y_pred.to_numpy()
         result = postprocessor.transform(
             X=X_test, y=y_pred, metadata=metadata_test, output_probabilities=output_probabilities
         )
-        if not isinstance(result, ndarray):
-            result = result.to_numpy()
         return result
+
+    def _process_metric_score_inputs(
+        self, y_test: Union[NDArray, Series, DataFrame], y_pred: Union[NDArray, Series, DataFrame]
+    ) -> Tuple[NDArray, NDArray]:
+
+        # If both outputs are Series, then we want to ensure that they are matched based on index.
+        if isinstance(y_pred, Series) and isinstance(y_test, Series):
+            y_pred = y_pred.loc[y_test.index]
+
+        # If any of the prediction inputs are Series, then we assume they are either series of scalar values
+        # or series of arrays. In the latter case, we stack them into a 2D array.
+        if isinstance(y_pred, Series):
+            y_pred = np.stack(y_pred.to_list())  # type: ignore
+        if isinstance(y_test, Series):
+            y_test = np.stack(y_test.to_list())  # type: ignore
+
+        # If any of the prediction inputs are DataFrames, then we assume that either there is a single column for
+        # the prediction label, or there are multiple columns for the prediction probabilities.
+        if isinstance(y_pred, DataFrame):
+            y_pred = y_pred.to_numpy()
+        if isinstance(y_test, DataFrame):
+            y_test = y_test.to_numpy()
+
+        # If the test labels are given as a 2D array of probabilities, then we need to select the most likely class.
+        if y_test.ndim == 2:
+            y_test = np.argmax(y_test, axis=1)
+
+        # If the predions are given as a 2D array of probabilities and there are only two classes, then we need to
+        # select the probabilities for the positive class.
+        if self.metric_requires_probabilities and y_pred.shape[1] == 2:
+            y_pred = y_pred[:, 1]
+
+        assert isinstance(y_test, np.ndarray) and isinstance(y_pred, np.ndarray)
+        return y_test, y_pred
 
     def _metric_score(
         self,
         metric: Optional[MetricCallable],
-        y_test: NDArray,
-        y_pred: NDArray,
+        y_test: Union[NDArray, Series, DataFrame],
+        y_pred: Union[NDArray, Series, DataFrame],
         *,
         X_test: Optional[Union[NDArray, DataFrame]] = None,
         indices: Optional[NDArray] = None,
     ) -> float:
         if metric is None:
             raise ValueError("The metric was not provided.")
-        return metric(y_test, y_pred)
+        y_test_processed, y_pred_processed = self._process_metric_score_inputs(y_test, y_pred)
+        return metric(y_test_processed, y_pred_processed)
 
     def null_score(
         self,
@@ -582,14 +635,15 @@ class SklearnModelEqualizedOddsDifference(SklearnModelUtility):
     def _metric_score(
         self,
         metric: Optional[MetricCallable],
-        y_test: NDArray,
-        y_pred: NDArray,
+        y_test: Union[NDArray, Series, DataFrame],
+        y_pred: Union[NDArray, Series, DataFrame],
         *,
         X_test: Optional[Union[NDArray, DataFrame]] = None,
         indices: Optional[NDArray] = None,
     ) -> float:
         assert X_test is not None
-        if list(sorted(np.unique(y_test))) != [0, 1]:
+        y_test_processed, y_pred_processed = self._process_metric_score_inputs(y_test, y_pred)
+        if list(sorted(np.unique(y_test_processed))) != [0, 1]:
             raise ValueError("This utility works only on binary classification problems.")
         groupings = self._groupings
         if groupings is None:
@@ -597,7 +651,7 @@ class SklearnModelEqualizedOddsDifference(SklearnModelUtility):
         elif indices is not None:
             groupings = groupings[indices]
             assert isinstance(groupings, ndarray)
-        return equalized_odds_diff(y_test, y_pred, groupings=groupings)
+        return equalized_odds_diff(y_test_processed, y_pred_processed, groupings=groupings)
 
     def elementwise_score(
         self,
