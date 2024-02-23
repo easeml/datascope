@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import collections.abc
 import numpy as np
 import warnings
@@ -5,6 +7,7 @@ import warnings
 from abc import ABC, abstractmethod
 from copy import deepcopy
 from collections import defaultdict
+from dataclasses import dataclass
 from functools import partial
 from numpy import ndarray
 from numpy.typing import NDArray
@@ -101,7 +104,13 @@ class IdentityPostprocessor(Postprocessor):
         return y
 
 
+@dataclass
+class UtilityResult(ABC):
+    score: float = 0.0
+
+
 class Utility(ABC):
+
     @abstractmethod
     def __call__(
         self,
@@ -113,7 +122,7 @@ class Utility(ABC):
         metadata_test: Optional[Union[NDArray, DataFrame]] = None,
         null_score: Optional[float] = None,
         seed: int = DEFAULT_SEED,
-    ) -> float:
+    ) -> UtilityResult:
         pass
 
     @abstractmethod
@@ -157,6 +166,10 @@ class Utility(ABC):
         raise NotImplementedError("This utility does not implement elementwise scoring.")
 
 
+class JointUtilityResult(UtilityResult):
+    utility_results: List[UtilityResult]
+
+
 class JointUtility(Utility):
     def __init__(self, *utilities: Utility, weights: Optional[Iterable[float]] = None) -> None:
         self._utilities = list(utilities)
@@ -180,8 +193,9 @@ class JointUtility(Utility):
         metadata_test: Optional[Union[NDArray, DataFrame]] = None,
         null_score: Optional[float] = None,
         seed: int = DEFAULT_SEED,
-    ) -> float:
-        scores = [
+    ) -> JointUtilityResult:
+        result = JointUtilityResult()
+        result.utility_results = [
             u(
                 X_train,
                 y_train,
@@ -194,9 +208,14 @@ class JointUtility(Utility):
             )
             for u in self._utilities
         ]
-        if any(np.isnan(x) for x in scores):
-            return null_score if null_score is not None else self.null_score(X_train, y_train, X_test, y_test)
-        return sum(w * s for w, s in zip(self._weights, scores))
+        if any(np.isnan(x.score) for x in result.utility_results):
+            if null_score is not None:
+                result.score = null_score
+            else:
+                result.score = self.null_score(X_train, y_train, X_test, y_test)
+        else:
+            result.score = sum(w * r.score for w, r in zip(self._weights, result.utility_results))
+        return result
 
     def null_score(
         self,
@@ -249,6 +268,14 @@ class JointUtility(Utility):
         return np.sum(scores, axis=0)
 
 
+class SklearnModelUtilityResult(UtilityResult):
+    model: SklearnModelOrPipeline
+    postprocessor: Postprocessor
+    y_pred: NDArray
+    y_pred_processed: Union[NDArray, Series, DataFrame]
+    y_test_processed: Union[NDArray, Series, DataFrame]
+
+
 class SklearnModelUtility(Utility):
     def __init__(
         self,
@@ -272,8 +299,8 @@ class SklearnModelUtility(Utility):
         metadata_test: Optional[Union[NDArray, DataFrame]] = None,
         null_score: Optional[float] = None,
         seed: int = DEFAULT_SEED,
-    ) -> float:
-        score = 0.0
+    ) -> UtilityResult:
+        result = SklearnModelUtilityResult()
         if not isinstance(y_test, ndarray):
             y_test = y_test.to_numpy()
         with warnings.catch_warnings():
@@ -282,22 +309,22 @@ class SklearnModelUtility(Utility):
             try:
                 # TODO: Ensure fit clears the model.
                 np.random.seed(seed)
-                model = self._model_fit(self.model, X_train, y_train)
-                postprocessor = self._postprocessor_fit(self.postprocessor, X_train, y_train, metadata_train)
-                y_pred = self._model_predict(
-                    model,
+                result.model = self._model_fit(self.model, X_train, y_train)
+                result.postprocessor = self._postprocessor_fit(self.postprocessor, X_train, y_train, metadata_train)
+                result.y_pred = self._model_predict(
+                    result.model,
                     X_test,
                     output_probabilities=self.metric_requires_probabilities or self.postprocessor.require_probabilities,
                 )
-                y_pred_processed = self._postprocessor_transform(
-                    postprocessor,
+                result.y_pred_processed = self._postprocessor_transform(
+                    result.postprocessor,
                     X_test,
-                    y_pred,
+                    result.y_pred,
                     metadata_test,
                     output_probabilities=self.metric_requires_probabilities,
                 )
-                y_test_processed = self._postprocessor_transform(
-                    postprocessor,
+                result.y_test_processed = self._postprocessor_transform(
+                    result.postprocessor,
                     X_test,
                     y_test,
                     metadata_test,
@@ -306,19 +333,24 @@ class SklearnModelUtility(Utility):
 
                 # If the processed targets are a Series or DataFrame instance, then will try to make sure they
                 # are shuffled the same way.
-                if isinstance(y_pred_processed, (Series, DataFrame)) and isinstance(
-                    y_test_processed, (Series, DataFrame)
+                if isinstance(result.y_pred_processed, (Series, DataFrame)) and isinstance(
+                    result.y_test_processed, (Series, DataFrame)
                 ):
-                    y_pred_processed = y_pred_processed.loc[y_test_processed.index]
+                    result.y_pred_processed = result.y_pred_processed.loc[result.y_test_processed.index]
 
-                score = self._metric_score(self.metric, y_test_processed, y_pred_processed, X_test=X_test)
+                result.score = self._metric_score(
+                    self.metric, result.y_test_processed, result.y_pred_processed, X_test=X_test
+                )
 
             except (ValueError, RuntimeWarning):
-                try:
-                    return null_score if null_score is not None else self.null_score(X_train, y_train, X_test, y_test)
-                except (ValueError, RuntimeWarning):
-                    return score
-        return score
+                if null_score is not None:
+                    result.score = null_score
+                else:
+                    try:
+                        result.score = self.null_score(X_train, y_train, X_test, y_test)
+                    except (ValueError, RuntimeWarning):
+                        return result
+        return result
 
     def _model_fit(
         self, model: SklearnModelOrPipeline, X_train: Union[NDArray, DataFrame], y_train: Union[NDArray, Series]

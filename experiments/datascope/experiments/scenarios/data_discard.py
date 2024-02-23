@@ -8,6 +8,7 @@ from datascope.importance.common import (
     SklearnModelEqualizedOddsDifference,
     SklearnModelRocAuc,
     Utility,
+    UtilityResult,
     compute_groupings,
 )
 from datascope.importance.importance import Importance
@@ -75,6 +76,7 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
         utility: UtilityType,
         iteration: int,
         model: ModelSpec = DEFAULT_MODEL,
+        postprocessor: Optional[str] = None,
         trainbias: float = DEFAULT_TRAIN_BIAS,
         valbias: float = DEFAULT_VAL_BIAS,
         biasmethod: BiasMethod = DEFAULT_BIAS_METHOD,
@@ -99,6 +101,7 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
             utility=utility,
             iteration=iteration,
             model=model,
+            postprocessor=postprocessor,
             trainbias=trainbias,
             valbias=valbias,
             biasmethod=biasmethod,
@@ -305,23 +308,29 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
 
         # Run the model to get initial score.
         dataset_f = dataset if self.eager_preprocessing else dataset.apply(pipeline, cache_dir=self.pipeline_cache_dir)
-        eqodds: Optional[float] = None
+        eqodds_utility_result = UtilityResult()
         if eqodds_utility is not None:
-            eqodds = eqodds_utility(dataset_f.X_train, dataset_f.y_train, dataset_f.X_test, dataset_f.y_test)
-        accuracy = accuracy_utility(dataset_f.X_train, dataset_f.y_train, dataset_f.X_test, dataset_f.y_test)
-        roc_auc = roc_auc_utility(dataset_f.X_train, dataset_f.y_train, dataset_f.X_test, dataset_f.y_test)
+            eqodds_utility_result = eqodds_utility(
+                dataset_f.X_train, dataset_f.y_train, dataset_f.X_test, dataset_f.y_test
+            )
+        accuracy_utility_result = accuracy_utility(
+            dataset_f.X_train, dataset_f.y_train, dataset_f.X_test, dataset_f.y_test
+        )
+        roc_auc_utility_result = roc_auc_utility(
+            dataset_f.X_train, dataset_f.y_train, dataset_f.X_test, dataset_f.y_test
+        )
 
         # Update result table.
         dataset_bias = dataset.train_bias if isinstance(dataset, BiasedMixin) else None
         evolution = [
             [
                 0.0,
-                eqodds,
-                eqodds,
-                accuracy,
-                accuracy,
-                roc_auc,
-                roc_auc,
+                eqodds_utility_result.score,
+                eqodds_utility_result.score,
+                accuracy_utility_result.score,
+                accuracy_utility_result.score,
+                roc_auc_utility_result.score,
+                roc_auc_utility_result.score,
                 0,
                 0.0,
                 dataset_bias,
@@ -329,9 +338,9 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
                 0.0,
             ]
         ]
-        eqodds_start = eqodds
-        accuracy_start = accuracy
-        roc_auc_start = roc_auc
+        eqodds_start = eqodds_utility_result.score
+        accuracy_start = accuracy_utility_result.score
+        roc_auc_start = roc_auc_utility_result.score
 
         # Set up progress bar.
         checkpoints = self.checkpoints if self.checkpoints > 0 and self.checkpoints < n_units else n_units
@@ -383,7 +392,7 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
             # Run the model.
             dataset_current_f = dataset_current.apply(pipeline, cache_dir=self.pipeline_cache_dir)
             if eqodds_utility is not None:
-                eqodds = eqodds_utility(
+                eqodds_utility_result = eqodds_utility(
                     dataset_current_f.X_train,
                     dataset_current_f.y_train,
                     dataset_current_f.X_test,
@@ -391,7 +400,7 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
                     metadata_train=dataset_current_f.metadata_train,
                     metadata_test=dataset_current_f.metadata_test,
                 )
-            accuracy = accuracy_utility(
+            accuracy_utility_result = accuracy_utility(
                 dataset_current_f.X_train,
                 dataset_current_f.y_train,
                 dataset_current_f.X_test,
@@ -399,7 +408,7 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
                 metadata_train=dataset_current_f.metadata_train,
                 metadata_test=dataset_current_f.metadata_test,
             )
-            roc_auc = roc_auc_utility(
+            roc_auc_utility_result = roc_auc_utility(
                 dataset_current_f.X_train,
                 dataset_current_f.y_train,
                 dataset_current_f.X_test,
@@ -417,12 +426,12 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
             evolution.append(
                 [
                     steps_rel,
-                    eqodds,
-                    eqodds,
-                    accuracy,
-                    accuracy,
-                    roc_auc,
-                    roc_auc,
+                    eqodds_utility_result.score,
+                    eqodds_utility_result.score,
+                    accuracy_utility_result.score,
+                    accuracy_utility_result.score,
+                    roc_auc_utility_result.score,
+                    roc_auc_utility_result.score,
                     discarded,
                     discarded_rel,
                     dataset_bias,
@@ -471,8 +480,7 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
 
         # Recompute relative equalized odds (if we were keeping track of it).
         if eqodds_utility is not None:
-            assert eqodds is not None and eqodds_start is not None
-            eqodds_end = eqodds
+            eqodds_end = eqodds_utility_result.score
             eqqods_min = min(eqodds_start, eqodds_end)
             eqodds_delta = abs(eqodds_end - eqodds_start)
             self._evolution["eqodds_rel"] = self._evolution["eqodds_rel"].apply(
@@ -487,13 +495,13 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
             self._evolution.drop("dataset_bias", axis=1, inplace=True)
 
         # Recompute relative accuracy and ROC AUC.
-        accuracy_end = accuracy
+        accuracy_end = accuracy_utility_result.score
         accuracy_min = min(accuracy_start, accuracy_end)
         accuracy_delta = abs(accuracy_end - accuracy_start)
         self._evolution["accuracy_rel"] = self._evolution["accuracy_rel"].apply(
             lambda x: (x - accuracy_min) / accuracy_delta
         )
-        roc_auc_end = roc_auc
+        roc_auc_end = roc_auc_utility_result.score
         roc_auc_min = min(roc_auc_start, roc_auc_end)
         roc_auc_delta = abs(roc_auc_end - roc_auc_start)
         self._evolution["roc_auc_rel"] = self._evolution["roc_auc_rel"].apply(

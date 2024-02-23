@@ -188,7 +188,7 @@ class MarginalContributionScenario(Scenario, id="marginal-contribution"):  # typ
             metadata_train_without = (
                 dataset_processed.metadata_train.iloc[idx_without] if dataset_processed.metadata_train else None
             )
-            score_without = utility(
+            utility_result_without = utility(
                 dataset_processed.X_train[idx_without],
                 dataset_processed.y_train[idx_without],
                 dataset_processed.X_test,
@@ -200,7 +200,7 @@ class MarginalContributionScenario(Scenario, id="marginal-contribution"):  # typ
             metadata_train_with = (
                 dataset_processed.metadata_train.iloc[idx_with] if dataset_processed.metadata_train else None
             )
-            score_with = utility(
+            utility_result_with = utility(
                 dataset_processed.X_train[idx_with],
                 dataset_processed.y_train[idx_with],
                 dataset_processed.X_test,
@@ -208,7 +208,14 @@ class MarginalContributionScenario(Scenario, id="marginal-contribution"):  # typ
                 metadata_train=metadata_train_with,
                 metadata_test=dataset_processed.metadata_test,
             )
-            evolution.append([cardinality, score_without, score_with, score_with - score_without])
+            evolution.append(
+                [
+                    cardinality,
+                    utility_result_without.score,
+                    utility_result_with.score,
+                    utility_result_with.score - utility_result_without.score,
+                ]
+            )
 
             # Update progress bar.
             if progress_bar and cardinality >= progress_points[0]:

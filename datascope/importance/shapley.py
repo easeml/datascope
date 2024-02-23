@@ -435,7 +435,7 @@ class ShapleyImportance(Importance):
                     y_train_subset = y_train[indices]
                     if self.pipeline is not None:
                         X_train_subset = self.pipeline.fit_transform(X_train_subset, y=y_train_subset)
-                    score = self.utility(
+                    utility_result = self.utility(
                         X_train_subset,
                         y_train_subset,
                         X_test,
@@ -444,6 +444,7 @@ class ShapleyImportance(Importance):
                         metadata_test,
                         null_score=null_score,
                     )
+                    score = utility_result.score
                 except (ValueError, RuntimeWarning, UserWarning):
                     pass
 
@@ -520,7 +521,7 @@ class ShapleyImportance(Importance):
                         if self.pipeline is not None and not self.mc_preextract:
                             X_train_subset = self.pipeline.fit_transform(X_train_subset, y=y_train_subset)
                             X_test_preprocessed = self.pipeline.transform(X_test)
-                        new_score = self.utility(
+                        utility_result = self.utility(
                             X_train_subset,
                             y_train_subset,
                             X_test_preprocessed,
@@ -529,6 +530,7 @@ class ShapleyImportance(Importance):
                             metadata_test,
                             null_score=null_score,
                         )
+                        new_score = utility_result.score
                     except (ValueError, RuntimeWarning, UserWarning):
                         pass
 

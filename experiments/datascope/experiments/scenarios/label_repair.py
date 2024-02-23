@@ -8,6 +8,7 @@ from datascope.importance.common import (
     SklearnModelEqualizedOddsDifference,
     SklearnModelRocAuc,
     Utility,
+    UtilityResult,
     compute_groupings,
 )
 from datascope.importance.importance import Importance
@@ -73,6 +74,7 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
         iteration: int,
         utility: UtilityType = UtilityType.ACCURACY,
         model: ModelSpec = DEFAULT_MODEL,
+        postprocessor: Optional[str] = None,
         dirtyratio: float = DEFAULT_DIRTY_RATIO,
         dirtybias: float = DEFAULT_DIRTY_BIAS,
         seed: int = DEFAULT_SEED,
@@ -97,6 +99,7 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
             utility=utility,
             iteration=iteration,
             model=model,
+            postprocessor=postprocessor,
             seed=seed,
             trainsize=trainsize,
             valsize=valsize,
@@ -351,9 +354,9 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
             if self.eager_preprocessing
             else dataset_dirty.apply(pipeline, cache_dir=self.pipeline_cache_dir)
         )
-        eqodds: Optional[float] = None
+        eqodds_utility_result = UtilityResult()
         if eqodds_utility is not None:
-            eqodds = eqodds_utility(
+            eqodds_utility_result = eqodds_utility(
                 dataset_dirty_f.X_train,
                 dataset_dirty_f.y_train,
                 dataset_f.X_test,
@@ -361,7 +364,7 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
                 metadata_train=dataset_dirty_f.metadata_train,
                 metadata_test=dataset_f.metadata_test,
             )
-        accuracy = accuracy_utility(
+        accuracy_utility_result = accuracy_utility(
             dataset_dirty_f.X_train,
             dataset_dirty_f.y_train,
             dataset_f.X_test,
@@ -369,7 +372,7 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
             metadata_train=dataset_dirty_f.metadata_train,
             metadata_test=dataset_f.metadata_test,
         )
-        roc_auc = roc_auc_utility(
+        roc_auc_utility_result = roc_auc_utility(
             dataset_dirty_f.X_train,
             dataset_dirty_f.y_train,
             dataset_f.X_test,
@@ -379,10 +382,25 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
         )
 
         # Update result table.
-        evolution = [[0.0, eqodds, eqodds, accuracy, accuracy, roc_auc, roc_auc, 0, 0.0, 0, 0.0, 0.0]]
-        eqodds_start = eqodds
-        accuracy_start = accuracy
-        roc_auc_start = roc_auc
+        evolution = [
+            [
+                0.0,
+                eqodds_utility_result.score,
+                eqodds_utility_result.score,
+                accuracy_utility_result.score,
+                accuracy_utility_result.score,
+                roc_auc_utility_result.score,
+                roc_auc_utility_result.score,
+                0,
+                0.0,
+                0,
+                0.0,
+                0.0,
+            ]
+        ]
+        eqodds_start = eqodds_utility_result.score
+        accuracy_start = accuracy_utility_result.score
+        roc_auc_start = roc_auc_utility_result.score
 
         # Set up progress bar.
         checkpoints = self.checkpoints if self.checkpoints > 0 and self.checkpoints < n_units else n_units
@@ -412,7 +430,7 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
 
             # Run the model.
             if eqodds_utility is not None:
-                eqodds = eqodds_utility(
+                eqodds_utility_result = eqodds_utility(
                     dataset_dirty_f.X_train,
                     dataset_dirty.y_train,
                     dataset_dirty_f.X_test,
@@ -420,7 +438,7 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
                     metadata_train=dataset_dirty_f.metadata_train,
                     metadata_test=dataset_dirty_f.metadata_test,
                 )
-            accuracy = accuracy_utility(
+            accuracy_utility_result = accuracy_utility(
                 dataset_dirty_f.X_train,
                 dataset_dirty.y_train,
                 dataset_dirty_f.X_test,
@@ -428,7 +446,7 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
                 metadata_train=dataset_dirty_f.metadata_train,
                 metadata_test=dataset_dirty_f.metadata_test,
             )
-            roc_auc = roc_auc_utility(
+            roc_auc_utility_result = roc_auc_utility(
                 dataset_dirty_f.X_train,
                 dataset_dirty.y_train,
                 dataset_dirty_f.X_test,
@@ -449,12 +467,12 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
             evolution.append(
                 [
                     steps_rel,
-                    eqodds,
-                    eqodds,
-                    accuracy,
-                    accuracy,
-                    roc_auc,
-                    roc_auc,
+                    eqodds_utility_result.score,
+                    eqodds_utility_result.score,
+                    accuracy_utility_result.score,
+                    accuracy_utility_result.score,
+                    roc_auc_utility_result.score,
+                    roc_auc_utility_result.score,
                     repaired,
                     repaired_rel,
                     discovered,
@@ -503,8 +521,7 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
 
         # Recompute relative equalized odds (if we were keeping track of it).
         if eqodds_utility is not None:
-            assert eqodds is not None and eqodds_start is not None
-            eqodds_end = eqodds
+            eqodds_end = eqodds_utility_result.score
             eqqods_min = min(eqodds_start, eqodds_end)
             eqodds_delta = abs(eqodds_end - eqodds_start)
             self._evolution["eqodds_rel"] = self._evolution["eqodds_rel"].apply(
@@ -515,12 +532,12 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
             self._evolution.drop(["eqodds", "eqodds_rel"], axis=1, inplace=True)
 
         # Recompute relative accuracy and ROC AUC.
-        accuracy_end = accuracy
+        accuracy_end = accuracy_utility_result.score
         accuracy_delta = accuracy_end - accuracy_start
         self._evolution["accuracy_rel"] = self._evolution["accuracy_rel"].apply(
             lambda x: (x - accuracy_start) / accuracy_delta
         )
-        roc_auc_end = roc_auc
+        roc_auc_end = roc_auc_utility_result.score
         roc_auc_min = min(roc_auc_start, roc_auc_end)
         roc_auc_delta = abs(roc_auc_end - roc_auc_start)
         self._evolution["roc_auc_rel"] = self._evolution["roc_auc_rel"].apply(
