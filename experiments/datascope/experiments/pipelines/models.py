@@ -19,7 +19,7 @@ from sklearn.preprocessing import LabelEncoder
 from sklearn.svm import SVC, LinearSVC
 from sklearn.utils.multiclass import unique_labels
 from transformers import AutoImageProcessor, ResNetForImageClassification, TrainingArguments, Trainer
-from typing import Dict, Optional, Union, Sequence, List, Callable, Any
+from typing import Dict, Optional, Union, Any
 from xgboost import XGBClassifier as XGBClassifierOriginal
 
 
@@ -64,76 +64,18 @@ class XGBClassifier(SklearnModel, BaseEstimator, ClassifierMixin):
     def __init__(
         self,
         max_depth: Optional[int] = None,
-        max_leaves: Optional[int] = None,
-        max_bin: Optional[int] = None,
-        grow_policy: Optional[str] = None,
-        learning_rate: Optional[float] = None,
         n_estimators: int = 100,
-        booster: Optional[str] = None,
-        tree_method: Optional[str] = None,
-        gamma: Optional[float] = None,
-        min_child_weight: Optional[float] = None,
-        max_delta_step: Optional[float] = None,
         subsample: Optional[float] = None,
-        sampling_method: Optional[str] = None,
-        colsample_bytree: Optional[float] = None,
-        colsample_bylevel: Optional[float] = None,
-        colsample_bynode: Optional[float] = None,
-        reg_alpha: Optional[float] = None,
-        reg_lambda: Optional[float] = None,
-        scale_pos_weight: Optional[float] = None,
-        base_score: Optional[float] = None,
-        random_state: Optional[Union[np.random.RandomState, int]] = None,
-        missing: float = np.nan,
-        num_parallel_tree: Optional[int] = None,
-        monotone_constraints: Optional[Union[Dict[str, int], str]] = None,
-        interaction_constraints: Optional[Union[str, Sequence[Sequence[str]]]] = None,
-        importance_type: Optional[str] = None,
-        gpu_id: Optional[int] = None,
-        validate_parameters: Optional[bool] = None,
-        predictor: Optional[str] = None,
-        enable_categorical: bool = False,
-        max_cat_to_onehot: Optional[int] = None,
-        max_cat_threshold: Optional[int] = None,
-        eval_metric: Optional[Union[str, List[str], Callable]] = None,
-        early_stopping_rounds: Optional[int] = None,
         **kwargs: Any,
     ) -> None:
+        self.max_depth = max_depth
+        self.n_estimators = n_estimators
+        self.subsample = subsample
         self.model = XGBClassifierOriginal(
             max_depth=max_depth,
-            max_leaves=max_leaves,
-            max_bin=max_bin,
-            grow_policy=grow_policy,
-            learning_rate=learning_rate,
             n_estimators=n_estimators,
-            booster=booster,
-            tree_method=tree_method,
-            gamma=gamma,
-            min_child_weight=min_child_weight,
-            max_delta_step=max_delta_step,
             subsample=subsample,
-            sampling_method=sampling_method,
-            colsample_bytree=colsample_bytree,
-            colsample_bylevel=colsample_bylevel,
-            colsample_bynode=colsample_bynode,
-            reg_alpha=reg_alpha,
-            reg_lambda=reg_lambda,
-            scale_pos_weight=scale_pos_weight,
-            base_score=base_score,
-            random_state=random_state,
-            missing=missing,
-            num_parallel_tree=num_parallel_tree,
-            monotone_constraints=monotone_constraints,
-            interaction_constraints=interaction_constraints,
-            importance_type=importance_type,
-            gpu_id=gpu_id,
-            validate_parameters=validate_parameters,
-            predictor=predictor,
-            enable_categorical=enable_categorical,
-            max_cat_to_onehot=max_cat_to_onehot,
-            max_cat_threshold=max_cat_threshold,
-            eval_metric=eval_metric,
-            early_stopping_rounds=early_stopping_rounds,
+            random_state=0,
             **kwargs,
         )
         self.label_encoder = LabelEncoder()
