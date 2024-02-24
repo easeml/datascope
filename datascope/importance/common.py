@@ -12,11 +12,10 @@ from functools import partial
 from numpy import ndarray
 from numpy.typing import NDArray
 from pandas import DataFrame, Series
-from typing import Iterable, Optional, Callable, Sequence, Tuple, List, Hashable, Union
+from typing import Iterable, Optional, Callable, Sequence, Tuple, List, Dict, Hashable, Union
 from typing_extensions import Protocol
 from sklearn.base import clone
 from sklearn.metrics import accuracy_score, roc_auc_score
-from sklearn.preprocessing import OneHotEncoder
 
 
 class SklearnModel(Protocol):
@@ -59,6 +58,10 @@ DEFAULT_SCORING_MAXITER = 100
 DEFAULT_SEED = 7
 
 
+def _one_hot_encode_probabilities(y: NDArray, classes: List[Hashable]) -> NDArray:
+    return (y[:, None] == np.array(classes)).astype(int)
+
+
 class Postprocessor(ABC):
 
     def __init__(self, require_probabilities: bool = False) -> None:
@@ -79,6 +82,7 @@ class Postprocessor(ABC):
         self,
         X: Union[NDArray, DataFrame],
         y: Union[NDArray, Series, DataFrame],
+        y_proba: Optional[Union[NDArray, Series, DataFrame]] = None,
         metadata: Optional[Union[NDArray, DataFrame]] = None,
         output_probabilities: bool = False,
     ) -> Union[NDArray, Series, DataFrame]:
@@ -86,22 +90,36 @@ class Postprocessor(ABC):
 
 
 class IdentityPostprocessor(Postprocessor):
+    _classes: Optional[List[Hashable]] = None
+
     def fit(
         self,
         X: Union[NDArray, DataFrame],
         y: Union[NDArray, Series],
         metadata: Optional[Union[NDArray, DataFrame]] = None,
     ) -> "Postprocessor":
+        self._classes = np.unique(y).tolist()
         return self
 
     def transform(
         self,
         X: Union[NDArray, DataFrame],
         y: Union[NDArray, Series, DataFrame],
+        y_proba: Optional[Union[NDArray, Series, DataFrame]] = None,
         metadata: Optional[Union[NDArray, DataFrame]] = None,
         output_probabilities: bool = False,
     ) -> Union[NDArray, Series, DataFrame]:
-        return y
+        if self._classes is None:
+            raise ValueError("The postprocessor has not been fit.")
+        if output_probabilities:
+            if y_proba is None:
+                if isinstance(y, Series) or isinstance(y, DataFrame):
+                    y = y.to_numpy()
+                assert isinstance(y, ndarray)
+                y_proba = _one_hot_encode_probabilities(y, self._classes)
+            return y_proba
+        else:
+            return y
 
 
 @dataclass
@@ -271,9 +289,19 @@ class JointUtility(Utility):
 class SklearnModelUtilityResult(UtilityResult):
     model: SklearnModelOrPipeline
     postprocessor: Postprocessor
-    y_pred: NDArray
-    y_pred_processed: Union[NDArray, Series, DataFrame]
+    y_train_pred: Optional[NDArray] = None
+    y_train_pred_proba: Optional[NDArray] = None
+    y_train_pred_processed: Optional[Union[NDArray, Series, DataFrame]] = None
+    y_train_pred_proba_processed: Optional[Union[NDArray, Series, DataFrame]] = None
+    y_train_processed: Optional[Union[NDArray, Series, DataFrame]] = None
+    y_test_pred: NDArray
+    y_test_pred_proba: Optional[NDArray] = None
+    y_test_pred_processed: Union[NDArray, Series, DataFrame]
+    y_test_pred_proba_processed: Optional[Union[NDArray, Series, DataFrame]] = None
     y_test_processed: Union[NDArray, Series, DataFrame]
+    train_score: Optional[float] = None
+    auxiliary_scores: Dict[str, float]
+    auxiliary_train_scores: Optional[Dict[str, float]]
 
 
 class SklearnModelUtility(Utility):
@@ -283,11 +311,21 @@ class SklearnModelUtility(Utility):
         metric: Optional[MetricCallable],
         postprocessor: Optional[Postprocessor] = None,
         metric_requires_probabilities: bool = False,
+        auxiliary_metrics: Optional[Dict[str, MetricCallable]] = None,
+        auxiliary_metric_requires_probabilities: Optional[Dict[str, bool]] = None,
+        compute_train_score: bool = False,
     ) -> None:
         self.model = model
         self.metric = metric
         self.postprocessor = postprocessor if postprocessor is not None else IdentityPostprocessor()
         self.metric_requires_probabilities = metric_requires_probabilities
+        self.auxiliary_metrics = auxiliary_metrics if auxiliary_metrics is not None else {}
+        self.auxiliary_metric_requires_probabilities = (
+            auxiliary_metric_requires_probabilities
+            if auxiliary_metric_requires_probabilities is not None
+            else {k: False for k in self.auxiliary_metrics.keys()}
+        )
+        self.compute_train_score = compute_train_score
 
     def __call__(
         self,
@@ -311,36 +349,128 @@ class SklearnModelUtility(Utility):
                 np.random.seed(seed)
                 result.model = self._model_fit(self.model, X_train, y_train)
                 result.postprocessor = self._postprocessor_fit(self.postprocessor, X_train, y_train, metadata_train)
-                result.y_pred = self._model_predict(
-                    result.model,
-                    X_test,
-                    output_probabilities=self.metric_requires_probabilities or self.postprocessor.require_probabilities,
+                metrics_require_probabilities = self.metric_requires_probabilities or any(
+                    x for x in self.auxiliary_metric_requires_probabilities
                 )
-                result.y_pred_processed = self._postprocessor_transform(
-                    result.postprocessor,
-                    X_test,
-                    result.y_pred,
-                    metadata_test,
-                    output_probabilities=self.metric_requires_probabilities,
+                classes = np.unique(y_train)
+
+                result.y_test_pred = self._model_predict(result.model, X_test)
+                if metrics_require_probabilities or result.postprocessor.require_probabilities:
+                    result.y_test_pred_proba = self._model_predict_proba(result.model, X_test, classes=classes)
+
+                result.y_test_pred_processed = self._postprocessor_transform(
+                    postprocessor=result.postprocessor,
+                    X=X_test,
+                    y=result.y_test_pred,
+                    y_proba=result.y_test_pred_proba,
+                    metadata=metadata_test,
+                    output_probabilities=False,
                 )
+                if metrics_require_probabilities:
+                    result.y_test_pred_proba_processed = self._postprocessor_transform(
+                        postprocessor=result.postprocessor,
+                        X=X_test,
+                        y=result.y_test_pred,
+                        y_proba=result.y_test_pred_proba,
+                        metadata=metadata_test,
+                        output_probabilities=True,
+                    )
+
                 result.y_test_processed = self._postprocessor_transform(
-                    result.postprocessor,
-                    X_test,
-                    y_test,
-                    metadata_test,
+                    postprocessor=result.postprocessor,
+                    X=X_test,
+                    y=y_test,
+                    metadata=metadata_test,
                     output_probabilities=False,
                 )
 
                 # If the processed targets are a Series or DataFrame instance, then will try to make sure they
                 # are shuffled the same way.
-                if isinstance(result.y_pred_processed, (Series, DataFrame)) and isinstance(
+                if isinstance(result.y_test_pred_processed, (Series, DataFrame)) and isinstance(
                     result.y_test_processed, (Series, DataFrame)
                 ):
-                    result.y_pred_processed = result.y_pred_processed.loc[result.y_test_processed.index]
+                    result.y_test_pred_processed = result.y_test_pred_processed.loc[result.y_test_processed.index]
 
                 result.score = self._metric_score(
-                    self.metric, result.y_test_processed, result.y_pred_processed, X_test=X_test
+                    self.metric,
+                    result.y_test_processed,
+                    result.y_test_pred_processed,
+                    y_pred_proba=result.y_test_pred_proba_processed,
+                    X_test=X_test,
+                    metric_requires_probabilities=self.metric_requires_probabilities,
+                    classes=classes,
                 )
+
+                if self.auxiliary_metrics is not None:
+                    result.auxiliary_scores = {
+                        name: self._metric_score(
+                            metric,
+                            result.y_test_processed,
+                            result.y_test_pred_processed,
+                            y_pred_proba=result.y_test_pred_proba_processed,
+                            X_test=X_test,
+                            metric_requires_probabilities=self.auxiliary_metric_requires_probabilities.get(name, False),
+                            classes=classes,
+                        )
+                        for name, metric in self.auxiliary_metrics.items()
+                    }
+
+                # Repeat the same for the training set, if needed.
+                if self.compute_train_score:
+                    result.y_train_pred = self._model_predict(result.model, X_train)
+                    if metrics_require_probabilities or result.postprocessor.require_probabilities:
+                        result.y_train_pred_proba = self._model_predict_proba(result.model, X_train, classes=classes)
+
+                    result.y_train_pred_processed = self._postprocessor_transform(
+                        postprocessor=result.postprocessor,
+                        X=X_train,
+                        y=result.y_train_pred,
+                        y_proba=result.y_train_pred_proba,
+                        metadata=metadata_train,
+                        output_probabilities=False,
+                    )
+                    if metrics_require_probabilities:
+                        result.y_train_pred_proba_processed = self._postprocessor_transform(
+                            postprocessor=result.postprocessor,
+                            X=X_train,
+                            y=result.y_train_pred,
+                            y_proba=result.y_train_pred_proba,
+                            metadata=metadata_train,
+                            output_probabilities=True,
+                        )
+                    result.y_train_processed = self._postprocessor_transform(
+                        postprocessor=result.postprocessor,
+                        X=X_train,
+                        y=y_train,
+                        metadata=metadata_train,
+                        output_probabilities=False,
+                    )
+
+                    result.train_score = self._metric_score(
+                        self.metric,
+                        result.y_train_processed,
+                        result.y_train_pred_processed,
+                        y_pred_proba=result.y_train_pred_proba_processed,
+                        X_test=X_train,
+                        metric_requires_probabilities=self.metric_requires_probabilities,
+                        classes=classes,
+                    )
+
+                    if self.auxiliary_metrics is not None:
+                        result.auxiliary_train_scores = {
+                            name: self._metric_score(
+                                metric,
+                                result.y_train_processed,
+                                result.y_train_pred_processed,
+                                y_pred_proba=result.y_train_pred_proba_processed,
+                                X_test=X_train,
+                                metric_requires_probabilities=self.auxiliary_metric_requires_probabilities.get(
+                                    name, False
+                                ),
+                                classes=classes,
+                            )
+                            for name, metric in self.auxiliary_metrics.items()
+                        }
 
             except (ValueError, RuntimeWarning):
                 if null_score is not None:
@@ -359,47 +489,53 @@ class SklearnModelUtility(Utility):
         model.fit(X_train, y_train)
         return model
 
-    def _model_predict(
-        self, model: SklearnModelOrPipeline, X_test: Union[NDArray, DataFrame], output_probabilities: bool = False
+    def _model_predict(self, model: SklearnModelOrPipeline, X_test: Union[NDArray, DataFrame]) -> NDArray:
+        return model.predict(X_test)
+
+    def _model_predict_proba(
+        self, model: SklearnModelOrPipeline, X_test: Union[NDArray, DataFrame], classes: List[Hashable]
     ) -> NDArray:
-        if output_probabilities:
-            if hasattr(model, "predict_proba"):
-                return model.predict_proba(X_test)
-            else:
-                result = model.predict(X_test)
-                return OneHotEncoder(categories=model.classes_).transform(result)
+        if hasattr(model, "predict_proba"):
+            return model.predict_proba(X_test)
         else:
-            return model.predict(X_test)
+            result = model.predict(X_test)
+            return _one_hot_encode_probabilities(result, classes)
 
     def _postprocessor_fit(
         self,
         postprocessor: Postprocessor,
-        X_train: Union[NDArray, DataFrame],
-        y_train: Union[NDArray, Series],
-        metadata_train: Optional[Union[NDArray, DataFrame]],
+        X: Union[NDArray, DataFrame],
+        y: Union[NDArray, Series],
+        metadata: Optional[Union[NDArray, DataFrame]],
     ) -> Postprocessor:
         postprocessor = deepcopy(postprocessor)
-        postprocessor.fit(X=X_train, y=y_train, metadata=metadata_train)
+        postprocessor.fit(X=X, y=y, metadata=metadata)
         return postprocessor
 
     def _postprocessor_transform(
         self,
         postprocessor: Postprocessor,
-        X_test: Union[NDArray, DataFrame],
-        y_pred: Union[NDArray, Series],
-        metadata_test: Optional[Union[NDArray, DataFrame]],
+        X: Union[NDArray, DataFrame],
+        y: Union[NDArray, Series],
+        y_proba: Optional[Union[NDArray, Series]] = None,
+        metadata: Optional[Union[NDArray, DataFrame]] = None,
         output_probabilities: bool = False,
     ) -> Union[NDArray, Series, DataFrame]:
-        if not isinstance(y_pred, ndarray):
-            y_pred = y_pred.to_numpy()
+        if not isinstance(y, ndarray):
+            y = y.to_numpy()
+        if y_proba is not None and not isinstance(y_proba, ndarray):
+            y_proba = y_proba.to_numpy()
         result = postprocessor.transform(
-            X=X_test, y=y_pred, metadata=metadata_test, output_probabilities=output_probabilities
+            X=X, y=y, y_proba=y_proba, metadata=metadata, output_probabilities=output_probabilities
         )
         return result
 
     def _process_metric_score_inputs(
-        self, y_test: Union[NDArray, Series, DataFrame], y_pred: Union[NDArray, Series, DataFrame]
-    ) -> Tuple[NDArray, NDArray]:
+        self,
+        y_test: Union[NDArray, Series, DataFrame],
+        y_pred: Union[NDArray, Series, DataFrame],
+        y_pred_proba: Optional[Union[NDArray, Series, DataFrame]] = None,
+    ) -> Tuple[NDArray, NDArray, Optional[NDArray]]:
 
         # If both outputs are Series, then we want to ensure that they are matched based on index.
         if isinstance(y_pred, Series) and isinstance(y_test, Series):
@@ -407,17 +543,21 @@ class SklearnModelUtility(Utility):
 
         # If any of the prediction inputs are Series, then we assume they are either series of scalar values
         # or series of arrays. In the latter case, we stack them into a 2D array.
-        if isinstance(y_pred, Series):
-            y_pred = np.stack(y_pred.to_list())  # type: ignore
         if isinstance(y_test, Series):
             y_test = np.stack(y_test.to_list())  # type: ignore
+        if isinstance(y_pred, Series):
+            y_pred = np.stack(y_pred.to_list())  # type: ignore
+        if y_pred_proba is not None and isinstance(y_pred_proba, Series):
+            y_pred_proba = np.stack(y_pred_proba.to_list())  # type: ignore
 
         # If any of the prediction inputs are DataFrames, then we assume that either there is a single column for
         # the prediction label, or there are multiple columns for the prediction probabilities.
-        if isinstance(y_pred, DataFrame):
-            y_pred = y_pred.to_numpy()
         if isinstance(y_test, DataFrame):
             y_test = y_test.to_numpy()
+        if isinstance(y_pred, DataFrame):
+            y_pred = y_pred.to_numpy()
+        if y_pred_proba is not None and isinstance(y_pred_proba, DataFrame):
+            y_pred_proba = y_pred_proba.to_numpy()
 
         # If the test labels are given as a 2D array of probabilities, then we need to select the most likely class.
         if y_test.ndim == 2:
@@ -425,25 +565,38 @@ class SklearnModelUtility(Utility):
 
         # If the predions are given as a 2D array of probabilities and there are only two classes, then we need to
         # select the probabilities for the positive class.
-        if self.metric_requires_probabilities and y_pred.shape[1] == 2:
-            y_pred = y_pred[:, 1]
+        if y_pred_proba is not None and y_pred_proba.shape[1] == 2:
+            y_pred_proba = y_pred_proba[:, 1]
 
         assert isinstance(y_test, np.ndarray) and isinstance(y_pred, np.ndarray)
-        return y_test, y_pred
+        assert y_pred_proba is None or isinstance(y_pred_proba, np.ndarray)
+        return y_test, y_pred, y_pred_proba
 
     def _metric_score(
         self,
         metric: Optional[MetricCallable],
         y_test: Union[NDArray, Series, DataFrame],
         y_pred: Union[NDArray, Series, DataFrame],
+        y_pred_proba: Optional[Union[NDArray, Series, DataFrame]] = None,
         *,
         X_test: Optional[Union[NDArray, DataFrame]] = None,
         indices: Optional[NDArray] = None,
+        metric_requires_probabilities: bool = False,
+        classes: Optional[List[Hashable]] = None,
     ) -> float:
         if metric is None:
             raise ValueError("The metric was not provided.")
-        y_test_processed, y_pred_processed = self._process_metric_score_inputs(y_test, y_pred)
-        return metric(y_test_processed, y_pred_processed)
+        y_test_processed, y_pred_processed, y_pred_proba_processed = self._process_metric_score_inputs(
+            y_test, y_pred, y_pred_proba
+        )
+        if metric_requires_probabilities:
+            if y_pred_proba_processed is None:
+                if classes is None:
+                    classes = np.unique(y_test_processed)
+                y_pred_proba_processed = _one_hot_encode_probabilities(y_pred_processed, classes)
+            return metric(y_test_processed, y_pred_proba_processed)
+        else:
+            return metric(y_test_processed, y_pred_processed)
 
     def null_score(
         self,
@@ -455,9 +608,19 @@ class SklearnModelUtility(Utility):
         scores = []
         if not isinstance(y_test, ndarray):
             y_test = y_test.to_numpy()
-        for x in np.unique(y_train):
+        classes = np.unique(y_train)
+        for x in classes:
             y_spoof = np.full_like(y_test, x, dtype=y_test.dtype)
-            scores.append(self._metric_score(self.metric, y_test, y_spoof, X_test=X_test))
+            scores.append(
+                self._metric_score(
+                    self.metric,
+                    y_test,
+                    y_spoof,
+                    X_test=X_test,
+                    metric_requires_probabilities=self.metric_requires_probabilities,
+                    classes=classes,
+                )
+            )
 
         return min(scores)
 
@@ -471,6 +634,7 @@ class SklearnModelUtility(Utility):
         seed: int = DEFAULT_SEED,
     ) -> float:
         np.random.seed(seed)
+        classes = np.unique(y_train)
         model = self._model_fit(self.model, X_train, y_train)
         y_pred = self._model_predict(model, X_test)
         if not isinstance(y_test, ndarray):
@@ -482,7 +646,17 @@ class SklearnModelUtility(Utility):
             X_test_subset: Union[NDArray, DataFrame] = (
                 X_test.iloc[idx] if isinstance(X_test, DataFrame) else X_test[idx, :]
             )
-            scores.append(self._metric_score(self.metric, y_test[idx], y_pred[idx], X_test=X_test_subset, indices=idx))
+            scores.append(
+                self._metric_score(
+                    self.metric,
+                    y_test[idx],
+                    y_pred[idx],
+                    X_test=X_test_subset,
+                    indices=idx,
+                    metric_requires_probabilities=self.metric_requires_probabilities,
+                    classes=classes,
+                )
+            )
         return np.mean(scores).item()
 
 
@@ -533,24 +707,24 @@ class SklearnModelRocAuc(SklearnModelUtility):
     #         y_test_pred_proba = y_test_pred_proba[:, 1]
     #     return y_test_pred_proba
 
-    def null_score(
-        self,
-        X_train: Union[NDArray, DataFrame],
-        y_train: Union[NDArray, Series],
-        X_test: Union[NDArray, DataFrame],
-        y_test: Union[NDArray, Series],
-    ) -> float:
-        scores = []
-        classes = np.unique(y_train)
-        if not isinstance(y_test, ndarray):
-            y_test = y_test.to_numpy()
-        for x in classes:
-            y_spoof = np.full((y_test.shape[0], len(classes)), np.eye(len(classes))[x])
-            if y_spoof.shape[1] == 2:
-                y_spoof = y_spoof[:, 1]
-            scores.append(self._metric_score(self.metric, y_test, y_spoof, X_test=X_test))
+    # def null_score(
+    #     self,
+    #     X_train: Union[NDArray, DataFrame],
+    #     y_train: Union[NDArray, Series],
+    #     X_test: Union[NDArray, DataFrame],
+    #     y_test: Union[NDArray, Series],
+    # ) -> float:
+    #     scores = []
+    #     classes = np.unique(y_train)
+    #     if not isinstance(y_test, ndarray):
+    #         y_test = y_test.to_numpy()
+    #     for x in classes:
+    #         y_spoof = np.full((y_test.shape[0], len(classes)), np.eye(len(classes))[x])
+    #         if y_spoof.shape[1] == 2:
+    #             y_spoof = y_spoof[:, 1]
+    #         scores.append(self._metric_score(self.metric, y_test, y_spoof, X_test=X_test))
 
-        return min(scores)
+    #     return min(scores)
 
     def elementwise_score(
         self,
@@ -669,12 +843,15 @@ class SklearnModelEqualizedOddsDifference(SklearnModelUtility):
         metric: Optional[MetricCallable],
         y_test: Union[NDArray, Series, DataFrame],
         y_pred: Union[NDArray, Series, DataFrame],
+        y_pred_proba: Optional[Union[NDArray, Series, DataFrame]] = None,
         *,
         X_test: Optional[Union[NDArray, DataFrame]] = None,
         indices: Optional[NDArray] = None,
+        metric_requires_probabilities: bool = False,
+        classes: Optional[List[Hashable]] = None,
     ) -> float:
         assert X_test is not None
-        y_test_processed, y_pred_processed = self._process_metric_score_inputs(y_test, y_pred)
+        y_test_processed, y_pred_processed, _ = self._process_metric_score_inputs(y_test, y_pred)
         if list(sorted(np.unique(y_test_processed))) != [0, 1]:
             raise ValueError("This utility works only on binary classification problems.")
         groupings = self._groupings
