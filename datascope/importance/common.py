@@ -337,7 +337,7 @@ class SklearnModelUtility(Utility):
         metadata_test: Optional[Union[NDArray, DataFrame]] = None,
         null_score: Optional[float] = None,
         seed: int = DEFAULT_SEED,
-    ) -> UtilityResult:
+    ) -> SklearnModelUtilityResult:
         result = SklearnModelUtilityResult()
         if not isinstance(y_test, ndarray):
             y_test = y_test.to_numpy()
