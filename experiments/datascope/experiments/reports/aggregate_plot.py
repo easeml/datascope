@@ -252,7 +252,7 @@ def cross_aggregate(
 
 
 def replace_keywords(source: str, keyword_replacements: Dict[str, str]) -> str:
-    for k, v in sorted(keyword_replacements.items(), key=lambda x: len(x[1]), reverse=True):
+    for k, v in sorted(keyword_replacements.items(), key=lambda x: len(x[0]), reverse=True):
         source = re.sub("(?<![a-zA-Z])%s(?![a-z-Z])" % k, v, source)
         # source = source.replace(k, v)
     return source
