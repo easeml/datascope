@@ -207,6 +207,14 @@ def main():
         help="Address of the event server. If specified, logging and progress events will be streamed to it.",
     )
 
+    parser_run_scenario.add_argument(
+        "-m",
+        "--job-memory",
+        type=str,
+        default=None,
+        help="The amount of memory allowed for a job.",
+    )
+
     add_dynamic_arguments(
         parser=parser_run_scenario,
         targets=Scenario.scenarios.values(),

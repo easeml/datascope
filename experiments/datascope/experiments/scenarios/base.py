@@ -27,7 +27,7 @@ from abc import ABC, abstractmethod
 from enum import Enum
 from glob import glob
 from inspect import signature
-from io import TextIOBase, StringIO, SEEK_END
+from io import TextIOBase, StringIO, BytesIO, SEEK_END
 from itertools import product
 from logging import Logger
 from matplotlib.figure import Figure
@@ -699,6 +699,7 @@ def get_scenario_runner(
     console_log: bool = True,
     rerun: bool = False,
     pickled_queue: bool = False,
+    job_memory: Optional[str] = None,
 ) -> Callable[[Scenario], Scenario]:
     def _scenario_runner(scenario: Scenario) -> Scenario:
         try:
@@ -719,6 +720,15 @@ def get_scenario_runner(
                 ch = logging.StreamHandler(sys.stdout)
                 ch.setFormatter(formatter)
                 scenario.logger.addHandler(ch)
+
+            # Quickly consume a 70% of the given amount of memory for 10 seconds.
+            if job_memory is not None:
+                suffixes = {"G": 1024**3, "M": 1024**2, "K": 1024}
+                size = int(float(job_memory[:-1]) * suffixes[job_memory[-1]] * 0.7)
+                with BytesIO() as buffer:
+                    buffer.write(bytearray(os.urandom(size)))
+                    buffer.seek(0)
+                    time.sleep(10)
 
             if rerun or not scenario.completed:
                 if queue is not None:
@@ -964,7 +974,11 @@ class Study:
                         else:
                             path = self.save_scenario(scenario)
                             logpath = os.path.join(path, "slurm.log")
-                            run_command = "python -m datascope.experiments run-scenario -o %s -e %s" % (path, address)
+                            run_command = "python -m datascope.experiments run-scenario -o %s -e %s -m %s" % (
+                                path,
+                                address,
+                                slurm_jobmemory,
+                            )
                             slurm_command = "sbatch --job-name=%s" % self.id
                             slurm_command += " --time=%s" % slurm_jobtime
                             slurm_command += " --mem-per-cpu=%s" % slurm_jobmemory

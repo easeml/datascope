@@ -111,6 +111,7 @@ def run_scenario(
     output_path: str = DEFAULT_RESULTS_SCENARIOS_PATH,
     no_save: bool = False,
     event_server: Optional[str] = None,
+    job_memory: Optional[str] = None,
     **attributes: Any
 ) -> None:
     # If we should continue the execution of an existing scenario, then we should load it.
@@ -144,7 +145,7 @@ def run_scenario(
         client.connect(event_server)
         queue = client
         pickled_queue = True
-    runner = get_scenario_runner(queue=queue, pickled_queue=pickled_queue)
+    runner = get_scenario_runner(queue=queue, pickled_queue=pickled_queue, job_memory=job_memory)
 
     scenario.logger.setLevel(logging.DEBUG)
     scenario = runner(scenario)
