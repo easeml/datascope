@@ -350,13 +350,21 @@ class SklearnModelUtility(Utility):
                 result.model = self._model_fit(self.model, X_train, y_train)
                 result.postprocessor = self._postprocessor_fit(self.postprocessor, X_train, y_train, metadata_train)
                 metrics_require_probabilities = self.metric_requires_probabilities or any(
-                    x for x in self.auxiliary_metric_requires_probabilities
+                    x for x in self.auxiliary_metric_requires_probabilities.values()
                 )
                 classes = np.unique(y_train)
 
                 result.y_test_pred = self._model_predict(result.model, X_test)
                 if metrics_require_probabilities or result.postprocessor.require_probabilities:
                     result.y_test_pred_proba = self._model_predict_proba(result.model, X_test, classes=classes)
+
+                result.y_test_processed = self._postprocessor_transform(
+                    postprocessor=result.postprocessor,
+                    X=X_test,
+                    y=y_test,
+                    metadata=metadata_test,
+                    output_probabilities=False,
+                )
 
                 result.y_test_pred_processed = self._postprocessor_transform(
                     postprocessor=result.postprocessor,
@@ -376,20 +384,11 @@ class SklearnModelUtility(Utility):
                         output_probabilities=True,
                     )
 
-                result.y_test_processed = self._postprocessor_transform(
-                    postprocessor=result.postprocessor,
-                    X=X_test,
-                    y=y_test,
-                    metadata=metadata_test,
-                    output_probabilities=False,
+                result.y_test_processed, result.y_test_pred_processed, result.y_test_pred_proba_processed = (
+                    self._align_labels(
+                        result.y_test_processed, result.y_test_pred_processed, result.y_test_pred_proba_processed
+                    )
                 )
-
-                # If the processed targets are a Series or DataFrame instance, then will try to make sure they
-                # are shuffled the same way.
-                if isinstance(result.y_test_pred_processed, (Series, DataFrame)) and isinstance(
-                    result.y_test_processed, (Series, DataFrame)
-                ):
-                    result.y_test_pred_processed = result.y_test_pred_processed.loc[result.y_test_processed.index]
 
                 result.score = self._metric_score(
                     self.metric,
@@ -421,6 +420,14 @@ class SklearnModelUtility(Utility):
                     if metrics_require_probabilities or result.postprocessor.require_probabilities:
                         result.y_train_pred_proba = self._model_predict_proba(result.model, X_train, classes=classes)
 
+                    result.y_train_processed = self._postprocessor_transform(
+                        postprocessor=result.postprocessor,
+                        X=X_train,
+                        y=y_train,
+                        metadata=metadata_train,
+                        output_probabilities=False,
+                    )
+
                     result.y_train_pred_processed = self._postprocessor_transform(
                         postprocessor=result.postprocessor,
                         X=X_train,
@@ -429,6 +436,7 @@ class SklearnModelUtility(Utility):
                         metadata=metadata_train,
                         output_probabilities=False,
                     )
+
                     if metrics_require_probabilities:
                         result.y_train_pred_proba_processed = self._postprocessor_transform(
                             postprocessor=result.postprocessor,
@@ -438,13 +446,6 @@ class SklearnModelUtility(Utility):
                             metadata=metadata_train,
                             output_probabilities=True,
                         )
-                    result.y_train_processed = self._postprocessor_transform(
-                        postprocessor=result.postprocessor,
-                        X=X_train,
-                        y=y_train,
-                        metadata=metadata_train,
-                        output_probabilities=False,
-                    )
 
                     result.train_score = self._metric_score(
                         self.metric,
@@ -454,6 +455,12 @@ class SklearnModelUtility(Utility):
                         X_test=X_train,
                         metric_requires_probabilities=self.metric_requires_probabilities,
                         classes=classes,
+                    )
+
+                    result.y_train_processed, result.y_train_pred_processed, result.y_train_pred_proba_processed = (
+                        self._align_labels(
+                            result.y_train_processed, result.y_train_pred_processed, result.y_train_pred_proba_processed
+                        )
                     )
 
                     if self.auxiliary_metrics is not None:
@@ -530,16 +537,35 @@ class SklearnModelUtility(Utility):
         )
         return result
 
+    def _align_labels(
+        self,
+        y_test: Union[NDArray, Series, DataFrame],
+        y_pred: Union[NDArray, Series, DataFrame],
+        y_pred_proba: Optional[Union[NDArray, Series, DataFrame]] = None,
+    ) -> Tuple[
+        Union[NDArray, Series, DataFrame],
+        Union[NDArray, Series, DataFrame],
+        Optional[Union[NDArray, Series, DataFrame]],
+    ]:
+        # If both inputs are Series or DataFrame instances, then we want to ensure that they are matched based on index.
+        if (isinstance(y_pred, Series) or isinstance(y_pred, DataFrame)) and (
+            isinstance(y_test, Series) or isinstance(y_test, DataFrame)
+        ):
+            y_pred = y_pred.loc[y_test.index]
+        if y_pred_proba is not None:
+            if (isinstance(y_pred_proba, Series) or isinstance(y_pred_proba, DataFrame)) and (
+                isinstance(y_test, Series) or isinstance(y_test, DataFrame)
+            ):
+                y_pred_proba = y_pred_proba.loc[y_test.index]
+
+        return y_test, y_pred, y_pred_proba
+
     def _process_metric_score_inputs(
         self,
         y_test: Union[NDArray, Series, DataFrame],
         y_pred: Union[NDArray, Series, DataFrame],
         y_pred_proba: Optional[Union[NDArray, Series, DataFrame]] = None,
     ) -> Tuple[NDArray, NDArray, Optional[NDArray]]:
-
-        # If both outputs are Series, then we want to ensure that they are matched based on index.
-        if isinstance(y_pred, Series) and isinstance(y_test, Series):
-            y_pred = y_pred.loc[y_test.index]
 
         # If any of the prediction inputs are Series, then we assume they are either series of scalar values
         # or series of arrays. In the latter case, we stack them into a 2D array.
