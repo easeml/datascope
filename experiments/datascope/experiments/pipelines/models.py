@@ -178,7 +178,7 @@ BATCH_SIZE = 32
 
 
 class ResNet18Classifier(BaseEstimator, ClassifierMixin):
-    def __init__(self, n_epochs: int = 10, eval_split: float = 0.2, logger: Optional[Logger] = None) -> None:
+    def __init__(self, n_epochs: int = 10, eval_split: float = 0.1, logger: Optional[Logger] = None) -> None:
         self.n_epochs = n_epochs
         self.eval_split = eval_split
         self.logger = logger
@@ -206,8 +206,8 @@ class ResNet18Classifier(BaseEstimator, ClassifierMixin):
             output_dir=self.tempdir,
             num_train_epochs=self.n_epochs,
             evaluation_strategy=IntervalStrategy.STEPS,
-            eval_steps=50,  # Evaluation and Save happens every 50 steps
-            save_total_limit=8,
+            eval_steps=150,  # Evaluation and Save happens every 150 steps
+            save_total_limit=15,
             load_best_model_at_end=True,
             metric_for_best_model="roc_auc",
         )
@@ -218,7 +218,7 @@ class ResNet18Classifier(BaseEstimator, ClassifierMixin):
             eval_dataset=self.eval_dataset,
             compute_metrics=compute_metrics,
             callbacks=[
-                EarlyStoppingCallback(early_stopping_patience=5),
+                EarlyStoppingCallback(early_stopping_patience=10),
                 EvalLoggerCallback(self.logger, prefix=self.__class__.__name__),
             ],
         )
