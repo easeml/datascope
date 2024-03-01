@@ -354,9 +354,11 @@ class SklearnModelUtility(Utility):
                 )
                 classes = np.unique(y_train)
 
-                result.y_test_pred = self._model_predict(result.model, X_test)
                 if metrics_require_probabilities or result.postprocessor.require_probabilities:
                     result.y_test_pred_proba = self._model_predict_proba(result.model, X_test, classes=classes)
+                    result.y_test_pred = np.argmax(result.y_test_pred_proba, axis=1)
+                else:
+                    result.y_test_pred = self._model_predict(result.model, X_test)
 
                 result.y_test_processed = self._postprocessor_transform(
                     postprocessor=result.postprocessor,
