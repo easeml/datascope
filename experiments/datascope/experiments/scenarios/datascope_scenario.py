@@ -35,6 +35,7 @@ class ModelSpec(str, Enum):
     NaiveBayes = "nb"
     NeuralNetwork = "nn"
     XGBoost = "xgb"
+    ResNet18 = "resnet-18"
 
 
 MODEL_TYPES = {
@@ -52,6 +53,7 @@ MODEL_TYPES = {
     ModelSpec.NaiveBayes: ModelType.NaiveBayes,
     ModelSpec.NeuralNetwork: ModelType.NeuralNetwork,
     ModelSpec.XGBoost: ModelType.XGBoost,
+    ModelSpec.ResNet18: ModelType.ResNet18,
 }
 
 MODEL_KWARGS: Dict[ModelSpec, Dict[str, Any]] = {
@@ -69,6 +71,7 @@ MODEL_KWARGS: Dict[ModelSpec, Dict[str, Any]] = {
     ModelSpec.NaiveBayes: {},
     ModelSpec.NeuralNetwork: {},
     ModelSpec.XGBoost: {},
+    ModelSpec.ResNet18: {},
 }
 
 
