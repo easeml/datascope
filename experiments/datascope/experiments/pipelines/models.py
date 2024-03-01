@@ -6,25 +6,45 @@ import torch.utils.data
 from abc import abstractmethod
 from enum import Enum
 from huggingface_hub import hf_hub_download
+from logging import Logger
 from numpy.typing import NDArray
 from pandas import DataFrame, Series
+from scipy.special import softmax
 from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.gaussian_process import GaussianProcessClassifier
 from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score, roc_auc_score
+from sklearn.model_selection import train_test_split
 from sklearn.naive_bayes import MultinomialNB
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.neural_network import MLPClassifier
 from sklearn.preprocessing import LabelEncoder
 from sklearn.svm import SVC, LinearSVC
 from sklearn.utils.multiclass import unique_labels
-from transformers import AutoImageProcessor, ResNetForImageClassification, TrainingArguments, Trainer
+from transformers import (
+    AutoImageProcessor,
+    ResNetForImageClassification,
+    Trainer,
+    TrainingArguments,
+    TrainerState,
+    TrainerControl,
+    EarlyStoppingCallback,
+    PrinterCallback,
+    TrainerCallback,
+    IntervalStrategy,
+)
+from transformers.modeling_outputs import BaseModelOutputWithPoolingAndNoAttention, ImageClassifierOutputWithNoAttention
+from transformers.utils.logging import disable_default_handler
 from typing import Dict, Optional, Union, Any
 from xgboost import XGBClassifier as XGBClassifierOriginal
 
 
 from datascope.importance.common import SklearnModel
 from ..baselines.matchingnet import resnet12, default_transform, MatchingNetworks
+
+
+disable_default_handler()
 
 
 class ModelType(str, Enum):
@@ -123,30 +143,81 @@ class TorchDataset(torch.utils.data.Dataset):
         return len(self.y)
 
 
+class EvalLoggerCallback(TrainerCallback):
+    def __init__(self, logger: Optional[Logger] = None, prefix: str = "") -> None:
+        self.logger = logger
+        self.prefix = prefix
+
+    def on_evaluate(
+        self, args: TrainingArguments, state: TrainerState, control: TrainerControl, metrics: Dict[str, float], **kwargs
+    ):
+        if self.logger is not None:
+            prefix = "[%s] " % self.prefix if self.prefix else ""
+            message = prefix + ", ".join(["%s=%.3f" % (k, v) for k, v in metrics.items()])
+            self.logger.debug(message)
+
+
+def compute_metrics(eval_pred):
+    logits, labels = eval_pred
+    predictions_proba = softmax(logits, axis=1)
+    predictions = np.argmax(predictions_proba, axis=1)
+    accuracy = accuracy_score(y_true=labels, y_pred=predictions)
+    roc_auc = roc_auc_score(y_true=labels, y_score=predictions_proba, multi_class="ovr")
+    return {"accuracy": accuracy, "roc_auc": roc_auc}
+
+
 class ResNet18Classifier(BaseEstimator, ClassifierMixin):
-    def __init__(self, n_epochs: int = 5) -> None:
+    def __init__(self, n_epochs: int = 10, eval_split: float = 0.1, logger: Optional[Logger] = None) -> None:
         self.n_epochs = n_epochs
+        self.eval_split = eval_split
+        self.logger = logger
         self.cuda_mode = torch.cuda.is_available()
+        self.label_encoder = LabelEncoder()
 
     def fit(self, X: NDArray, y: NDArray) -> None:
+        self.classes_ = unique_labels(y)
+        y = self.label_encoder.fit_transform(y)
         self.feature_extractor = AutoImageProcessor.from_pretrained("microsoft/resnet-18")
-        self.model = ResNetForImageClassification.from_pretrained(
-            "microsoft/resnet-18", num_labels=2, ignore_mismatched_sizes=True
+        self.model: ResNetForImageClassification = ResNetForImageClassification.from_pretrained(
+            "microsoft/resnet-18", num_labels=len(self.classes_), ignore_mismatched_sizes=True
         )
         if self.cuda_mode:
             self.model = self.model.to("cuda:0")
-        self.classes_ = unique_labels(y)
+
+        self.val_dataset: Optional[TorchDataset] = None
+        if self.eval_split > 0:
+            X, X_eval, y, y_eval = train_test_split(X, y, test_size=self.eval_split, stratify=y, random_state=0)
+            self.eval_dataset = TorchDataset(X_eval, y_eval, self.feature_extractor)
         self.train_dataset = TorchDataset(X, y, self.feature_extractor)
+
         self.tempdir = tempfile.mkdtemp(prefix="resnet18")
-        self.training_args = TrainingArguments(output_dir=self.tempdir, num_train_epochs=self.n_epochs)
+        self.training_args = TrainingArguments(
+            output_dir=self.tempdir,
+            num_train_epochs=self.n_epochs,
+            evaluation_strategy=IntervalStrategy.STEPS,
+            eval_steps=50,  # Evaluation and Save happens every 50 steps
+            save_total_limit=5,
+            load_best_model_at_end=True,
+            metric_for_best_model="roc_auc",
+        )
         self.trainer = Trainer(
             model=self.model,
             args=self.training_args,
             train_dataset=self.train_dataset,
+            eval_dataset=self.eval_dataset,
+            compute_metrics=compute_metrics,
+            callbacks=[
+                EarlyStoppingCallback(early_stopping_patience=3),
+                EvalLoggerCallback(self.logger, prefix=self.__class__.__name__),
+            ],
         )
+        self.trainer.remove_callback(PrinterCallback)
         self.trainer.train()
+        self.trainer.evaluate()
 
-    def predict(self, X: NDArray) -> NDArray:
+    def _forward(
+        self, X: NDArray, output_embeddings: bool = False
+    ) -> Union[BaseModelOutputWithPoolingAndNoAttention, ImageClassifierOutputWithNoAttention]:
         if X.ndim == 3:
             X = np.expand_dims(X, axis=X.ndim)
         if X.shape[-1] == 1:
@@ -155,10 +226,29 @@ class ResNet18Classifier(BaseEstimator, ClassifierMixin):
         if self.cuda_mode:
             inputs = inputs.to("cuda:0")
         with torch.no_grad():
-            outputs = self.model(**inputs)
+            if output_embeddings:
+                outputs = self.model.resnet(**inputs)
+            else:
+                outputs = self.model(**inputs)
         if self.cuda_mode:
             outputs = outputs.cpu()
-        return outputs.logits.argmax(axis=1).numpy()
+        return outputs
+
+    def predict(self, X: NDArray) -> NDArray:
+        outputs = self._forward(X)
+        assert isinstance(outputs, ImageClassifierOutputWithNoAttention)
+        y_pred = torch.argmax(outputs.logits, dim=1).numpy()
+        return self.label_encoder.inverse_transform(y_pred)
+
+    def predict_proba(self, X: NDArray) -> NDArray:
+        outputs = self._forward(X)
+        assert isinstance(outputs, ImageClassifierOutputWithNoAttention)
+        return torch.nn.functional.softmax(outputs.logits, dim=1).numpy()
+
+    def transform(self, X: NDArray) -> NDArray:
+        outputs = self._forward(X, output_embeddings=True)
+        assert isinstance(outputs, BaseModelOutputWithPoolingAndNoAttention)
+        return np.squeeze(outputs.pooler_output.numpy(), axis=(2, 3))
 
 
 MATCHING_NET_REPO = "karlasb/matchingnet-imagenet"
@@ -267,8 +357,10 @@ def get_model(model_type: ModelType, **kwargs):
         subsample = kwargs.get("subsample", 1.0)
         model = XGBClassifier(nthread=1, eval_metric="logloss", max_depth=max_depth, subsample=subsample)
     elif model_type == ModelType.ResNet18:
-        n_epochs = kwargs.get("n_epochs", 5)
-        model = ResNet18Classifier(n_epochs=n_epochs)
+        n_epochs = kwargs.get("n_epochs", 10)
+        eval_split = kwargs.get("eval_split", 0.1)
+        logger = kwargs.get("logger", None)
+        model = ResNet18Classifier(n_epochs=n_epochs, eval_split=eval_split, logger=logger)
     elif model_type == ModelType.MatchingNet:
         model = MatchingNetworkClassifier()
     else:
