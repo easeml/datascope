@@ -9,7 +9,6 @@ from huggingface_hub import hf_hub_download
 from logging import Logger
 from numpy.typing import NDArray
 from pandas import DataFrame, Series
-from scipy.special import softmax
 from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.gaussian_process import GaussianProcessClassifier
@@ -19,7 +18,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.naive_bayes import MultinomialNB
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.neural_network import MLPClassifier
-from sklearn.preprocessing import LabelEncoder
+from sklearn.preprocessing import LabelEncoder, normalize
 from sklearn.svm import SVC, LinearSVC
 from sklearn.utils.multiclass import unique_labels
 from transformers import (
@@ -34,9 +33,8 @@ from transformers import (
     TrainerCallback,
     IntervalStrategy,
 )
-from transformers.modeling_outputs import BaseModelOutputWithPoolingAndNoAttention, ImageClassifierOutputWithNoAttention
 from transformers.utils.logging import disable_default_handler
-from typing import Dict, Optional, Union, Any
+from typing import Dict, Optional, Union, Any, List
 from xgboost import XGBClassifier as XGBClassifierOriginal
 
 
@@ -157,17 +155,30 @@ class EvalLoggerCallback(TrainerCallback):
             self.logger.debug(message)
 
 
+def stable_softmax(x: NDArray, axis: Optional[int] = None) -> NDArray:
+    max_val = np.max(x, axis=axis, keepdims=True)
+    exp_x = np.exp(x - max_val)
+    sum_exp_x = np.sum(exp_x, axis=axis, keepdims=True)
+    softmax_probs = exp_x / sum_exp_x
+    return softmax_probs
+
+
 def compute_metrics(eval_pred):
     logits, labels = eval_pred
-    predictions_proba = softmax(logits, axis=1)
+    predictions_proba = normalize(stable_softmax(logits, axis=1))
     predictions = np.argmax(predictions_proba, axis=1)
+    if predictions_proba.shape[1] == 2:
+        predictions_proba = predictions_proba[:, 1]
     accuracy = accuracy_score(y_true=labels, y_pred=predictions)
     roc_auc = roc_auc_score(y_true=labels, y_score=predictions_proba, multi_class="ovr")
     return {"accuracy": accuracy, "roc_auc": roc_auc}
 
 
+BATCH_SIZE = 32
+
+
 class ResNet18Classifier(BaseEstimator, ClassifierMixin):
-    def __init__(self, n_epochs: int = 10, eval_split: float = 0.1, logger: Optional[Logger] = None) -> None:
+    def __init__(self, n_epochs: int = 10, eval_split: float = 0.2, logger: Optional[Logger] = None) -> None:
         self.n_epochs = n_epochs
         self.eval_split = eval_split
         self.logger = logger
@@ -196,7 +207,7 @@ class ResNet18Classifier(BaseEstimator, ClassifierMixin):
             num_train_epochs=self.n_epochs,
             evaluation_strategy=IntervalStrategy.STEPS,
             eval_steps=50,  # Evaluation and Save happens every 50 steps
-            save_total_limit=5,
+            save_total_limit=8,
             load_best_model_at_end=True,
             metric_for_best_model="roc_auc",
         )
@@ -207,7 +218,7 @@ class ResNet18Classifier(BaseEstimator, ClassifierMixin):
             eval_dataset=self.eval_dataset,
             compute_metrics=compute_metrics,
             callbacks=[
-                EarlyStoppingCallback(early_stopping_patience=3),
+                EarlyStoppingCallback(early_stopping_patience=5),
                 EvalLoggerCallback(self.logger, prefix=self.__class__.__name__),
             ],
         )
@@ -215,40 +226,63 @@ class ResNet18Classifier(BaseEstimator, ClassifierMixin):
         self.trainer.train()
         self.trainer.evaluate()
 
-    def _forward(
-        self, X: NDArray, output_embeddings: bool = False
-    ) -> Union[BaseModelOutputWithPoolingAndNoAttention, ImageClassifierOutputWithNoAttention]:
+    def _forward(self, X: NDArray, output_embeddings: bool = False) -> NDArray:
         if X.ndim == 3:
             X = np.expand_dims(X, axis=X.ndim)
         if X.shape[-1] == 1:
             X = np.tile(X, (1, 1, 1, 3))
-        inputs = self.feature_extractor(list(X), return_tensors="pt")
-        if self.cuda_mode:
-            inputs = inputs.to("cuda:0")
-        with torch.no_grad():
-            if output_embeddings:
-                outputs = self.model.resnet(**inputs)
-            else:
-                outputs = self.model(**inputs)
-        if self.cuda_mode:
-            outputs = outputs.cpu()
-        return outputs
+
+        inputs = list(X)
+        results: List[np.ndarray] = []
+        batch_size = BATCH_SIZE
+        batches = range(0, len(inputs), batch_size)
+        i = 0
+
+        while i < len(batches) and batch_size > 0:
+            try:
+
+                features = self.feature_extractor(
+                    inputs[batches[i] : batches[i] + batch_size], return_tensors="pt"  # noqa: E203
+                )
+
+                if self.cuda_mode:
+                    features = features.to("cuda:0")
+
+                with torch.no_grad():
+                    if output_embeddings:
+                        result = self.model.resnet(**inputs)
+                        outputs = result.pooler_output
+                    else:
+                        result = self.model(**inputs)
+                        outputs = result.logits
+
+                if self.cuda_mode:
+                    outputs = outputs.cpu()
+
+                results.append(outputs.numpy())
+
+            except torch.cuda.OutOfMemoryError:  # type: ignore
+                batch_size = batch_size // 2
+                batches = range(0, len(inputs), batch_size)
+                i = 0
+                results = []
+                if self.logger is not None:
+                    self.logger.debug("New batch size: ", batch_size)
+
+        return np.concatenate(results)
 
     def predict(self, X: NDArray) -> NDArray:
         outputs = self._forward(X)
-        assert isinstance(outputs, ImageClassifierOutputWithNoAttention)
-        y_pred = torch.argmax(outputs.logits, dim=1).numpy()
+        y_pred = np.argmax(outputs, axis=1)
         return self.label_encoder.inverse_transform(y_pred)
 
     def predict_proba(self, X: NDArray) -> NDArray:
         outputs = self._forward(X)
-        assert isinstance(outputs, ImageClassifierOutputWithNoAttention)
-        return torch.nn.functional.softmax(outputs.logits, dim=1).numpy()
+        return normalize(stable_softmax(outputs, axis=1))
 
     def transform(self, X: NDArray) -> NDArray:
         outputs = self._forward(X, output_embeddings=True)
-        assert isinstance(outputs, BaseModelOutputWithPoolingAndNoAttention)
-        return np.squeeze(outputs.pooler_output.numpy(), axis=(2, 3))
+        return np.squeeze(outputs, axis=(2, 3))
 
 
 MATCHING_NET_REPO = "karlasb/matchingnet-imagenet"
