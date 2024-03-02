@@ -155,6 +155,19 @@ class EvalLoggerCallback(TrainerCallback):
             self.logger.debug(message)
 
 
+class StopIfUnstableCallback(TrainerCallback):
+    def __init__(self, loss_key: str = "eval_loss", max_value: float = 1000.0) -> None:
+        self.loss_key = loss_key
+        self.max_value = max_value
+
+    def on_evaluate(
+        self, args: TrainingArguments, state: TrainerState, control: TrainerControl, metrics: Dict[str, float], **kwargs
+    ):
+        if self.loss_key in metrics:
+            if metrics[self.loss_key] > self.max_value or np.isnan(metrics[self.loss_key]):
+                control.should_training_stop = True
+
+
 def stable_softmax(x: NDArray, axis: Optional[int] = None) -> NDArray:
     max_val = np.max(x, axis=axis, keepdims=True)
     exp_x = np.exp(x - max_val)
@@ -178,9 +191,18 @@ BATCH_SIZE = 32
 
 
 class ResNet18Classifier(BaseEstimator, ClassifierMixin):
-    def __init__(self, n_epochs: int = 10, eval_split: float = 0.1, logger: Optional[Logger] = None) -> None:
+    def __init__(
+        self,
+        n_epochs: int = 10,
+        learning_rate: float = 1e-5,
+        eval_split: Union[float, int] = 0.1,
+        eval_random_sample: bool = True,
+        logger: Optional[Logger] = None,
+    ) -> None:
         self.n_epochs = n_epochs
+        self.learning_rate = learning_rate
         self.eval_split = eval_split
+        self.eval_random_sample = eval_random_sample
         self.logger = logger
         self.cuda_mode = torch.cuda.is_available()
         self.label_encoder = LabelEncoder()
@@ -188,43 +210,62 @@ class ResNet18Classifier(BaseEstimator, ClassifierMixin):
     def fit(self, X: NDArray, y: NDArray) -> None:
         self.classes_ = unique_labels(y)
         y = self.label_encoder.fit_transform(y)
-        self.feature_extractor = AutoImageProcessor.from_pretrained("microsoft/resnet-18")
-        self.model: ResNetForImageClassification = ResNetForImageClassification.from_pretrained(
-            "microsoft/resnet-18", num_labels=len(self.classes_), ignore_mismatched_sizes=True
-        )
-        if self.cuda_mode:
-            self.model = self.model.to("cuda:0")
-
         self.val_dataset: Optional[TorchDataset] = None
+        self.feature_extractor = AutoImageProcessor.from_pretrained("microsoft/resnet-18")
         if self.eval_split > 0:
-            X, X_eval, y, y_eval = train_test_split(X, y, test_size=self.eval_split, stratify=y, random_state=0)
+            if self.eval_random_sample:
+                X, X_eval, y, y_eval = train_test_split(X, y, test_size=self.eval_split, stratify=y, random_state=0)
+            else:
+                n_eval = int(self.eval_split * len(X)) if isinstance(self.eval_split, float) else self.eval_split
+                X, y, X_eval, y_eval = X[n_eval:], y[n_eval:], X[:n_eval], y[:n_eval]
             self.eval_dataset = TorchDataset(X_eval, y_eval, self.feature_extractor)
         self.train_dataset = TorchDataset(X, y, self.feature_extractor)
+        sucess = False
+        # torch.autograd.set_detect_anomaly(True)
 
-        self.tempdir = tempfile.mkdtemp(prefix="resnet18")
-        self.training_args = TrainingArguments(
-            output_dir=self.tempdir,
-            num_train_epochs=self.n_epochs,
-            evaluation_strategy=IntervalStrategy.STEPS,
-            eval_steps=150,  # Evaluation and Save happens every 150 steps
-            save_total_limit=15,
-            load_best_model_at_end=True,
-            metric_for_best_model="roc_auc",
-        )
-        self.trainer = Trainer(
-            model=self.model,
-            args=self.training_args,
-            train_dataset=self.train_dataset,
-            eval_dataset=self.eval_dataset,
-            compute_metrics=compute_metrics,
-            callbacks=[
-                EarlyStoppingCallback(early_stopping_patience=10),
-                EvalLoggerCallback(self.logger, prefix=self.__class__.__name__),
-            ],
-        )
-        self.trainer.remove_callback(PrinterCallback)
-        self.trainer.train()
-        self.trainer.evaluate()
+        while not sucess:
+            self.model: ResNetForImageClassification = ResNetForImageClassification.from_pretrained(
+                "microsoft/resnet-18", num_labels=len(self.classes_), ignore_mismatched_sizes=True
+            )
+            self.model.classifier[1].reset_parameters()  # Reset the last layer to random weights to ensure stability.
+            if self.cuda_mode:
+                self.model = self.model.to("cuda:0")
+
+            self.tempdir = tempfile.mkdtemp(prefix="resnet18")
+            self.training_args = TrainingArguments(
+                learning_rate=self.learning_rate,
+                output_dir=self.tempdir,
+                num_train_epochs=self.n_epochs,
+                evaluation_strategy=IntervalStrategy.STEPS,
+                eval_steps=150,  # Evaluation and Save happens every 150 steps
+                save_steps=150,  # Evaluation and Save happens every 150 steps
+                save_total_limit=15,
+                load_best_model_at_end=True,
+                metric_for_best_model="roc_auc",
+                label_smoothing_factor=0.1,
+            )
+            self.trainer = Trainer(
+                model=self.model,
+                args=self.training_args,
+                train_dataset=self.train_dataset,
+                eval_dataset=self.eval_dataset,
+                compute_metrics=compute_metrics,
+                callbacks=[
+                    EarlyStoppingCallback(early_stopping_patience=10),
+                    EvalLoggerCallback(self.logger, prefix=self.__class__.__name__),
+                    StopIfUnstableCallback(max_value=1000.0),
+                ],
+            )
+            self.trainer.remove_callback(PrinterCallback)
+            self.trainer.train()
+            metrics = self.trainer.evaluate()
+            if metrics["eval_loss"] > 1000.0 or np.isnan(metrics["eval_loss"]):
+                self.learning_rate = self.learning_rate / 2
+                self.n_epochs = self.n_epochs * 2
+                if self.logger is not None:
+                    self.logger.debug("Training failed, restarting. New learning rate: " + str(self.learning_rate))
+            else:
+                sucess = True
 
     def _forward(self, X: NDArray, output_embeddings: bool = False) -> NDArray:
         if X.ndim == 3:
@@ -250,16 +291,17 @@ class ResNet18Classifier(BaseEstimator, ClassifierMixin):
 
                 with torch.no_grad():
                     if output_embeddings:
-                        result = self.model.resnet(**inputs)
+                        result = self.model.resnet(**features)
                         outputs = result.pooler_output
                     else:
-                        result = self.model(**inputs)
+                        result = self.model(**features)
                         outputs = result.logits
 
                 if self.cuda_mode:
                     outputs = outputs.cpu()
 
                 results.append(outputs.numpy())
+                i += 1
 
             except torch.cuda.OutOfMemoryError:  # type: ignore
                 batch_size = batch_size // 2
