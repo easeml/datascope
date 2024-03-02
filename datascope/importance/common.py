@@ -314,6 +314,7 @@ class SklearnModelUtility(Utility):
         auxiliary_metrics: Optional[Dict[str, MetricCallable]] = None,
         auxiliary_metric_requires_probabilities: Optional[Dict[str, bool]] = None,
         compute_train_score: bool = False,
+        model_pretrained: bool = False,
     ) -> None:
         self.model = model
         self.metric = metric
@@ -326,6 +327,7 @@ class SklearnModelUtility(Utility):
             else {k: False for k in self.auxiliary_metrics.keys()}
         )
         self.compute_train_score = compute_train_score
+        self.model_pretrained = model_pretrained
 
     def __call__(
         self,
@@ -418,9 +420,12 @@ class SklearnModelUtility(Utility):
 
                 # Repeat the same for the training set, if needed.
                 if self.compute_train_score:
-                    result.y_train_pred = self._model_predict(result.model, X_train)
                     if metrics_require_probabilities or result.postprocessor.require_probabilities:
                         result.y_train_pred_proba = self._model_predict_proba(result.model, X_train, classes=classes)
+                        result.y_train_pred = np.argmax(result.y_train_pred_proba, axis=1)
+                    else:
+                        result.y_train_pred = self._model_predict(result.model, X_train)
+                    assert result.y_train_pred is not None
 
                     result.y_train_processed = self._postprocessor_transform(
                         postprocessor=result.postprocessor,
@@ -495,7 +500,8 @@ class SklearnModelUtility(Utility):
         self, model: SklearnModelOrPipeline, X_train: Union[NDArray, DataFrame], y_train: Union[NDArray, Series]
     ) -> SklearnModelOrPipeline:
         model = clone(model)
-        model.fit(X_train, y_train)
+        if not self.model_pretrained:
+            model.fit(X_train, y_train)
         return model
 
     def _model_predict(self, model: SklearnModelOrPipeline, X_test: Union[NDArray, DataFrame]) -> NDArray:
