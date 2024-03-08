@@ -8,7 +8,10 @@ from functools import partial
 from itertools import combinations, product
 from matplotlib.figure import Figure
 from matplotlib.ticker import EngFormatter, PercentFormatter
+from matplotlib.transforms import Bbox
 from numpy.typing import NDArray
+from scipy.sparse import lil_matrix
+from scipy.sparse.csgraph import connected_components
 from typing import Callable, Optional, Dict, Any, List, Union, TypeVar, Tuple
 
 from pandas import DataFrame, MultiIndex
@@ -56,25 +59,25 @@ class AggregationMode(str, Enum):
     MEAN_STD = "mean-std"
 
 
-VALUE_MEASURES: Dict[AggregationMode, Dict[str, Callable]] = {
+VALUE_MEASURES: Dict[AggregationMode, Dict[str, Union[Callable, str]]] = {
     AggregationMode.MEAN_STD: {
-        "mean": np.mean,
-        "std": np.std,
+        "mean": "mean",
+        "std": "std",
         "std-l": lambda x: np.mean(x) - np.std(x),
         "std-h": lambda x: np.mean(x) + np.std(x),
     },
     AggregationMode.MEDIAN_PERC_90: {
-        "median": np.median,
+        "median": "median",
         "95perc-l": partial(np.percentile, q=5),
         "95perc-h": partial(np.percentile, q=95),
     },
     AggregationMode.MEDIAN_PERC_95: {
-        "median": np.median,
+        "median": "median",
         "95perc-l": partial(np.percentile, q=2.5),
         "95perc-h": partial(np.percentile, q=97.5),
     },
     AggregationMode.MEDIAN_PERC_99: {
-        "median": np.median,
+        "median": "median",
         "95perc-l": partial(np.percentile, q=0.5),
         "95perc-h": partial(np.percentile, q=99.5),
     },
@@ -276,6 +279,65 @@ def get_colors(keys: List[Tuple[str, ...]], colors: Optional[Dict[Tuple[str, ...
     return result_colors
 
 
+def fix_text_positioning(texts: List[plt.Text], axes: plt.Axes) -> None:
+    # Extract bounding boxes of all text objects.
+    transforms = [text.get_transform() for text in texts]
+    bboxes = [text.get_window_extent(axes.figure.canvas.renderer) for text in texts]
+    # bboxes = [axes.transData.inverted().transform_bbox(bbox) for bbox in bboxes]
+    heights = np.array([bbox.y1 - bbox.y0 for bbox in bboxes])
+    vertical_positions = np.array([bbox.y0 for bbox in bboxes])
+
+    # # Draw a bounding rectangle of all objects using bboxes.
+    # for bbox in bboxes:
+    #     rect_bbox = axes.transData.inverted().transform_bbox(bbox)
+    #     axes.add_patch(
+    #         Rectangle(
+    #             (rect_bbox.xmin, rect_bbox.ymin),
+    #             rect_bbox.width,
+    #             rect_bbox.height,
+    #             fill=False,
+    #             edgecolor="red",
+    #             # transform=axes.transAxes,
+    #         )
+    #     )
+
+    # Find groups of texts that overlap.
+    overlaps = lil_matrix((len(bboxes), len(bboxes)), dtype=bool)
+    for i in range(len(bboxes)):
+        for j in range(i + 1, len(bboxes)):
+            if bboxes[i].overlaps(bboxes[j]):
+                overlaps[i, j] = True
+    n_components, labels = connected_components(csgraph=overlaps, directed=False, return_labels=True)
+    for i in range(n_components):
+        group = np.where(labels == i)[0]
+        if len(group) > 1:
+            # Reorder the group by vertical position.
+            group = group[np.argsort(vertical_positions[group])]
+
+            # Find the bounding box that covers the group and use it to adjust the position of the texts.
+            bbox = Bbox.union([bboxes[i] for i in group])
+            y_cur = (bbox.ymin + bbox.ymax) / 2 - np.sum(heights[group]) / 2 + heights[group[0]] / 2
+            for i in group:
+                text = texts[i]
+                _, y = transforms[i].inverted().transform((0, y_cur))
+                text.set_y(y)
+                y_cur += heights[i]
+
+    # Expand the axes to fit the new text positions.
+    bboxes = [text.get_window_extent(axes.figure.canvas.renderer) for text in texts]
+    bbox_union = Bbox.union(bboxes)
+    bbox_data_coords = axes.transData.inverted().transform_bbox(bbox_union)
+    # axes.update_datalim(bbox_union)
+    if bbox_data_coords.xmin < axes.get_xlim()[0]:
+        axes.set_xlim((bbox_data_coords.xmin, axes.dataLim.xmax))
+    if bbox_data_coords.xmax > axes.get_xlim()[1]:
+        axes.set_xlim((axes.dataLim.xmin, bbox_data_coords.xmax))
+    if bbox_data_coords.ymin < axes.get_ylim()[0]:
+        axes.set_ylim((bbox_data_coords.ymin, axes.dataLim.ymax))
+    if bbox_data_coords.ymax > axes.get_ylim()[1]:
+        axes.set_ylim((axes.dataLim.ymin, bbox_data_coords.ymax))
+
+
 def lineplot(
     dataframe: DataFrame,
     index: str,
@@ -319,15 +381,19 @@ def lineplot(
     if len(compareorder_unpacked) > 0:
         comparison = sorted(
             comparison,
-            key=lambda x: compareorder_unpacked.index(x)
-            if compareorder_unpacked is not None and x in compareorder_unpacked
-            else len(comparison),
+            key=lambda x: (
+                compareorder_unpacked.index(x)
+                if compareorder_unpacked is not None and x in compareorder_unpacked
+                else len(comparison)
+            ),
         )
 
     figure: Optional[Figure] = None
     if axes is None:
         figure = plt.figure(figsize=(10, 8))
         axes = figure.subplots()
+    else:
+        figure = axes.get_figure()
 
     labels: List[str] = []
     for i, comp in enumerate(comparison):
@@ -344,6 +410,7 @@ def lineplot(
     centercol = VALUE_MEASURE_C[aggmode]
     split_colors = dict((tuple(k.split(",")), v) for (k, v) in colors.items()) if colors is not None else None
     comp_colors = get_colors(comparison, colors=split_colors)
+    texts = []
     for i, comp in enumerate(comparison):
         if ",".join(str(c) for c in comp) in dontcompare:
             continue
@@ -371,7 +438,7 @@ def lineplot(
             )
             if annotations:
                 for x, y in zip(xval, yval):
-                    axes.annotate(
+                    text = axes.annotate(
                         "%.2f" % y,
                         xy=(x, y),
                         xytext=(fontsize * 0.5, 0),
@@ -379,7 +446,9 @@ def lineplot(
                         fontsize=fontsize,
                         horizontalalignment="left",
                         verticalalignment="center",
+                        # arrowprops=dict(arrowstyle="-", color=comp_colors[i]),
                     )
+                    texts.append(text)
 
     linedesc = list(zip(comparison, comp_colors, labels))
     for comp, c, l in linedesc:
@@ -406,6 +475,11 @@ def lineplot(
     axes.set_ylabel(replace_keywords(targetval, keyword_replacements), fontsize=fontsize, wrap=True)
     axes.set_xlabel(replace_keywords(index, keyword_replacements), fontsize=fontsize, wrap=True)
     # axes.legend(loc="lower right", fontsize=fontsize, borderaxespad=0, edgecolor="black", fancybox=False)
+
+    figure.canvas.draw()
+    fix_text_positioning(texts, axes)
+    # figure.canvas.draw()
+
     return figure
 
 
@@ -465,6 +539,8 @@ def barplot(
     if axes is None:
         figure = plt.figure(figsize=(10, 8))
         axes = figure.subplots()
+    else:
+        figure = axes.get_figure()
 
     # x, y, yerr = [], [], []
     summary = dictpivot(summary, compare=compare)
@@ -474,14 +550,17 @@ def barplot(
     if len(compareorder_unpacked) > 0:
         summary_items = sorted(
             summary_items,
-            key=lambda x: compareorder_unpacked.index(x[0])
-            if compareorder_unpacked is not None and x[0] in compareorder_unpacked
-            else len(summary_items),
+            key=lambda x: (
+                compareorder_unpacked.index(x[0])
+                if compareorder_unpacked is not None and x[0] in compareorder_unpacked
+                else len(summary_items)
+            ),
         )
 
     comparison = [item[0] for item in summary_items]
     split_colors = dict((tuple(k.split(",")), v) for (k, v) in colors.items()) if colors is not None else None
     comp_colors = get_colors(comparison, colors=split_colors)
+    texts = []
 
     for i, (comp, values) in enumerate(summary_items):
         if ",".join(str(c) for c in comp) in dontcompare:
@@ -509,7 +588,7 @@ def barplot(
         )
 
         if annotations:
-            axes.annotate(
+            text = axes.annotate(
                 "%.2f" % yval,
                 xy=(xval, yval),
                 xytext=(fontsize * 0.5, 0),
@@ -518,6 +597,7 @@ def barplot(
                 horizontalalignment="left",
                 verticalalignment="center",
             )
+            texts.append(text)
 
     axes.set_ylabel(replace_keywords(targetval, keyword_replacements), fontsize=fontsize, wrap=True)
     axes.get_xaxis().set_ticks([])
@@ -529,6 +609,8 @@ def barplot(
     # axes.legend(
     #     loc="upper right", fontsize=fontsize, borderaxespad=0, edgecolor="black", fancybox=False, ncol=len(summary)
     # )
+    figure.canvas.draw()
+    fix_text_positioning(texts, axes)
 
     return figure
 
@@ -567,6 +649,8 @@ def dotplot(
     if axes is None:
         figure = plt.figure(figsize=(10, 8))
         axes = figure.subplots()
+    else:
+        figure = axes.get_figure()
 
     # x, y, yerr = [], [], []
     summary = dictpivot(summary, compare=compare)
@@ -576,14 +660,17 @@ def dotplot(
     if len(compareorder_unpacked) > 0:
         summary_items = sorted(
             summary_items,
-            key=lambda x: compareorder_unpacked.index(x[0])
-            if compareorder_unpacked is not None and x[0] in compareorder_unpacked
-            else len(summary_items),
+            key=lambda x: (
+                compareorder_unpacked.index(x[0])
+                if compareorder_unpacked is not None and x[0] in compareorder_unpacked
+                else len(summary_items)
+            ),
         )
 
     comparison = [item[0] for item in summary_items]
     split_colors = dict((tuple(k.split(",")), v) for (k, v) in colors.items()) if colors is not None else None
     comp_colors = get_colors(comparison, colors=split_colors)
+    texts = []
 
     for i, (comp, values) in enumerate(summary_items):
         if ",".join(str(c) for c in comp) in dontcompare:
@@ -618,7 +705,7 @@ def dotplot(
         )
 
         if annotations:
-            axes.annotate(
+            text = axes.annotate(
                 "%.2f" % yval,
                 xy=(xval, yval),
                 xytext=(fontsize * 0.5, 0),
@@ -627,6 +714,7 @@ def dotplot(
                 horizontalalignment="left",
                 verticalalignment="center",
             )
+            texts.append(text)
 
     axes.set_ylabel(replace_keywords(ytargetval, keyword_replacements), fontsize=fontsize, wrap=True)
     axes.set_xlabel(replace_keywords(xtargetval, keyword_replacements), fontsize=fontsize, wrap=True)
@@ -638,6 +726,8 @@ def dotplot(
     # axes.legend(
     #     loc="upper right", fontsize=fontsize, borderaxespad=0, edgecolor="black", fancybox=False, ncol=len(summary)
     # )
+    figure.canvas.draw()
+    fix_text_positioning(texts, axes)
 
     return figure
 
@@ -1025,6 +1115,20 @@ class AggregatePlot(Report, id="aggplot"):
                 axes[i].spines["right"].set_visible(False)
                 axes[i].tick_params(axis="both", which="major", labelsize=self.fontsize)
 
+                if self.xlogscale[i]:
+                    axes[i].set_xscale("log")
+                if self.ylogscale[i]:
+                    axes[i].set_yscale("log")
+
+                if self.xtickfmt[i] == TickFormat.PERCENT:
+                    axes[i].xaxis.set_major_formatter(PercentFormatter(xmax=1.0, decimals=0))
+                elif self.xtickfmt[i] == TickFormat.ENG:
+                    axes[i].xaxis.set_major_formatter(EngFormatter(places=0, sep=""))
+                if self.ytickfmt[i] == TickFormat.PERCENT:
+                    axes[i].yaxis.set_major_formatter(PercentFormatter(xmax=1.0, decimals=0))
+                elif self.ytickfmt[i] == TickFormat.ENG:
+                    axes[i].yaxis.set_major_formatter(EngFormatter(places=0, sep=""))
+
                 if plottype == PlotType.LINE:
                     if self._index is None:
                         raise ValueError("An index must be specified when plotting line plots.")
@@ -1094,20 +1198,6 @@ class AggregatePlot(Report, id="aggplot"):
                         annotations=self._annotations[i],
                         dontcompare=self._dontcompare[i],
                     )
-
-                if self.xlogscale[i]:
-                    axes[i].set_xscale("log")
-                if self.ylogscale[i]:
-                    axes[i].set_yscale("log")
-
-                if self.xtickfmt[i] == TickFormat.PERCENT:
-                    axes[i].xaxis.set_major_formatter(PercentFormatter(xmax=1.0, decimals=0))
-                elif self.xtickfmt[i] == TickFormat.ENG:
-                    axes[i].xaxis.set_major_formatter(EngFormatter(places=0, sep=""))
-                if self.ytickfmt[i] == TickFormat.PERCENT:
-                    axes[i].yaxis.set_major_formatter(PercentFormatter(xmax=1.0, decimals=0))
-                elif self.ytickfmt[i] == TickFormat.ENG:
-                    axes[i].yaxis.set_major_formatter(EngFormatter(places=0, sep=""))
 
             if self._legend:
                 self._figure.subplots_adjust(bottom=0.25)
