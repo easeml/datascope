@@ -436,7 +436,15 @@ def get_model(model_type: ModelType, **kwargs):
         n_epochs = kwargs.get("n_epochs", 10)
         eval_split = kwargs.get("eval_split", 0.1)
         logger = kwargs.get("logger", None)
-        model = ResNet18Classifier(n_epochs=n_epochs, eval_split=eval_split, logger=logger)
+        learning_rate = kwargs.get("learning_rate", 1e-5)
+        eval_random_sample = kwargs.get("eval_random_sample", True)
+        model = ResNet18Classifier(
+            n_epochs=n_epochs,
+            eval_split=eval_split,
+            logger=logger,
+            learning_rate=learning_rate,
+            eval_random_sample=eval_random_sample,
+        )
     elif model_type == ModelType.MatchingNet:
         model = MatchingNetworkClassifier()
     else:
