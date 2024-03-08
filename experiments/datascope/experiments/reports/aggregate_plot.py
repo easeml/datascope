@@ -279,10 +279,14 @@ def get_colors(keys: List[Tuple[str, ...]], colors: Optional[Dict[Tuple[str, ...
     return result_colors
 
 
-def fix_text_positioning(texts: List[plt.Text], axes: plt.Axes) -> None:
+def fix_text_positioning(texts: Union[List[plt.Text], List[plt.Annotation]], axes: plt.Axes) -> None:
+
+    # Get renderer from axes.
+    renderer = axes.figure.canvas.renderer  # type: ignore
+
     # Extract bounding boxes of all text objects.
     transforms = [text.get_transform() for text in texts]
-    bboxes = [text.get_window_extent(axes.figure.canvas.renderer) for text in texts]
+    bboxes = [text.get_window_extent(renderer) for text in texts]
     # bboxes = [axes.transData.inverted().transform_bbox(bbox) for bbox in bboxes]
     heights = np.array([bbox.y1 - bbox.y0 for bbox in bboxes])
     vertical_positions = np.array([bbox.y0 for bbox in bboxes])
@@ -324,18 +328,18 @@ def fix_text_positioning(texts: List[plt.Text], axes: plt.Axes) -> None:
                 y_cur += heights[i]
 
     # Expand the axes to fit the new text positions.
-    bboxes = [text.get_window_extent(axes.figure.canvas.renderer) for text in texts]
+    bboxes = [text.get_window_extent(renderer) for text in texts]
     bbox_union = Bbox.union(bboxes)
     bbox_data_coords = axes.transData.inverted().transform_bbox(bbox_union)
     # axes.update_datalim(bbox_union)
     if bbox_data_coords.xmin < axes.get_xlim()[0]:
-        axes.set_xlim((bbox_data_coords.xmin, axes.dataLim.xmax))
+        axes.set_xlim(xmin=bbox_data_coords.xmin)
     if bbox_data_coords.xmax > axes.get_xlim()[1]:
-        axes.set_xlim((axes.dataLim.xmin, bbox_data_coords.xmax))
+        axes.set_xlim(xmax=bbox_data_coords.xmax)
     if bbox_data_coords.ymin < axes.get_ylim()[0]:
-        axes.set_ylim((bbox_data_coords.ymin, axes.dataLim.ymax))
+        axes.set_ylim(ymin=bbox_data_coords.ymin)
     if bbox_data_coords.ymax > axes.get_ylim()[1]:
-        axes.set_ylim((axes.dataLim.ymin, bbox_data_coords.ymax))
+        axes.set_ylim(ymax=bbox_data_coords.ymax)
 
 
 def lineplot(
@@ -391,9 +395,12 @@ def lineplot(
     figure: Optional[Figure] = None
     if axes is None:
         figure = plt.figure(figsize=(10, 8))
-        axes = figure.subplots()
+        subplots = figure.subplots()
+        assert isinstance(subplots, plt.Axes)
+        axes = subplots
     else:
         figure = axes.get_figure()
+    assert figure is not None
 
     labels: List[str] = []
     for i, comp in enumerate(comparison):
@@ -476,10 +483,14 @@ def lineplot(
     axes.set_xlabel(replace_keywords(index, keyword_replacements), fontsize=fontsize, wrap=True)
     # axes.legend(loc="lower right", fontsize=fontsize, borderaxespad=0, edgecolor="black", fancybox=False)
 
+    axes.relim()
+
     if len(texts) > 0:
         figure.canvas.draw()
         fix_text_positioning(texts, axes)
-    # figure.canvas.draw()
+
+    axes.autoscale_view(tight=True)
+    figure.canvas.draw()
 
     return figure
 
@@ -539,9 +550,12 @@ def barplot(
     figure: Optional[Figure] = None
     if axes is None:
         figure = plt.figure(figsize=(10, 8))
-        axes = figure.subplots()
+        subplots = figure.subplots()
+        assert isinstance(subplots, plt.Axes)
+        axes = subplots
     else:
         figure = axes.get_figure()
+    assert figure is not None
 
     # x, y, yerr = [], [], []
     summary = dictpivot(summary, compare=compare)
@@ -602,6 +616,7 @@ def barplot(
 
     axes.set_ylabel(replace_keywords(targetval, keyword_replacements), fontsize=fontsize, wrap=True)
     axes.get_xaxis().set_ticks([])
+    axes.relim()
 
     # Squeeze xlimit.
     xlim = axes.get_xlim()
@@ -610,9 +625,15 @@ def barplot(
     # axes.legend(
     #     loc="upper right", fontsize=fontsize, borderaxespad=0, edgecolor="black", fancybox=False, ncol=len(summary)
     # )
+
+    axes.relim()
+
     if len(texts) > 0:
         figure.canvas.draw()
         fix_text_positioning(texts, axes)
+
+    axes.autoscale_view(tight=True)
+    figure.canvas.draw()
 
     return figure
 
@@ -650,9 +671,12 @@ def dotplot(
     figure: Optional[Figure] = None
     if axes is None:
         figure = plt.figure(figsize=(10, 8))
-        axes = figure.subplots()
+        subplots = figure.subplots()
+        assert isinstance(subplots, plt.Axes)
+        axes = subplots
     else:
         figure = axes.get_figure()
+    assert figure is not None
 
     # x, y, yerr = [], [], []
     summary = dictpivot(summary, compare=compare)
@@ -720,6 +744,7 @@ def dotplot(
 
     axes.set_ylabel(replace_keywords(ytargetval, keyword_replacements), fontsize=fontsize, wrap=True)
     axes.set_xlabel(replace_keywords(xtargetval, keyword_replacements), fontsize=fontsize, wrap=True)
+    axes.relim()
 
     # Squeeze xlimit.
     # xlim = axes.get_xlim()
@@ -728,9 +753,15 @@ def dotplot(
     # axes.legend(
     #     loc="upper right", fontsize=fontsize, borderaxespad=0, edgecolor="black", fancybox=False, ncol=len(summary)
     # )
+
+    axes.relim()
+
     if len(texts) > 0:
         figure.canvas.draw()
         fix_text_positioning(texts, axes)
+
+    axes.autoscale_view(tight=True)
+    figure.canvas.draw()
 
     return figure
 
@@ -1029,8 +1060,8 @@ class AggregatePlot(Report, id="aggplot"):
 
         keyword_replacements: Dict[str, str] = {}
         summarydict: Dict[str, str] = {}
-        for scenario in self.study.scenarios:
-            keyword_replacements.update(scenario.keyword_replacements)
+        # for scenario in self.study.scenarios:
+        #     keyword_replacements.update(scenario.keyword_replacements)
 
         if self.index is not None and len(self.targetval) > 0:
             if self._view is None:
@@ -1104,10 +1135,9 @@ class AggregatePlot(Report, id="aggplot"):
             plt.rc("text", usetex=self.usetex)
             if not title.isspace():
                 self._figure.suptitle(title, fontsize=self.fontsize * 0.9)
-            axes: plt.Axes = self._figure.subplots(nrows=1, ncols=len(self.plot))
-            if len(self.plot) == 1:
-                axes = np.array([axes])
-            axes = axes.flatten()
+            subplots = self._figure.subplots(nrows=1, ncols=len(self.plot))
+            assert isinstance(subplots, np.ndarray) or isinstance(subplots, plt.Axes)
+            axes: NDArray = np.array([subplots]) if isinstance(subplots, plt.Axes) else subplots.flatten()
             colors = dict((x.split(":")[0], x.split(":")[1]) for x in self._colors) if len(self._colors) > 0 else None
 
             for i, plotspec in enumerate(self.plot):
