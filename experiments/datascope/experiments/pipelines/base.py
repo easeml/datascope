@@ -310,7 +310,7 @@ class ImageEmbeddingPipeline(Pipeline, abstract=True, modalities=[ImageDatasetMi
                 if cuda_mode:
                     result = result.cpu()
 
-                results.append(np.squeeze(result.numpy()))
+                results.append(np.squeeze(result.numpy(), axis=(2, 3)))
                 i += 1
 
             except torch.cuda.OutOfMemoryError:  # type: ignore
@@ -578,7 +578,7 @@ class TextEmbeddingPipeline(Pipeline, abstract=True, modalities=[TextDatasetMixi
                 if cuda_mode:
                     result = result.cpu()
 
-                results.append(np.squeeze(result.numpy()))
+                results.append(np.squeeze(result.numpy(), axis=(2, 3)))
                 i += 1
 
             except torch.cuda.OutOfMemoryError:  # type: ignore
