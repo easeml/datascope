@@ -476,8 +476,9 @@ def lineplot(
     axes.set_xlabel(replace_keywords(index, keyword_replacements), fontsize=fontsize, wrap=True)
     # axes.legend(loc="lower right", fontsize=fontsize, borderaxespad=0, edgecolor="black", fancybox=False)
 
-    figure.canvas.draw()
-    fix_text_positioning(texts, axes)
+    if len(texts) > 0:
+        figure.canvas.draw()
+        fix_text_positioning(texts, axes)
     # figure.canvas.draw()
 
     return figure
@@ -609,8 +610,9 @@ def barplot(
     # axes.legend(
     #     loc="upper right", fontsize=fontsize, borderaxespad=0, edgecolor="black", fancybox=False, ncol=len(summary)
     # )
-    figure.canvas.draw()
-    fix_text_positioning(texts, axes)
+    if len(texts) > 0:
+        figure.canvas.draw()
+        fix_text_positioning(texts, axes)
 
     return figure
 
@@ -726,8 +728,9 @@ def dotplot(
     # axes.legend(
     #     loc="upper right", fontsize=fontsize, borderaxespad=0, edgecolor="black", fancybox=False, ncol=len(summary)
     # )
-    figure.canvas.draw()
-    fix_text_positioning(texts, axes)
+    if len(texts) > 0:
+        figure.canvas.draw()
+        fix_text_positioning(texts, axes)
 
     return figure
 
