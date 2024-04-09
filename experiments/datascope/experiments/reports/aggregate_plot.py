@@ -584,7 +584,7 @@ def barplot(
         formatdict = dict(zip(compare, comp))
         label = labelformat % formatdict
         label = replace_keywords(label, keyword_replacements)
-        xval = "; ".join(str(x) for x in comp)
+        # xval = "; ".join(str(x) for x in comp)
         col = targetval + ":" + centercol
         yval = values[col]
 
@@ -592,7 +592,7 @@ def barplot(
         lowercol = next(c for c in values.keys() if c.endswith("-l"))
         yerr = np.abs(np.array([[values[col] - values[lowercol]], [values[col] - values[uppercol]]]))
         axes.errorbar(
-            [xval],
+            [i],
             [yval],
             yerr=yerr,
             fmt="o",
@@ -605,7 +605,7 @@ def barplot(
         if annotations:
             text = axes.annotate(
                 "%.2f" % yval,
-                xy=(xval, yval),
+                xy=(i, yval),
                 xytext=(fontsize * 0.5, 0),
                 textcoords="offset points",
                 fontsize=fontsize,
@@ -705,7 +705,7 @@ def dotplot(
         formatdict = dict(zip(compare, comp))
         label = labelformat % formatdict
         label = replace_keywords(label, keyword_replacements)
-        xval = "; ".join(str(x) for x in comp)
+        # xval = "; ".join(str(x) for x in comp)
         xcol = xtargetval + ":" + centercol
         xval = values[xcol]
         ycol = ytargetval + ":" + centercol
@@ -1060,8 +1060,9 @@ class AggregatePlot(Report, id="aggplot"):
 
         keyword_replacements: Dict[str, str] = {}
         summarydict: Dict[str, str] = {}
-        # for scenario in self.study.scenarios:
-        #     keyword_replacements.update(scenario.keyword_replacements)
+        if self.study is not None:
+            for scenario in self.study.scenarios:
+                keyword_replacements.update(scenario.keyword_replacements)
 
         if self.index is not None and len(self.targetval) > 0:
             if self._view is None:
