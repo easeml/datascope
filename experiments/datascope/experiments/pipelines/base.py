@@ -25,11 +25,6 @@ from transformers.modeling_outputs import BaseModelOutputWithPoolingAndNoAttenti
 from transformers.modeling_utils import PreTrainedModel
 from typing import Dict, Iterable, Type, Optional, Union, List, Tuple
 
-# import torch.nn.functional as F
-# from transformers import MobileBertTokenizer, MobileBertModel
-# from transformers.tokenization_utils import BatchEncoding
-# from transformers.modeling_outputs import BaseModelOutputWithPooling
-
 from ..datasets import Dataset, TabularDatasetMixin, ImageDatasetMixin, TextDatasetMixin
 
 DatasetModality = Union[Type[TabularDatasetMixin], Type[ImageDatasetMixin], Type[TextDatasetMixin]]
@@ -339,78 +334,6 @@ class ImageEmbeddingPipeline(Pipeline, abstract=True, modalities=[ImageDatasetMi
         return cls(ops)
 
 
-# class ResNet18EmbeddingPipeline(
-#     Pipeline, id="resnet-18", summary="ResNet-18 Embedding", modalities=[ImageDatasetMixin]
-# ):  # type: ignore
-#     """
-#     A pipeline that extracts embeddings using a ResNet50 model pre-trained on the ImageNet dataset.
-#     """
-
-#     @staticmethod
-#     def _embedding_transform(
-#         X: np.ndarray, cuda_mode: bool, feature_extractor: BaseImageProcessor, model: PreTrainedModel
-#     ) -> np.ndarray:
-#         if X.ndim == 3:
-#             X = np.expand_dims(X, axis=X.ndim)
-#         if X.shape[-1] == 1:
-#             X = np.tile(X, (1, 1, 1, 3))
-
-#         inputs = list(X)
-#         results: List[np.ndarray] = []
-#         batch_size = BATCH_SIZE
-#         batches = range(0, len(inputs), batch_size)
-#         i = 0
-
-#         while i < len(batches) and batch_size > 0:
-#             try:
-
-#                 features: BatchFeature = feature_extractor(
-#                     inputs[batches[i] : batches[i] + batch_size], return_tensors="pt"  # noqa: E203
-#                 )
-
-#                 if cuda_mode:
-#                     features = features.to("cuda:0")
-
-#                 with torch.no_grad():
-#                     outputs: BaseModelOutputWithPoolingAndNoAttention = model(**features)
-#                     result = outputs.pooler_output
-
-#                 if cuda_mode:
-#                     result = result.cpu()
-
-#                 results.append(np.squeeze(result.numpy()))
-#                 i += 1
-
-#             except torch.cuda.OutOfMemoryError:  # type: ignore
-#                 batch_size = batch_size // 2
-#                 batches = range(0, len(inputs), batch_size)
-#                 i = 0
-#                 results = []
-
-#         return np.concatenate(results)
-
-#     @classmethod
-#     def construct(cls: Type["ResNet18EmbeddingPipeline"], dataset: Dataset) -> "ResNet18EmbeddingPipeline":
-#         # if dataset.X_train.ndim not in [3, 4]:
-#         #     raise ValueError("The provided dataset features must have either 3 or 4 dimensions.")
-#         # if dataset.X_train.ndim == 4 and dataset.X_train.shape[-1] not in [1, 3]:
-#         #     raise ValueError("The provided dataset features must be either grayscale or with 3 channels.")
-
-#         feature_extractor = AutoImageProcessor.from_pretrained("microsoft/resnet-18")
-#         model = ResNetModel.from_pretrained("microsoft/resnet-18")
-
-#         cuda_mode = torch.cuda.is_available()
-#         if cuda_mode:
-#             model = model.to("cuda:0")
-
-#         embedding_transform = functools.partial(
-#             cls._embedding_transform, cuda_mode=cuda_mode, feature_extractor=feature_extractor, model=model
-#         )
-
-#         ops = [("embedding", FunctionTransformer(embedding_transform))]
-#         return cls(ops)
-
-
 class ResNet18EmbeddingPipeline(
     ImageEmbeddingPipeline, id="resnet-18", summary="ResNet18 Embedding", modalities=[ImageDatasetMixin]
 ):  # type: ignore
@@ -425,6 +348,20 @@ class ResNet18EmbeddingPipeline(
         return feature_extractor, model
 
 
+class ResNet50EmbeddingPipeline(
+    ImageEmbeddingPipeline, id="resnet-50", summary="ResNet50 Embedding", modalities=[ImageDatasetMixin]
+):  # type: ignore
+    """
+    A pipeline that extracts embeddings using a ResNet50 model pre-trained on the ImageNet dataset.
+    """
+
+    @classmethod
+    def get_model(cls: Type["ResNet50EmbeddingPipeline"]) -> Tuple[BaseImageProcessor, PreTrainedModel]:
+        feature_extractor = AutoImageProcessor.from_pretrained("microsoft/resnet-50")
+        model = ResNetModel.from_pretrained("microsoft/resnet-50")
+        return feature_extractor, model
+
+
 class MobileNetV2EmbeddingPipeline(
     ImageEmbeddingPipeline, id="mobilenet-v2", summary="MobileNetV2 Embedding", modalities=[ImageDatasetMixin]
 ):  # type: ignore
@@ -433,7 +370,7 @@ class MobileNetV2EmbeddingPipeline(
     """
 
     @classmethod
-    def get_model(cls: Type["ResNet18EmbeddingPipeline"]) -> Tuple[BaseImageProcessor, PreTrainedModel]:
+    def get_model(cls: Type["MobileNetV2EmbeddingPipeline"]) -> Tuple[BaseImageProcessor, PreTrainedModel]:
         feature_extractor = AutoImageProcessor.from_pretrained("google/mobilenet_v2_1.0_224")
         model = ResNetModel.from_pretrained("google/mobilenet_v2_1.0_224")
         return feature_extractor, model
@@ -447,7 +384,7 @@ class MobileViTEmbeddingPipeline(
     """
 
     @classmethod
-    def get_model(cls: Type["ResNet18EmbeddingPipeline"]) -> Tuple[BaseImageProcessor, PreTrainedModel]:
+    def get_model(cls: Type["MobileViTEmbeddingPipeline"]) -> Tuple[BaseImageProcessor, PreTrainedModel]:
         feature_extractor = AutoImageProcessor.from_pretrained("apple/mobilevit-small")
         model = ResNetModel.from_pretrained("apple/mobilevit-small")
         return feature_extractor, model
@@ -491,48 +428,6 @@ class ToLowerUrlRemovePipeline(
             ("tfidf", TfidfTransformer()),
         ]
         return ToLowerUrlRemovePipeline(ops)
-
-
-# class MobileBertEmbeddingPipeline(
-#     Pipeline, id="mobile-bert", summary="Mobile-BERT Embedding", modalities=[ImageDatasetMixin]
-# ):
-#     """
-#     A pipeline that extracts embeddings using a ResNet50 model pre-trained on the ImageNet dataset.
-#     """
-
-#     @classmethod
-#     def construct(cls: Type["MobileBertEmbeddingPipeline"], dataset: Dataset) -> "MobileBertEmbeddingPipeline":
-
-#         if dataset.X_train.ndim > 1:
-#             raise ValueError("The provided dataset features must have either 0 or 1 dimensions.")
-
-#         tokenizer = MobileBertTokenizer.from_pretrained("google/mobilebert-uncased")
-#         model = MobileBertModel.from_pretrained("google/mobilebert-uncased")
-
-#         def mean_pooling(model_output, attention_mask):
-#             token_embeddings = model_output[0]  # First element of model_output contains all token embeddings
-#             input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
-#             return torch.sum(token_embeddings * input_mask_expanded, 1) / torch.clamp(
-#                 input_mask_expanded.sum(1), min=1e-9
-#             )
-
-#         def embedding_transform(X: np.ndarray) -> np.ndarray:
-
-#             inputs: BatchEncoding = tokenizer(
-#                 list(X), return_tensors="pt", max_length=128, padding=True, truncation=True, add_special_tokens=True
-#             )
-
-#             with torch.no_grad():
-#                 outputs: BaseModelOutputWithPooling = model(**inputs)
-
-#             sentence_embeddings = mean_pooling(outputs, inputs["attention_mask"])
-
-#             result = F.normalize(sentence_embeddings, p=2, dim=1)
-
-#             return result.numpy()
-
-#         ops = [("embedding", FunctionTransformer(embedding_transform))]
-#         return cls(ops)
 
 
 class TextEmbeddingPipeline(Pipeline, abstract=True, modalities=[TextDatasetMixin]):
