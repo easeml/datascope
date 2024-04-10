@@ -8,12 +8,9 @@ import math
 import numpy as np
 import os
 import pandas as pd
-import pickle
 import pyarrow
-import requests
 import shutil
 import tables as tb
-import tarfile
 import torch
 
 from abc import ABC, abstractmethod
@@ -37,7 +34,8 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import LabelEncoder
 from tqdm.auto import tqdm
 from typing import Dict, List, Optional, Sequence, Tuple, Type, Union, Callable, Hashable
-from zipfile import ZipFile
+
+from ..utilities import download, untar, unzip, unpickle
 
 
 class DatasetId(str, Enum):
@@ -63,37 +61,6 @@ DEFAULT_CLASSES = [0, 6]
 DEFAULT_DATA_DIR = os.path.join("var", "data")
 DEFAULT_CACHE_DIR = os.path.join(DEFAULT_DATA_DIR, "applycache")
 DEFAULT_BATCH_SIZE = 1024
-
-
-def download(url: str, filename: str, chunk_size=1024):
-    resp = requests.get(url, stream=True)
-    total = int(resp.headers.get("content-length", 0))
-    with open(filename, "wb") as file:
-        desc = "Downloading %s" % os.path.basename(filename)
-        with tqdm(desc=desc, total=total, unit="iB", unit_scale=True, unit_divisor=1024) as bar:
-            for data in resp.iter_content(chunk_size=chunk_size):
-                size = file.write(data)
-                bar.update(size)
-
-
-def unzip(source: str, path: str):
-    with ZipFile(source, "r") as zip_ref:
-        desc = "Extracting %s" % os.path.basename(source)
-        for file in tqdm(desc=desc, iterable=zip_ref.namelist(), total=len(zip_ref.namelist())):
-            zip_ref.extract(member=file, path=path)
-
-
-def untar(source: str, path: str, mode: str = "r"):
-    with tarfile.open(source, mode) as tar:
-        desc = "Extracting %s" % os.path.basename(source)
-        for file in tqdm(desc=desc, iterable=tar.getmembers(), total=len(tar.getmembers())):
-            tar.extract(member=file, path=path)
-
-
-def unpickle(file, encoding="latin1"):
-    with open(file, "rb") as fo:
-        dict = pickle.load(fo, encoding=encoding)
-    return dict
 
 
 memory = Memory(DEFAULT_CACHE_DIR, verbose=0)
