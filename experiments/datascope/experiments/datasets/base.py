@@ -35,7 +35,7 @@ from sklearn.preprocessing import LabelEncoder
 from tqdm.auto import tqdm
 from typing import Dict, List, Optional, Sequence, Tuple, Type, Union, Callable, Hashable
 
-from ..utilities import download, untar, unzip, unpickle
+from ..utility import download, untar, unzip, unpickle
 
 
 class DatasetId(str, Enum):

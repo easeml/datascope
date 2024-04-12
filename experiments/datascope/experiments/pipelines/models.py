@@ -1,7 +1,6 @@
 import numpy as np
 import tempfile
 import torch
-import torch.utils.data
 
 from abc import abstractmethod
 from enum import Enum
@@ -21,8 +20,8 @@ from sklearn.neural_network import MLPClassifier
 from sklearn.preprocessing import LabelEncoder, normalize
 from sklearn.svm import SVC, LinearSVC
 from sklearn.utils.multiclass import unique_labels
+from torch.utils.data import DataLoader
 from transformers import (
-    AutoImageProcessor,
     ResNetForImageClassification,
     Trainer,
     TrainingArguments,
@@ -33,12 +32,14 @@ from transformers import (
     TrainerCallback,
     IntervalStrategy,
 )
+from torchvision.transforms import v2 as transforms
 from transformers.utils.logging import disable_default_handler
 from typing import Dict, Optional, Union, Any, List
 from xgboost import XGBClassifier as XGBClassifierOriginal
 
 
 from datascope.importance.common import SklearnModel
+from .utility import TorchImageDataset, IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 from ..baselines.matchingnet import resnet12, default_transform, MatchingNetworks
 
 
@@ -118,29 +119,6 @@ class XGBClassifier(SklearnModel, BaseEstimator, ClassifierMixin):
         return self.model.predict_proba(X)
 
 
-class TorchDataset(torch.utils.data.Dataset):
-    def __init__(self, X: NDArray, y: NDArray, feature_extractor=None):
-        if X.ndim == 3:
-            X = np.expand_dims(X, axis=X.ndim)
-        if X.shape[-1] == 1:
-            X = np.tile(X, (1, 1, 1, 3))
-        self.X = X
-        self.y = y
-        self.feature_extractor = feature_extractor
-
-    def __getitem__(self, idx):
-        if self.feature_extractor is not None:
-            result = self.feature_extractor(self.X[idx], return_tensors="pt")
-            result["pixel_values"] = torch.squeeze(result["pixel_values"])
-            result["labels"] = torch.tensor(self.y[idx])
-            return result
-        else:
-            return {"pixel_values": torch.tensor(self.X[idx]), "labels": torch.tensor(self.y[idx])}
-
-    def __len__(self):
-        return len(self.y)
-
-
 class EvalLoggerCallback(TrainerCallback):
     def __init__(self, logger: Optional[Logger] = None, prefix: str = "") -> None:
         self.logger = logger
@@ -205,21 +183,28 @@ class ResNet18Classifier(BaseEstimator, ClassifierMixin):
         self.eval_random_sample = eval_random_sample
         self.logger = logger
         self.cuda_mode = torch.cuda.is_available()
+        self.device = "cuda:0" if self.cuda_mode else "cpu"
         self.label_encoder = LabelEncoder()
+        self.preprocessor = transforms.Compose(
+            [
+                transforms.Resize(224, antialias=True),
+                transforms.CenterCrop(224),
+                transforms.Normalize(mean=IMAGENET_DEFAULT_MEAN, std=IMAGENET_DEFAULT_STD),
+            ]
+        )
 
     def fit(self, X: NDArray, y: NDArray) -> None:
         self.classes_ = unique_labels(y)
         y = self.label_encoder.fit_transform(y)
-        self.val_dataset: Optional[TorchDataset] = None
-        self.feature_extractor = AutoImageProcessor.from_pretrained("microsoft/resnet-18")
+        self.val_dataset: Optional[TorchImageDataset] = None
         if self.eval_split > 0:
             if self.eval_random_sample:
                 X, X_eval, y, y_eval = train_test_split(X, y, test_size=self.eval_split, stratify=y, random_state=0)
             else:
                 n_eval = int(self.eval_split * len(X)) if isinstance(self.eval_split, float) else self.eval_split
                 X, y, X_eval, y_eval = X[n_eval:], y[n_eval:], X[:n_eval], y[:n_eval]
-            self.eval_dataset = TorchDataset(X_eval, y_eval, self.feature_extractor)
-        self.train_dataset = TorchDataset(X, y, self.feature_extractor)
+            self.eval_dataset = TorchImageDataset(X_eval, y_eval, self.preprocessor, device=self.device)
+        self.train_dataset = TorchImageDataset(X, y, self.preprocessor, device=self.device)
         sucess = False
         # torch.autograd.set_detect_anomaly(True)
 
@@ -229,7 +214,7 @@ class ResNet18Classifier(BaseEstimator, ClassifierMixin):
             )
             self.model.classifier[1].reset_parameters()  # Reset the last layer to random weights to ensure stability.
             if self.cuda_mode:
-                self.model = self.model.to("cuda:0")
+                self.model = self.model.to(self.device)
 
             self.tempdir = tempfile.mkdtemp(prefix="resnet18")
             self.training_args = TrainingArguments(
@@ -268,45 +253,29 @@ class ResNet18Classifier(BaseEstimator, ClassifierMixin):
                 sucess = True
 
     def _forward(self, X: NDArray, output_embeddings: bool = False) -> NDArray:
-        if X.ndim == 3:
-            X = np.expand_dims(X, axis=X.ndim)
-        if X.shape[-1] == 1:
-            X = np.tile(X, (1, 1, 1, 3))
-
-        inputs = list(X)
         results: List[np.ndarray] = []
         batch_size = BATCH_SIZE
-        batches = range(0, len(inputs), batch_size)
-        i = 0
+        success = False
+        dataset = TorchImageDataset(X, None, self.preprocessor, device=self.device)
 
-        while i < len(batches) and batch_size > 0:
+        while not success:
             try:
-
-                features = self.feature_extractor(
-                    inputs[batches[i] : batches[i] + batch_size], return_tensors="pt"  # noqa: E203
-                )
-
-                if self.cuda_mode:
-                    features = features.to("cuda:0")
-
-                with torch.no_grad():
-                    if output_embeddings:
-                        result = self.model.resnet(**features)
-                        outputs = result.pooler_output
-                    else:
-                        result = self.model(**features)
-                        outputs = result.logits
-
-                if self.cuda_mode:
-                    outputs = outputs.cpu()
-
-                results.append(outputs.numpy())
-                i += 1
+                loader = DataLoader(dataset=dataset, batch_size=batch_size, shuffle=False)
+                for batch in loader:
+                    with torch.no_grad():
+                        if output_embeddings:
+                            result = self.model.resnet(batch)
+                            outputs = result.pooler_output
+                        else:
+                            result = self.model(batch)
+                            outputs = result.logits
+                    if self.cuda_mode:
+                        outputs = outputs.cpu()
+                    results.append(outputs.numpy())
+                success = True
 
             except torch.cuda.OutOfMemoryError:  # type: ignore
                 batch_size = batch_size // 2
-                batches = range(0, len(inputs), batch_size)
-                i = 0
                 results = []
                 if self.logger is not None:
                     self.logger.debug("New batch size: ", batch_size)

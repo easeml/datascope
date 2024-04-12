@@ -13,6 +13,7 @@ transformers >= 2.8
 sentence-transformers >= 2.2
 joblib >= 1.2
 tables >= 3.9
+gdown >= 5.1
 
 # Pipelines dependencies
 # torchvision >= 0.11

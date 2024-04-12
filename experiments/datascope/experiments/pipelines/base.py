@@ -19,12 +19,15 @@ from sklearn.feature_extraction.text import CountVectorizer, TfidfTransformer
 from sklearn.impute import MissingIndicator
 from sklearn.pipeline import FeatureUnion
 from sklearn.preprocessing import StandardScaler, FunctionTransformer
-from transformers import AutoImageProcessor, ResNetModel
+from torch.utils.data import DataLoader
+from torchvision.transforms import v2 as transforms
+from transformers import ResNetModel, AutoModelForImageClassification
 from transformers.image_processing_utils import BatchFeature, BaseImageProcessor
 from transformers.modeling_outputs import BaseModelOutputWithPoolingAndNoAttention
 from transformers.modeling_utils import PreTrainedModel
 from typing import Dict, Iterable, Type, Optional, Union, List, Tuple
 
+from .utility import TorchImageDataset, IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 from ..datasets import Dataset, TabularDatasetMixin, ImageDatasetMixin, TextDatasetMixin
 
 DatasetModality = Union[Type[TabularDatasetMixin], Type[ImageDatasetMixin], Type[TextDatasetMixin]]
@@ -268,50 +271,46 @@ class ImageEmbeddingPipeline(Pipeline, abstract=True, modalities=[ImageDatasetMi
     """
 
     @classmethod
+    def get_preprocessor(cls: Type["ImageEmbeddingPipeline"]) -> transforms.Transform:
+        # By default we return the standard ResNet x ImageNet preprocessor.
+        return transforms.Compose(
+            [
+                transforms.Resize(224, antialias=True),
+                transforms.CenterCrop(224),
+                transforms.Normalize(mean=IMAGENET_DEFAULT_MEAN, std=IMAGENET_DEFAULT_STD),
+            ]
+        )
+
+    @classmethod
     @abstractmethod
-    def get_model(cls: Type["ImageEmbeddingPipeline"]) -> Tuple[BaseImageProcessor, PreTrainedModel]:
+    def get_model(cls: Type["ImageEmbeddingPipeline"]) -> PreTrainedModel:
         pass
 
     @staticmethod
     def _embedding_transform(
-        X: np.ndarray, cuda_mode: bool, feature_extractor: BaseImageProcessor, model: PreTrainedModel
+        X: np.ndarray, cuda_mode: bool, preprocessor: transforms.Transform, model: PreTrainedModel
     ) -> np.ndarray:
-        # torch.set_num_threads(1)
 
-        if X.ndim == 3:
-            X = np.expand_dims(X, axis=X.ndim)
-        if X.shape[-1] == 1:
-            X = np.tile(X, (1, 1, 1, 3))
-
-        inputs = list(X)
         results: List[np.ndarray] = []
         batch_size = BATCH_SIZE
-        batches = range(0, len(inputs), batch_size)
-        i = 0
+        success = False
+        device = "cuda:0" if cuda_mode else "cpu"
+        dataset = TorchImageDataset(X, None, preprocessor, device=device)
 
-        while i < len(batches) and batch_size > 0:
+        while not success:
             try:
-                features: BatchFeature = feature_extractor(
-                    inputs[batches[i] : batches[i] + batch_size], return_tensors="pt"  # noqa: E203
-                )
-
-                if cuda_mode:
-                    features = features.to("cuda:0")
-
-                with torch.no_grad():
-                    outputs: BaseModelOutputWithPoolingAndNoAttention = model(**features)
-                    result = outputs.pooler_output
-
-                if cuda_mode:
-                    result = result.cpu()
-
-                results.append(np.squeeze(result.numpy(), axis=(2, 3)))
-                i += 1
+                loader = DataLoader(dataset=dataset, batch_size=batch_size, shuffle=False)
+                for batch in loader:
+                    with torch.no_grad():
+                        output: BaseModelOutputWithPoolingAndNoAttention = model(batch)
+                        result = output.pooler_output
+                    if cuda_mode:
+                        result = result.cpu()
+                    results.append(np.squeeze(result.numpy(), axis=(2, 3)))
+                success = True
 
             except torch.cuda.OutOfMemoryError:  # type: ignore
                 batch_size = batch_size // 2
-                batches = range(0, len(inputs), batch_size)
-                i = 0
                 results = []
                 print("New batch size: ", batch_size)
 
@@ -320,13 +319,14 @@ class ImageEmbeddingPipeline(Pipeline, abstract=True, modalities=[ImageDatasetMi
     @classmethod
     def construct(cls: Type["ImageEmbeddingPipeline"], dataset: Dataset) -> "ImageEmbeddingPipeline":
         cuda_mode = torch.cuda.is_available()
-        feature_extractor, model = cls.get_model()
+        preprocessor = cls.get_preprocessor()
+        model = cls.get_model()
         if cuda_mode:
             model = model.to("cuda:0")
         embedding_transform = functools.partial(
             ImageEmbeddingPipeline._embedding_transform,
             cuda_mode=cuda_mode,
-            feature_extractor=feature_extractor,
+            preprocessor=preprocessor,
             model=model,
         )
 
@@ -342,10 +342,9 @@ class ResNet18EmbeddingPipeline(
     """
 
     @classmethod
-    def get_model(cls: Type["ResNet18EmbeddingPipeline"]) -> Tuple[BaseImageProcessor, PreTrainedModel]:
-        feature_extractor = AutoImageProcessor.from_pretrained("microsoft/resnet-18")
+    def get_model(cls: Type["ResNet18EmbeddingPipeline"]) -> PreTrainedModel:
         model = ResNetModel.from_pretrained("microsoft/resnet-18")
-        return feature_extractor, model
+        return model
 
 
 class ResNet50EmbeddingPipeline(
@@ -356,10 +355,9 @@ class ResNet50EmbeddingPipeline(
     """
 
     @classmethod
-    def get_model(cls: Type["ResNet50EmbeddingPipeline"]) -> Tuple[BaseImageProcessor, PreTrainedModel]:
-        feature_extractor = AutoImageProcessor.from_pretrained("microsoft/resnet-50")
+    def get_model(cls: Type["ResNet50EmbeddingPipeline"]) -> PreTrainedModel:
         model = ResNetModel.from_pretrained("microsoft/resnet-50")
-        return feature_extractor, model
+        return model
 
 
 class MobileNetV2EmbeddingPipeline(
@@ -370,10 +368,20 @@ class MobileNetV2EmbeddingPipeline(
     """
 
     @classmethod
-    def get_model(cls: Type["MobileNetV2EmbeddingPipeline"]) -> Tuple[BaseImageProcessor, PreTrainedModel]:
-        feature_extractor = AutoImageProcessor.from_pretrained("google/mobilenet_v2_1.0_224")
-        model = ResNetModel.from_pretrained("google/mobilenet_v2_1.0_224")
-        return feature_extractor, model
+    def get_preprocessor(cls: Type["ImageEmbeddingPipeline"]) -> transforms.Transform:
+        # Source: https://huggingface.co/google/mobilenet_v2_1.0_224/blob/main/preprocessor_config.json
+        return transforms.Compose(
+            [
+                transforms.Resize(256, antialias=True),
+                transforms.CenterCrop(224),
+                transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)),
+            ]
+        )
+
+    @classmethod
+    def get_model(cls: Type["MobileNetV2EmbeddingPipeline"]) -> PreTrainedModel:
+        model = AutoModelForImageClassification.from_pretrained("google/mobilenet_v2_1.0_224")
+        return model
 
 
 class MobileViTEmbeddingPipeline(
@@ -384,10 +392,20 @@ class MobileViTEmbeddingPipeline(
     """
 
     @classmethod
-    def get_model(cls: Type["MobileViTEmbeddingPipeline"]) -> Tuple[BaseImageProcessor, PreTrainedModel]:
-        feature_extractor = AutoImageProcessor.from_pretrained("apple/mobilevit-small")
-        model = ResNetModel.from_pretrained("apple/mobilevit-small")
-        return feature_extractor, model
+    def get_preprocessor(cls: Type["ImageEmbeddingPipeline"]) -> transforms.Transform:
+        # Source: https://huggingface.co/apple/mobilevit-small/blob/main/preprocessor_config.json
+        return transforms.Compose(
+            [
+                transforms.Resize(288, antialias=True),
+                transforms.CenterCrop(256),
+                transforms.Lambda(lambda x: x[:, [2, 1, 0], ...] if x.ndim == 4 else x[[2, 1, 0], ...]),
+            ]
+        )
+
+    @classmethod
+    def get_model(cls: Type["MobileViTEmbeddingPipeline"]) -> PreTrainedModel:
+        model = AutoModelForImageClassification.from_pretrained("apple/mobilevit-small")
+        return model
 
 
 class TfidfPipeline(Pipeline, id="tf-idf", summary="TF-IDF", modalities=[TextDatasetMixin]):
