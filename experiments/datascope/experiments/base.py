@@ -9,7 +9,7 @@ from itertools import repeat
 from multiprocessing import Pool, Lock
 from multiprocessing.synchronize import Lock as LockType
 from tqdm import tqdm
-from typing import Any, Optional, Sequence, Tuple
+from typing import Any, Optional, Sequence, Tuple, List
 
 from .datasets import DEFAULT_BATCH_SIZE, DEFAULT_CACHE_DIR, Dataset
 from .pipelines import Pipeline
@@ -224,10 +224,17 @@ def report(
                 tqdm.write(result)
 
 
-def cache_pipeline(
-    dataset: str, pipeline: str, cache_dir: str = DEFAULT_CACHE_DIR, batch_size: int = DEFAULT_BATCH_SIZE, **kwargs
+def cache_pipelines(
+    datasets: List[str],
+    pipelines: List[str],
+    cache_dir: str = DEFAULT_CACHE_DIR,
+    batch_size: int = DEFAULT_BATCH_SIZE,
+    **kwargs
 ) -> None:
-    cls_dataset = Dataset.datasets[dataset]
-    inst_dataset = cls_dataset()
-    inst_pipeline = Pipeline.pipelines[pipeline].construct(dataset=inst_dataset)
-    cls_dataset.construct_apply_cache(pipeline=inst_pipeline, cache_dir=cache_dir, batch_size=batch_size)
+    for dataset in datasets:
+        for pipeline in pipelines:
+            cls_dataset = Dataset.datasets[dataset]
+            inst_dataset = cls_dataset()
+            inst_pipeline = Pipeline.pipelines[pipeline].construct(dataset=inst_dataset)
+            print("Processing dataset '%s' with pipeline '%s'." % (dataset, pipeline))
+            cls_dataset.construct_apply_cache(pipeline=inst_pipeline, cache_dir=cache_dir, batch_size=batch_size)

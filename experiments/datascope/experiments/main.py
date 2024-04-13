@@ -276,11 +276,12 @@ def main():
 
     subparsers.add_parser("preload-datasets")
 
-    parser_cache_pipeline = subparsers.add_parser("cache-pipeline")
+    parser_cache_pipeline = subparsers.add_parser("cache-pipelines")
 
     parser_cache_pipeline.add_argument(
         "-d",
-        "--dataset",
+        "--datasets",
+        nargs="+",
         type=str,
         choices=Dataset.datasets.keys(),
         help="The target dataset for which to construct the pipeline cache.",
@@ -288,7 +289,8 @@ def main():
 
     parser_cache_pipeline.add_argument(
         "-p",
-        "--pipeline",
+        "--pipelines",
+        nargs="+",
         type=str,
         choices=Pipeline.pipelines.keys(),
         help="The pipeline to run over the target dataset.",
@@ -318,7 +320,7 @@ def main():
         report(**kwargs)
     elif args.command == "preload-datasets":
         preload_datasets(**kwargs)
-    elif args.command == "cache-pipeline":
+    elif args.command == "cache-pipelines":
         cache_pipeline(**kwargs)
     else:
         parser.print_help()
