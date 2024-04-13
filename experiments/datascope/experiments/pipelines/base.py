@@ -25,7 +25,7 @@ from transformers import ResNetModel, AutoModelForImageClassification
 from transformers.image_processing_utils import BatchFeature, BaseImageProcessor
 from transformers.modeling_outputs import BaseModelOutputWithPoolingAndNoAttention
 from transformers.modeling_utils import PreTrainedModel
-from typing import Dict, Iterable, Type, Optional, Union, List, Tuple
+from typing import Dict, Iterable, Type, Optional, Union, List, Tuple, Callable
 
 from .utility import TorchImageDataset, IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 from ..datasets import Dataset, TabularDatasetMixin, ImageDatasetMixin, TextDatasetMixin
@@ -287,14 +287,28 @@ class ImageEmbeddingPipeline(Pipeline, abstract=True, modalities=[ImageDatasetMi
         pass
 
     @staticmethod
+    def model_forward(
+        model: PreTrainedModel, batch: Union[Dict[str, torch.Tensor], List[torch.Tensor], torch.Tensor]
+    ) -> torch.Tensor:
+        output: BaseModelOutputWithPoolingAndNoAttention = model(batch)
+        return torch.squeeze(output.pooler_output, dim=(2, 3))
+
+    @staticmethod
     def _embedding_transform(
-        X: np.ndarray, cuda_mode: bool, preprocessor: transforms.Transform, model: PreTrainedModel
+        X: np.ndarray,
+        cuda_mode: bool,
+        preprocessor: transforms.Transform,
+        model: PreTrainedModel,
+        model_forward_function: Callable[
+            [PreTrainedModel, Union[Dict[str, torch.Tensor], List[torch.Tensor], torch.Tensor]], torch.Tensor
+        ],
     ) -> np.ndarray:
 
         results: List[np.ndarray] = []
         batch_size = BATCH_SIZE
         success = False
         device = "cuda:0" if cuda_mode else "cpu"
+        model = model.to(device)
         dataset = TorchImageDataset(X, None, preprocessor, device=device)
 
         while not success:
@@ -302,11 +316,10 @@ class ImageEmbeddingPipeline(Pipeline, abstract=True, modalities=[ImageDatasetMi
                 loader = DataLoader(dataset=dataset, batch_size=batch_size, shuffle=False)
                 for batch in loader:
                     with torch.no_grad():
-                        output: BaseModelOutputWithPoolingAndNoAttention = model(batch)
-                        result = output.pooler_output
+                        result = model_forward_function(model, batch)
                     if cuda_mode:
                         result = result.cpu()
-                    results.append(np.squeeze(result.numpy(), axis=(2, 3)))
+                    results.append(result.numpy())
                 success = True
 
             except torch.cuda.OutOfMemoryError:  # type: ignore
@@ -314,6 +327,8 @@ class ImageEmbeddingPipeline(Pipeline, abstract=True, modalities=[ImageDatasetMi
                 results = []
                 print("New batch size: ", batch_size)
 
+        model.cpu()
+        torch.cuda.empty_cache()
         return np.concatenate(results)
 
     @classmethod
@@ -321,13 +336,12 @@ class ImageEmbeddingPipeline(Pipeline, abstract=True, modalities=[ImageDatasetMi
         cuda_mode = torch.cuda.is_available()
         preprocessor = cls.get_preprocessor()
         model = cls.get_model()
-        if cuda_mode:
-            model = model.to("cuda:0")
         embedding_transform = functools.partial(
             ImageEmbeddingPipeline._embedding_transform,
             cuda_mode=cuda_mode,
             preprocessor=preprocessor,
             model=model,
+            model_forward_function=cls.model_forward,
         )
 
         ops = [("embedding", FunctionTransformer(embedding_transform))]

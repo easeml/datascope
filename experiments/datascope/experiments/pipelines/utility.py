@@ -8,8 +8,8 @@ from typing import Optional, Sequence, Union
 
 IMAGENET_DEFAULT_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_DEFAULT_STD = (0.229, 0.224, 0.225)
-OPENAI_CLIP_MEAN = (0.48145466, 0.4578275, 0.40821073)
-OPENAI_CLIP_STD = (0.26862954, 0.26130258, 0.27577711)
+OPENAI_DEFAULT_MEAN = (0.48145466, 0.4578275, 0.40821073)
+OPENAI_DEFAULT_STD = (0.26862954, 0.26130258, 0.27577711)
 
 
 class TorchImageDataset(torch.utils.data.Dataset):
@@ -50,7 +50,11 @@ class TorchImageDataset(torch.utils.data.Dataset):
             return {"pixel_values": X_items, "labels": y_items}
 
     def __getitems__(self, idx: Sequence[int]):
-        return self.__getitem__(idx)
+        if self.y is None:
+            return list(self.__getitem__(idx))
+        else:
+            result = self.__getitem__(idx)
+            return {"pixel_values": list(result["pixel_values"]), "labels": list(result["labels"])}
 
     def __len__(self):
         return len(self.y)
