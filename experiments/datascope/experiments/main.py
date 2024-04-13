@@ -5,7 +5,7 @@ import sys
 
 from typing import Any, Optional
 
-from .base import run, run_scenario, report, cache_pipeline
+from .base import run, run_scenario, report, cache_pipelines
 from .datasets import preload_datasets, DEFAULT_BATCH_SIZE, DEFAULT_CACHE_DIR, Dataset
 from .pipelines import Pipeline
 from .scenarios import (
@@ -321,6 +321,6 @@ def main():
     elif args.command == "preload-datasets":
         preload_datasets(**kwargs)
     elif args.command == "cache-pipelines":
-        cache_pipeline(**kwargs)
+        cache_pipelines(**kwargs)
     else:
         parser.print_help()
