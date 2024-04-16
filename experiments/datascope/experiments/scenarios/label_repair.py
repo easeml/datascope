@@ -49,6 +49,7 @@ from ..datasets import (
     DEFAULT_TRAINSIZE,
     DEFAULT_VALSIZE,
     DEFAULT_TESTSIZE,
+    DEFAULT_CACHE_DIR,
 )
 from ..pipelines import Pipeline, FlattenPipeline, get_model, DistanceModelMixin
 
@@ -87,6 +88,7 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
         checkpoints: int = DEFAULT_CHECKPOINTS,
         providers: int = DEFAULT_PROVIDERS,
         repairgoal: RepairGoal = DEFAULT_REPAIR_GOAL,
+        pipeline_cache_dir: str = DEFAULT_CACHE_DIR,
         evolution: Optional[pd.DataFrame] = None,
         importance_cputime: Optional[float] = None,
         **kwargs: Any
@@ -111,6 +113,7 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
             providers=providers,
             repairgoal=repairgoal,
             biasmethod=BiasMethod.Feature,
+            pipeline_cache_dir=pipeline_cache_dir,
             evolution=evolution,
             importance_cputime=importance_cputime,
             **kwargs

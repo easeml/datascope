@@ -57,4 +57,4 @@ class TorchImageDataset(torch.utils.data.Dataset):
             return {"pixel_values": list(result["pixel_values"]), "labels": list(result["labels"])}
 
     def __len__(self):
-        return len(self.y)
+        return self.X.shape[0]
