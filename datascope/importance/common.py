@@ -573,6 +573,9 @@ class SklearnModelUtility(Utility):
         y_test: Union[NDArray, Series, DataFrame],
         y_pred: Union[NDArray, Series, DataFrame],
         y_pred_proba: Optional[Union[NDArray, Series, DataFrame]] = None,
+        *,
+        metric_requires_probabilities: bool = False,
+        classes: Optional[List[Hashable]] = None,
     ) -> Tuple[NDArray, NDArray, Optional[NDArray]]:
 
         # If any of the prediction inputs are Series, then we assume they are either series of scalar values
@@ -596,6 +599,14 @@ class SklearnModelUtility(Utility):
         # If the test labels are given as a 2D array of probabilities, then we need to select the most likely class.
         if y_test.ndim == 2:
             y_test = np.argmax(y_test, axis=1)
+
+        # If the metric required probabilities but they were not provided, we use one-hot encoding to obtain them.
+        if metric_requires_probabilities and y_pred_proba is None:
+            if classes is None:
+                assert isinstance(y_test, np.ndarray)
+                classes = np.unique(y_test)
+            assert isinstance(y_pred, np.ndarray)
+            y_pred_proba = _one_hot_encode_probabilities(y_pred, classes)
 
         # If the predions are given as a 2D array of probabilities and there are only two classes, then we need to
         # select the probabilities for the positive class.
@@ -621,7 +632,7 @@ class SklearnModelUtility(Utility):
         if metric is None:
             raise ValueError("The metric was not provided.")
         y_test_processed, y_pred_processed, y_pred_proba_processed = self._process_metric_score_inputs(
-            y_test, y_pred, y_pred_proba
+            y_test, y_pred, y_pred_proba, metric_requires_probabilities=metric_requires_probabilities, classes=classes
         )
         if metric_requires_probabilities:
             if y_pred_proba_processed is None:

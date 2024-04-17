@@ -51,7 +51,7 @@ from ..datasets import (
     DEFAULT_TESTSIZE,
     DEFAULT_CACHE_DIR,
 )
-from ..pipelines import Pipeline, FlattenPipeline, get_model, DistanceModelMixin
+from ..pipelines import Pipeline, FlattenPipeline, get_model, DistanceModelMixin, Postprocessor
 
 
 DEFAULT_DIRTY_RATIO = 0.5
@@ -253,8 +253,9 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
         # pipeline.steps.append(("model", model))
         # if RepairMethod.is_pipe(self.method):
         #     model = model_pipeline
-        accuracy_utility = SklearnModelAccuracy(model, postprocessor=self.postprocessor)
-        roc_auc_utility = SklearnModelRocAuc(model, postprocessor=self.postprocessor)
+        postprocessor = None if self.postprocessor is None else Postprocessor.postprocessors[self.postprocessor]()
+        accuracy_utility = SklearnModelAccuracy(model, postprocessor=postprocessor)
+        roc_auc_utility = SklearnModelRocAuc(model, postprocessor=postprocessor)
         eqodds_utility: Optional[SklearnModelEqualizedOddsDifference] = None
         if self.repairgoal == RepairGoal.FAIRNESS:
             assert isinstance(dataset, BiasedNoisyLabelDataset)
@@ -262,13 +263,13 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
                 model,
                 sensitive_features=dataset.sensitive_feature,
                 groupings=groupings_test,
-                postprocessor=self.postprocessor,
+                postprocessor=postprocessor,
             )
 
         # target_model = model if RepairMethod.is_tmc_nonpipe(self.method) else pipeline
         target_utility: Utility
         if self.utility == UtilityType.ACCURACY:
-            target_utility = JointUtility(SklearnModelAccuracy(model, postprocessor=self.postprocessor), weights=[-1.0])
+            target_utility = JointUtility(SklearnModelAccuracy(model, postprocessor=postprocessor), weights=[-1.0])
             # target_utility = SklearnModelAccuracy(model)
         elif self.utility == UtilityType.EQODDS:
             assert self.repairgoal == RepairGoal.FAIRNESS and isinstance(dataset, BiasedNoisyLabelDataset)
@@ -276,28 +277,28 @@ class LabelRepairScenario(DatascopeScenario, id="label-repair"):
                 model,
                 sensitive_features=dataset.sensitive_feature,
                 groupings=groupings_val,
-                postprocessor=self.postprocessor,
+                postprocessor=postprocessor,
             )
         elif self.utility == UtilityType.EQODDS_AND_ACCURACY:
             assert self.repairgoal == RepairGoal.FAIRNESS and isinstance(dataset, BiasedNoisyLabelDataset)
             target_utility = JointUtility(
-                SklearnModelAccuracy(model, postprocessor=self.postprocessor),
+                SklearnModelAccuracy(model, postprocessor=postprocessor),
                 SklearnModelEqualizedOddsDifference(
                     model,
                     sensitive_features=dataset.sensitive_feature,
                     groupings=groupings_val,
-                    postprocessor=self.postprocessor,
+                    postprocessor=postprocessor,
                 ),
                 weights=[-0.5, 0.5],
             )
         elif self.utility == UtilityType.ROC_AUC:
-            target_utility = JointUtility(SklearnModelRocAuc(model, postprocessor=self.postprocessor), weights=[-1.0])
+            target_utility = JointUtility(SklearnModelRocAuc(model, postprocessor=postprocessor), weights=[-1.0])
         else:
             raise ValueError("Unknown utility type '%s'." % repr(self.utility))
 
         # Compute importance scores and time it.
         importance_time_start = process_time_ns()
-        n_units = dataset_dirty.units.shape[0]
+        n_units = dataset.provenance.num_units
         importance: Optional[Importance] = None
         importances: Optional[Iterable[float]] = None
         random = np.random.RandomState(seed=self._seed + self._iteration + 1)
