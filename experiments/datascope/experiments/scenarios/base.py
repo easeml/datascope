@@ -1,6 +1,7 @@
 import argparse
 import collections.abc
 import datetime
+import gc
 import gevent
 import gevent.signal
 import logging
@@ -27,7 +28,7 @@ from abc import ABC, abstractmethod
 from enum import Enum
 from glob import glob
 from inspect import signature
-from io import TextIOBase, StringIO, BytesIO, SEEK_END
+from io import TextIOBase, StringIO, SEEK_END
 from itertools import product
 from logging import Logger
 from matplotlib.figure import Figure
@@ -724,11 +725,11 @@ def get_scenario_runner(
             # Quickly consume a 70% of the given amount of memory for 10 seconds.
             if job_memory is not None:
                 suffixes = {"G": 1024**3, "M": 1024**2, "K": 1024}
-                size = int(float(job_memory[:-1]) * suffixes[job_memory[-1]] * 0.7)
-                with BytesIO() as buffer:
-                    buffer.write(bytearray(os.urandom(size)))
-                    buffer.seek(0)
-                    time.sleep(10)
+                size = int(float(job_memory[:-1]) * suffixes[job_memory[-1]] * np.random.uniform(0.55, 0.7))
+                data = bytearray(size)  # noqa: F841
+                time.sleep(10)
+                del data
+                gc.collect()
 
             if rerun or not scenario.completed:
                 if queue is not None:
