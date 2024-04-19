@@ -10,8 +10,6 @@ import os
 import pandas as pd
 import pyarrow
 import shutil
-import tables as tb
-import torch
 
 from abc import ABC, abstractmethod
 from copy import deepcopy
@@ -148,6 +146,8 @@ def batched_pipeline_transform(
 
 
 def save_cached_features(X: NDArray, targetdir: str, name: str) -> str:
+    import tables as tb
+
     shape, sctype = X.shape[1:], X.dtype.str
     filename = os.path.join(targetdir, "%s.hdf5" % name)
     file = tb.open_file(filename, "w")
@@ -161,6 +161,8 @@ def save_cached_features(X: NDArray, targetdir: str, name: str) -> str:
 
 
 def load_cached_features(idx: NDArray, targetdir: str, name: str) -> NDArray:
+    import tables as tb
+
     filename = os.path.join(targetdir, "%s.hdf5" % name)
     file = tb.open_file(filename, "r")
     table = file.get_node("/apply_cache")
@@ -1732,6 +1734,7 @@ class CifarN(NaturallyNoisyLabelDataset, ImageDatasetMixin):
         y_test = np.array(test_batch["labels"])
 
         # Load the CIFAR-N noisy labels.
+        import torch
         noisylabels = torch.load(os.path.join(self.CIFAR_N_DATA_DIR, self.CIFAR_10N_FILE))
         y_train_dirty = noisylabels["worse_label"]
 

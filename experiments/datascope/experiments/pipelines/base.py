@@ -3,7 +3,6 @@ import inspect
 import numpy as np
 import re
 import sklearn.pipeline
-import torch
 import transformers
 
 from abc import abstractmethod
@@ -11,7 +10,6 @@ from datascope.utility import Provenance
 from hashlib import md5
 from numpy.typing import NDArray
 from scipy.ndimage.filters import gaussian_filter1d
-from sentence_transformers import SentenceTransformer
 from skimage.feature import hog
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA, TruncatedSVD
@@ -19,13 +17,13 @@ from sklearn.feature_extraction.text import CountVectorizer, TfidfTransformer
 from sklearn.impute import MissingIndicator
 from sklearn.pipeline import FeatureUnion
 from sklearn.preprocessing import StandardScaler, FunctionTransformer
-from torch.utils.data import DataLoader
+from torch import Tensor
 from torchvision.transforms import v2 as transforms
 from transformers import ResNetModel, AutoModelForImageClassification
 from transformers.image_processing_utils import BatchFeature, BaseImageProcessor
 from transformers.modeling_outputs import BaseModelOutputWithPoolingAndNoAttention
 from transformers.modeling_utils import PreTrainedModel
-from typing import Dict, Iterable, Type, Optional, Union, List, Tuple, Callable
+from typing import Dict, Iterable, Type, Optional, Union, List, Tuple, Callable, Any
 
 from .utility import TorchImageDataset, IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 from ..datasets import Dataset, TabularDatasetMixin, ImageDatasetMixin, TextDatasetMixin
@@ -287,9 +285,9 @@ class ImageEmbeddingPipeline(Pipeline, abstract=True, modalities=[ImageDatasetMi
         pass
 
     @staticmethod
-    def model_forward(
-        model: PreTrainedModel, batch: Union[Dict[str, torch.Tensor], List[torch.Tensor], torch.Tensor]
-    ) -> torch.Tensor:
+    def model_forward(model: PreTrainedModel, batch: Union[Dict[str, Tensor], List[Tensor], Tensor]) -> Tensor:
+        import torch
+
         output: BaseModelOutputWithPoolingAndNoAttention = model(batch)
         return torch.squeeze(output.pooler_output, dim=(2, 3))
 
@@ -299,10 +297,10 @@ class ImageEmbeddingPipeline(Pipeline, abstract=True, modalities=[ImageDatasetMi
         cuda_mode: bool,
         preprocessor: transforms.Transform,
         model: PreTrainedModel,
-        model_forward_function: Callable[
-            [PreTrainedModel, Union[Dict[str, torch.Tensor], List[torch.Tensor], torch.Tensor]], torch.Tensor
-        ],
+        model_forward_function: Callable[[PreTrainedModel, Union[Dict[str, Tensor], List[Tensor], Tensor]], Tensor],
     ) -> np.ndarray:
+        import torch
+        from torch.utils.data import DataLoader
 
         results: List[np.ndarray] = []
         batch_size = BATCH_SIZE
@@ -333,6 +331,8 @@ class ImageEmbeddingPipeline(Pipeline, abstract=True, modalities=[ImageDatasetMi
 
     @classmethod
     def construct(cls: Type["ImageEmbeddingPipeline"], dataset: Dataset) -> "ImageEmbeddingPipeline":
+        import torch
+
         cuda_mode = torch.cuda.is_available()
         preprocessor = cls.get_preprocessor()
         model = cls.get_model()
@@ -477,6 +477,7 @@ class TextEmbeddingPipeline(Pipeline, abstract=True, modalities=[TextDatasetMixi
         X: np.ndarray, cuda_mode: bool, feature_extractor: BaseImageProcessor, model: PreTrainedModel
     ) -> np.ndarray:
         # torch.set_num_threads(1)
+        import torch
 
         if X.ndim == 3:
             X = np.expand_dims(X, axis=X.ndim)
@@ -519,6 +520,8 @@ class TextEmbeddingPipeline(Pipeline, abstract=True, modalities=[TextDatasetMixi
 
     @classmethod
     def construct(cls: Type["TextEmbeddingPipeline"], dataset: Dataset) -> "TextEmbeddingPipeline":
+        import torch
+
         cuda_mode = torch.cuda.is_available()
         feature_extractor, model = cls.get_model()
         if cuda_mode:
@@ -541,7 +544,7 @@ class MiniLMEmbeddingPipeline(Pipeline, id="mini-lm", summary="MiniLM Embedding"
     """
 
     @staticmethod
-    def _embedding_transform(X: np.ndarray, model: SentenceTransformer) -> np.ndarray:
+    def _embedding_transform(X: np.ndarray, model: Any) -> np.ndarray:
         embeddings = model.encode(list(X))
         return np.array(embeddings)
 
@@ -549,6 +552,7 @@ class MiniLMEmbeddingPipeline(Pipeline, id="mini-lm", summary="MiniLM Embedding"
     def construct(cls: Type["MiniLMEmbeddingPipeline"], dataset: Dataset) -> "MiniLMEmbeddingPipeline":
         # if dataset.X_train.ndim > 1:
         #     raise ValueError("The provided dataset features must have either 0 or 1 dimensions.")
+        from sentence_transformers import SentenceTransformer
 
         model = SentenceTransformer("all-MiniLM-L6-v2")
         embedding_transform = functools.partial(cls._embedding_transform, model=model)
@@ -566,7 +570,7 @@ class AlbertSmallEmbeddingPipeline(
     """
 
     @staticmethod
-    def _embedding_transform(X: np.ndarray, model: SentenceTransformer) -> np.ndarray:
+    def _embedding_transform(X: np.ndarray, model: Any) -> np.ndarray:
         embeddings = model.encode(list(X))
         return np.array(embeddings)
 
@@ -574,6 +578,7 @@ class AlbertSmallEmbeddingPipeline(
     def construct(cls: Type["AlbertSmallEmbeddingPipeline"], dataset: Dataset) -> "AlbertSmallEmbeddingPipeline":
         # if dataset.X_train.ndim > 1:
         #     raise ValueError("The provided dataset features must have either 0 or 1 dimensions.")
+        from sentence_transformers import SentenceTransformer
 
         model = SentenceTransformer("sentence-transformers/paraphrase-albert-small-v2")
         embedding_transform = functools.partial(cls._embedding_transform, model=model)
