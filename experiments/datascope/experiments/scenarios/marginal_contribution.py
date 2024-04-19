@@ -14,7 +14,7 @@ from sklearn.utils.multiclass import unique_labels
 from time import process_time_ns
 from typing import Any, Optional, Dict
 
-from .base import attribute, result, Scenario
+from ..bench import attribute, result, Scenario
 from .datascope_scenario import (
     ModelType,
     ModelSpec,

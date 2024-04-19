@@ -38,7 +38,7 @@ from .datascope_scenario import (
     UtilityType,
     RepairGoal,
 )
-from .base import attribute
+from ..bench import attribute
 from ..datasets import (
     Dataset,
     BiasMethod,

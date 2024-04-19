@@ -11,15 +11,15 @@ from multiprocessing.synchronize import Lock as LockType
 from tqdm import tqdm
 from typing import Any, Optional, Sequence, Tuple, List
 
-from .datasets import DEFAULT_BATCH_SIZE, DEFAULT_CACHE_DIR, Dataset
-from .pipelines import Pipeline
+from ..datasets import DEFAULT_BATCH_SIZE, DEFAULT_CACHE_DIR, Dataset
+from ..pipelines import Pipeline
 
-from .scenarios import (
+from .base import (
     Study,
     Scenario,
     Backend,
     Report,
-    QueueProtocol,
+    Queue as QueueProtocol,
     get_scenario_runner,
     DEFAULT_RESULTS_PATH,
     DEFAULT_RESULTS_SCENARIOS_PATH,

@@ -907,19 +907,19 @@ class Study:
             runner = get_scenario_runner(
                 queue, catch_exceptions, progress_bar, console_log, pickled_queue=pickled_queue
             )
-            if backend == Backend.RAY:
-                monitor = threading.Thread(target=Study._status_monitor, args=(queue, self.logger))
-                monitor.start()
-                pool = Pool(processes=ray_numprocs, ray_address=ray_address)
-                for scenario in pool.imap_unordered(runner, self.scenarios):
+            if backend == Backend.LOCAL:
+                for scenario in map(runner, self.scenarios):
                     scenarios.append(scenario)
                     if pbar is not None:
                         pbar.update(1)
                     if eagersave:
                         self.save_scenario(scenario)
 
-            elif backend == Backend.LOCAL:
-                for scenario in map(runner, self.scenarios):
+            elif backend == Backend.RAY:
+                monitor = threading.Thread(target=Study._status_monitor, args=(queue, self.logger))
+                monitor.start()
+                pool = Pool(processes=ray_numprocs, ray_address=ray_address)
+                for scenario in pool.imap_unordered(runner, self.scenarios):
                     scenarios.append(scenario)
                     if pbar is not None:
                         pbar.update(1)

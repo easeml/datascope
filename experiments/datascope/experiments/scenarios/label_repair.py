@@ -18,7 +18,7 @@ from numpy.typing import NDArray
 from time import process_time_ns
 from typing import Any, Iterable, List, Optional, Union, Dict
 
-from .base import attribute
+from ..bench import attribute
 from .datascope_scenario import (
     DatascopeScenario,
     RepairMethod,

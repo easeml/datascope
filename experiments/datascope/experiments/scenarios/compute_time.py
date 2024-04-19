@@ -7,7 +7,7 @@ from pandas import DataFrame
 from time import process_time_ns
 from typing import Any, Optional, Dict
 
-from .base import Scenario, attribute, result
+from ..bench import Scenario, attribute, result
 from .datascope_scenario import (
     RepairMethod,
     ModelSpec,

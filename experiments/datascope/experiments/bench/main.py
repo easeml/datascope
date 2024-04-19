@@ -5,10 +5,10 @@ import sys
 
 from typing import Any, Optional
 
-from .base import run, run_scenario, report, cache_pipelines
-from .datasets import preload_datasets, DEFAULT_BATCH_SIZE, DEFAULT_CACHE_DIR, Dataset
-from .pipelines import Pipeline
-from .scenarios import (
+from .commands import run, run_scenario, report, cache_pipelines
+from ..datasets import preload_datasets, DEFAULT_BATCH_SIZE, DEFAULT_CACHE_DIR, Dataset
+from ..pipelines import Pipeline
+from .base import (
     Scenario,
     Report,
     Backend,

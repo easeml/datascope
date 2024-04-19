@@ -18,7 +18,7 @@ from pandas import DataFrame, MultiIndex
 from pandas.core.groupby.generic import DataFrameGroupBy
 from pandas.core.groupby.groupby import GroupBy
 
-from ..scenarios import Report, Study, result, attribute
+from ..bench import Report, Study, result, attribute
 
 COLOR_NAMES = ["blue", "red", "yellow", "green", "purple", "brown", "cyan", "pink"]
 COLORS = ["#2BBFD9", "#DF362A", "#FAC802", "#8AB365", "#C670D2", "#AE7E1E", "#008F6B", "#6839CC"]

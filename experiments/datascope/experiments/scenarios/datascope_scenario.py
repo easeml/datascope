@@ -6,7 +6,7 @@ from pandas import DataFrame
 from sklearn.preprocessing import FunctionTransformer
 from typing import Any, Optional, Dict
 
-from .base import Scenario, attribute, result
+from ..bench import Scenario, attribute, result
 from ..datasets import (
     Dataset,
     BiasMethod,
