@@ -588,8 +588,8 @@ def barplot(
         col = targetval + ":" + centercol
         yval = values[col]
 
-        uppercol = next(c for c in values.keys() if c.endswith("-h"))
-        lowercol = next(c for c in values.keys() if c.endswith("-l"))
+        uppercol = next(c for c in values.keys() if c.startswith(targetval) and c.endswith("-h"))
+        lowercol = next(c for c in values.keys() if c.startswith(targetval) and c.endswith("-l"))
         yerr = np.abs(np.array([[values[col] - values[lowercol]], [values[col] - values[uppercol]]]))
         axes.errorbar(
             [i],
