@@ -8,6 +8,7 @@ import transformers
 from abc import abstractmethod
 from datascope.utility import Provenance
 from hashlib import md5
+from methodtools import lru_cache
 from numpy.typing import NDArray
 from scipy.ndimage.filters import gaussian_filter1d
 from skimage.feature import hog
@@ -18,70 +19,26 @@ from sklearn.impute import MissingIndicator
 from sklearn.pipeline import FeatureUnion
 from sklearn.preprocessing import StandardScaler, FunctionTransformer
 from torch import Tensor
-from torchvision.transforms import v2 as transforms
+from torchvision import disable_beta_transforms_warning
 from transformers import ResNetModel, AutoModelForImageClassification
 from transformers.image_processing_utils import BatchFeature, BaseImageProcessor
 from transformers.modeling_outputs import BaseModelOutputWithPoolingAndNoAttention
 from transformers.modeling_utils import PreTrainedModel
 from typing import Dict, Iterable, Type, Optional, Union, List, Tuple, Callable, Any
 
+from ..bench import Configurable, attribute
 from .utility import TorchImageDataset, IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 from ..datasets import Dataset, TabularDatasetMixin, ImageDatasetMixin, TextDatasetMixin
+
+disable_beta_transforms_warning()
+from torchvision.transforms import v2 as transforms  # noqa: E402
 
 DatasetModality = Union[Type[TabularDatasetMixin], Type[ImageDatasetMixin], Type[TextDatasetMixin]]
 
 transformers.utils.logging.set_verbosity_error()
 
 
-class Pipeline(sklearn.pipeline.Pipeline):
-    pipelines: Dict[str, Type["Pipeline"]] = {}
-    summaries: Dict[str, str] = {}
-    _pipeline: Optional[str] = None
-    _modalities: Iterable[DatasetModality]
-    _summary: Optional[str] = None
-
-    def __init_subclass__(
-        cls: Type["Pipeline"],
-        modalities: Iterable[DatasetModality],
-        abstract: bool = False,
-        id: Optional[str] = None,
-        summary: Optional[str] = None,
-    ) -> None:
-        if abstract:
-            return
-
-        cls._pipeline = id if id is not None else cls.__name__
-        cls._modalities = modalities
-        Pipeline.pipelines[cls._pipeline] = cls
-        if summary is not None:
-            Pipeline.summaries[cls._pipeline] = summary
-
-    def __hash_string__(self) -> str:
-        myclass: Type[Pipeline] = type(self)
-        hash = md5()
-        for cls in inspect.getmro(myclass):
-            if cls != object:
-                hash.update(inspect.getsource(cls).encode("utf-8"))
-        return "%s.%s(hash=%s)" % (type(self).__module__, myclass.__name__, hash.hexdigest())
-
-    def __repr__(self, N_CHAR_MAX=700):
-        return "%s.%s()" % (type(self).__module__, type(self).__name__)
-
-    def __str__(self) -> str:
-        return "%s.%s" % (type(self).__module__, type(self).__name__)
-
-    @property
-    def modalities(self) -> Iterable[DatasetModality]:
-        return self._modalities
-
-    @property
-    def summary(self) -> Optional[str]:
-        return self._summary
-
-    @classmethod
-    @abstractmethod
-    def construct(cls: Type["Pipeline"], dataset: Dataset) -> "Pipeline":
-        raise NotImplementedError()
+class ProvenancePipeline(sklearn.pipeline.Pipeline):
 
     def fit_transform(self, X, y=None, provenance: Union[Provenance, NDArray, None] = None, **fit_params):
         Xt = super().fit_transform(X=X, y=y, **fit_params)
@@ -97,79 +54,115 @@ class Pipeline(sklearn.pipeline.Pipeline):
         return provenance
 
 
-class IdentityPipeline(Pipeline, id="identity", summary="Identity", modalities=[TabularDatasetMixin]):
+class Pipeline(Configurable, abstract=True, argname="pipeline"):
+    _modalities: Iterable[DatasetModality]
+
+    def __init_subclass__(
+        cls: Type["Pipeline"],
+        modalities: Iterable[DatasetModality],
+        id: Optional[str] = None,
+        longname: Optional[str] = None,
+        argname: Optional[str] = None,
+        abstract: bool = False,
+    ) -> None:
+        cls._modalities = modalities
+        super().__init_subclass__(id=id, longname=longname, argname=argname, abstract=abstract)
+
+    @lru_cache(maxsize=1)
+    @classmethod
+    def get_keyword_replacements(cls: Type["Pipeline"]) -> Dict[str, str]:
+        result: Dict[str, str] = {}
+        for class_id, class_type in cls.get_subclasses().items():
+            assert issubclass(class_type, Pipeline)
+            result[class_id] = class_type._class_longname
+        return result
+
+    def __hash_string__(self) -> str:
+        myclass: Type[Pipeline] = type(self)
+        hash = md5()
+        for cls in inspect.getmro(myclass):
+            if cls != object:
+                hash.update(inspect.getsource(cls).encode("utf-8"))
+        return "%s.%s(hash=%s)" % (type(self).__module__, myclass.__name__, hash.hexdigest())
+
+    @property
+    def modalities(self) -> Iterable[DatasetModality]:
+        return self._modalities
+
+    @abstractmethod
+    def construct(self: "Pipeline", dataset: Dataset) -> ProvenancePipeline:
+        raise NotImplementedError()
+
+
+class IdentityPipeline(Pipeline, id="identity", longname="Identity", modalities=[TabularDatasetMixin]):
     """A pipeline that passes its input data as is."""
 
-    @classmethod
-    def construct(cls: Type["IdentityPipeline"], dataset: Dataset) -> "IdentityPipeline":
+    def construct(self: "IdentityPipeline", dataset: Dataset) -> ProvenancePipeline:
         def identity(x):
             return x
 
         ops = [("identity", FunctionTransformer(identity))]
-        return IdentityPipeline(ops)
+        return ProvenancePipeline(ops)
 
 
-class StandardScalerPipeline(Pipeline, id="std-scaler", summary="Standard Scaler", modalities=[TabularDatasetMixin]):
+class StandardScalerPipeline(Pipeline, id="std-scaler", longname="Standard Scaler", modalities=[TabularDatasetMixin]):
     """A pipeline that applies a standard scaler to the input data."""
 
-    @classmethod
-    def construct(cls: Type["StandardScalerPipeline"], dataset: Dataset) -> "StandardScalerPipeline":
+    def construct(self: "StandardScalerPipeline", dataset: Dataset) -> ProvenancePipeline:
         ops = [("scaler", StandardScaler())]
-        return StandardScalerPipeline(ops)
+        return ProvenancePipeline(ops)
 
 
-class LogScalerPipeline(Pipeline, id="log-scaler", summary="Logarithmic Scaler", modalities=[TabularDatasetMixin]):
+class LogScalerPipeline(Pipeline, id="log-scaler", longname="Logarithmic Scaler", modalities=[TabularDatasetMixin]):
     """A pipeline that applies a logarithmic scaler to the input data."""
 
     @staticmethod
     def _log1p(x):
         return np.log1p(np.abs(x))
 
-    @classmethod
-    def construct(cls: Type["LogScalerPipeline"], dataset: Dataset) -> "LogScalerPipeline":
-        ops = [("log", FunctionTransformer(cls._log1p)), ("scaler", StandardScaler())]
-        return LogScalerPipeline(ops)
+    def construct(self: "LogScalerPipeline", dataset: Dataset) -> ProvenancePipeline:
+        ops = [("log", FunctionTransformer(self._log1p)), ("scaler", StandardScaler())]
+        return ProvenancePipeline(ops)
 
 
-class PcaPipeline(Pipeline, id="pca", summary="PCA", modalities=[TabularDatasetMixin]):
+class PcaPipeline(Pipeline, id="pca", longname="PCA", modalities=[TabularDatasetMixin]):
     """A pipeline that applies a principal component analysis operator."""
 
-    @classmethod
-    def construct(cls: Type["PcaPipeline"], dataset: Dataset) -> "PcaPipeline":
+    def construct(self: "PcaPipeline", dataset: Dataset) -> ProvenancePipeline:
         ops = [("PCA", PCA())]
-        return PcaPipeline(ops)
+        return ProvenancePipeline(ops)
 
 
-class PcaSvdPipeline(Pipeline, id="pca-svd", summary="PCA + SVD", modalities=[TabularDatasetMixin]):
+class PcaSvdPipeline(Pipeline, id="pca-svd", longname="PCA + SVD", modalities=[TabularDatasetMixin]):
     """
     A pipeline that applies a combination of the principal component analysis and
     singular value decomposition operators.
     """
 
-    @classmethod
-    def construct(cls: Type["PcaSvdPipeline"], dataset: Dataset) -> "PcaSvdPipeline":
+    def construct(self: "PcaSvdPipeline", dataset: Dataset) -> ProvenancePipeline:
         union = FeatureUnion([("pca", PCA(n_components=2)), ("svd", TruncatedSVD(n_iter=1))])
         ops = [("union", union), ("scaler", StandardScaler())]
-        return PcaSvdPipeline(ops)
+        return ProvenancePipeline(ops)
 
 
-class KMeansPipeline(Pipeline, id="mi-kmeans", summary="Missing Indicator + K-Means", modalities=[TabularDatasetMixin]):
+class KMeansPipeline(
+    Pipeline, id="mi-kmeans", longname="Missing Indicator + K-Means", modalities=[TabularDatasetMixin]
+):
     """
     A pipeline that applies a combination of the missing value indicator and
     the K-Means featurizer operators.
     """
 
-    @classmethod
-    def construct(cls: Type["KMeansPipeline"], dataset: Dataset) -> "KMeansPipeline":
+    def construct(self: "KMeansPipeline", dataset: Dataset) -> ProvenancePipeline:
         union = FeatureUnion([("indicator", MissingIndicator()), ("kmeans", KMeans(random_state=0, n_init=10))])
         ops = [("union", union)]
-        return KMeansPipeline(ops)
+        return ProvenancePipeline(ops)
 
 
 class StdScalerKMeansPipeline(
     Pipeline,
     id="std-scaler-mi-kmeans",
-    summary="Missing Indicator + Standard Scaler + K-Means",
+    longname="Missing Indicator + Standard Scaler + K-Means",
     modalities=[TabularDatasetMixin],
 ):
     """
@@ -177,15 +170,14 @@ class StdScalerKMeansPipeline(
     the K-Means featurizer operators.
     """
 
-    @classmethod
-    def construct(cls: Type["KMeansPipeline"], dataset: Dataset) -> "KMeansPipeline":
+    def construct(self: "StdScalerKMeansPipeline", dataset: Dataset) -> ProvenancePipeline:
         pipe = sklearn.pipeline.Pipeline([("scaler", StandardScaler()), ("kmeans", KMeans(random_state=0, n_init=10))])
         union = FeatureUnion([("indicator", MissingIndicator()), ("scaler-kmeans", pipe)])
         ops = [("union", union)]
-        return KMeansPipeline(ops)
+        return ProvenancePipeline(ops)
 
 
-class GaussBlurPipeline(Pipeline, id="gauss-blur", summary="Gaussian Blur", modalities=[ImageDatasetMixin]):
+class GaussBlurPipeline(Pipeline, id="gauss-blur", longname="Gaussian Blur", modalities=[ImageDatasetMixin]):
     """
     A pipeline that applies a gaussian blure filter.
     """
@@ -198,10 +190,9 @@ class GaussBlurPipeline(Pipeline, id="gauss-blur", summary="Gaussian Blur", moda
         result = np.reshape(result, (result.shape[0], -1))
         return result
 
-    @classmethod
-    def construct(cls: Type["GaussBlurPipeline"], dataset: Dataset) -> "GaussBlurPipeline":
-        ops = [("blur", FunctionTransformer(cls._gaussian_blur))]
-        return GaussBlurPipeline(ops)
+    def construct(self: "GaussBlurPipeline", dataset: Dataset) -> ProvenancePipeline:
+        ops = [("blur", FunctionTransformer(self._gaussian_blur))]
+        return ProvenancePipeline(ops)
 
 
 DEFAULT_HOG_ORIENTATIONS = 9
@@ -211,11 +202,44 @@ DEFAULT_HOG_BLOCK_NORM = "L2-Hys"
 
 
 class HogTransformPipeline(
-    Pipeline, id="hog-transform", summary="Histogram of Oriented Gradients", modalities=[ImageDatasetMixin]
+    Pipeline, id="hog-transform", longname="Histogram of Oriented Gradients", modalities=[ImageDatasetMixin]
 ):
     """
     A pipeline that applies a histogram of oriented gradients operator.
     """
+
+    def __init__(
+        self,
+        orientations: int = DEFAULT_HOG_ORIENTATIONS,
+        pixels_per_cell: int = DEFAULT_HOG_PIXELS_PER_CELL,
+        cells_per_block: int = DEFAULT_HOG_CELLS_PER_BLOCK,
+        block_norm: str = DEFAULT_HOG_BLOCK_NORM,
+    ) -> None:
+        super().__init__()
+        self._orientations = orientations
+        self._pixels_per_cell = pixels_per_cell
+        self._cells_per_block = cells_per_block
+        self._block_norm = block_norm
+
+    @attribute
+    def orientations(self) -> int:
+        """Number of orientation bins."""
+        return self._orientations
+
+    @attribute
+    def pixels_per_cell(self) -> int:
+        """Size (in pixels) of a cell."""
+        return self._pixels_per_cell
+
+    @attribute
+    def cells_per_block(self) -> int:
+        """Number of cells in each block."""
+        return self._cells_per_block
+
+    @attribute
+    def block_norm(self) -> str:
+        """Block normalization method. Choices: 'L1', 'L1-sqrt', 'L2', 'L2-Hys'."""
+        return self._block_norm
 
     @staticmethod
     def _hog_transform(
@@ -239,25 +263,17 @@ class HogTransformPipeline(
 
         return np.array([hog_single(img) for img in X])
 
-    @classmethod
-    def construct(
-        cls: Type["HogTransformPipeline"],
-        dataset: Dataset,
-        orientations: int = DEFAULT_HOG_ORIENTATIONS,
-        pixels_per_cell: int = DEFAULT_HOG_PIXELS_PER_CELL,
-        cells_per_block: int = DEFAULT_HOG_CELLS_PER_BLOCK,
-        block_norm: str = DEFAULT_HOG_BLOCK_NORM,
-    ) -> "HogTransformPipeline":
+    def construct(self: "HogTransformPipeline", dataset: Dataset) -> ProvenancePipeline:
         hog_transform = functools.partial(
-            cls._hog_transform,
-            orientations=orientations,
-            pixels_per_cell=pixels_per_cell,
-            cells_per_block=cells_per_block,
-            block_norm=block_norm,
+            self._hog_transform,
+            orientations=self.orientations,
+            pixels_per_cell=self.pixels_per_cell,
+            cells_per_block=self.cells_per_block,
+            block_norm=self.block_norm,
         )
 
         ops = [("hog", FunctionTransformer(hog_transform))]
-        return HogTransformPipeline(ops)
+        return ProvenancePipeline(ops)
 
 
 BATCH_SIZE = 32
@@ -329,27 +345,26 @@ class ImageEmbeddingPipeline(Pipeline, abstract=True, modalities=[ImageDatasetMi
         torch.cuda.empty_cache()
         return np.concatenate(results)
 
-    @classmethod
-    def construct(cls: Type["ImageEmbeddingPipeline"], dataset: Dataset) -> "ImageEmbeddingPipeline":
+    def construct(self: "ImageEmbeddingPipeline", dataset: Dataset) -> ProvenancePipeline:
         import torch
 
         cuda_mode = torch.cuda.is_available()
-        preprocessor = cls.get_preprocessor()
-        model = cls.get_model()
+        preprocessor = self.get_preprocessor()
+        model = self.get_model()
         embedding_transform = functools.partial(
             ImageEmbeddingPipeline._embedding_transform,
             cuda_mode=cuda_mode,
             preprocessor=preprocessor,
             model=model,
-            model_forward_function=cls.model_forward,
+            model_forward_function=self.model_forward,
         )
 
         ops = [("embedding", FunctionTransformer(embedding_transform))]
-        return cls(ops)
+        return ProvenancePipeline(ops)
 
 
 class ResNet18EmbeddingPipeline(
-    ImageEmbeddingPipeline, id="resnet-18", summary="ResNet18 Embedding", modalities=[ImageDatasetMixin]
+    ImageEmbeddingPipeline, id="resnet-18", longname="ResNet18 Embedding", modalities=[ImageDatasetMixin]
 ):  # type: ignore
     """
     A pipeline that extracts embeddings using a ResNet18 model pre-trained on the ImageNet dataset.
@@ -362,7 +377,7 @@ class ResNet18EmbeddingPipeline(
 
 
 class ResNet50EmbeddingPipeline(
-    ImageEmbeddingPipeline, id="resnet-50", summary="ResNet50 Embedding", modalities=[ImageDatasetMixin]
+    ImageEmbeddingPipeline, id="resnet-50", longname="ResNet50 Embedding", modalities=[ImageDatasetMixin]
 ):  # type: ignore
     """
     A pipeline that extracts embeddings using a ResNet50 model pre-trained on the ImageNet dataset.
@@ -375,7 +390,7 @@ class ResNet50EmbeddingPipeline(
 
 
 class MobileNetV2EmbeddingPipeline(
-    ImageEmbeddingPipeline, id="mobilenet-v2", summary="MobileNetV2 Embedding", modalities=[ImageDatasetMixin]
+    ImageEmbeddingPipeline, id="mobilenet-v2", longname="MobileNetV2 Embedding", modalities=[ImageDatasetMixin]
 ):  # type: ignore
     """
     A pipeline that extracts embeddings using a MobileNetV2 model pre-trained on the ImageNet dataset.
@@ -399,7 +414,7 @@ class MobileNetV2EmbeddingPipeline(
 
 
 class MobileViTEmbeddingPipeline(
-    ImageEmbeddingPipeline, id="mobilevit", summary="MobileViT Embedding", modalities=[ImageDatasetMixin]
+    ImageEmbeddingPipeline, id="mobilevit", longname="MobileViT Embedding", modalities=[ImageDatasetMixin]
 ):  # type: ignore
     """
     A pipeline that extracts embeddings using a MobileViT model pre-trained on the ImageNet dataset.
@@ -422,19 +437,18 @@ class MobileViTEmbeddingPipeline(
         return model
 
 
-class TfidfPipeline(Pipeline, id="tf-idf", summary="TF-IDF", modalities=[TextDatasetMixin]):
+class TfidfPipeline(Pipeline, id="tf-idf", longname="TF-IDF", modalities=[TextDatasetMixin]):
     """
     A pipeline that applies a count vectorizer and a TF-IDF transform.
     """
 
-    @classmethod
-    def construct(cls: Type["TfidfPipeline"], dataset: Dataset) -> "TfidfPipeline":
+    def construct(self: "TfidfPipeline", dataset: Dataset) -> ProvenancePipeline:
         ops = [("vect", CountVectorizer()), ("tfidf", TfidfTransformer())]
-        return TfidfPipeline(ops)
+        return ProvenancePipeline(ops)
 
 
 class ToLowerUrlRemovePipeline(
-    Pipeline, id="tolower-urlremove-tfidf", summary="ToLower + URLRemove + TF-IDF", modalities=[TextDatasetMixin]
+    Pipeline, id="tolower-urlremove-tfidf", longname="ToLower + URLRemove + TF-IDF", modalities=[TextDatasetMixin]
 ):
     """
     A pipeline that applies a few text transformations such as converting everything to lowercase and removing URL's.
@@ -451,15 +465,14 @@ class ToLowerUrlRemovePipeline(
     def _remove_urls(text_array):
         return list(map(ToLowerUrlRemovePipeline._remove_url, text_array))
 
-    @classmethod
-    def construct(cls: Type["ToLowerUrlRemovePipeline"], dataset: Dataset) -> "ToLowerUrlRemovePipeline":
+    def construct(self: "ToLowerUrlRemovePipeline", dataset: Dataset) -> ProvenancePipeline:
         ops = [
-            ("lower_case", FunctionTransformer(cls._text_lowercase)),
-            ("remove_url", FunctionTransformer(cls._remove_urls)),
+            ("lower_case", FunctionTransformer(self._text_lowercase)),
+            ("remove_url", FunctionTransformer(self._remove_urls)),
             ("vect", CountVectorizer()),
             ("tfidf", TfidfTransformer()),
         ]
-        return ToLowerUrlRemovePipeline(ops)
+        return ProvenancePipeline(ops)
 
 
 class TextEmbeddingPipeline(Pipeline, abstract=True, modalities=[TextDatasetMixin]):
@@ -518,12 +531,11 @@ class TextEmbeddingPipeline(Pipeline, abstract=True, modalities=[TextDatasetMixi
 
         return np.concatenate(results)
 
-    @classmethod
-    def construct(cls: Type["TextEmbeddingPipeline"], dataset: Dataset) -> "TextEmbeddingPipeline":
+    def construct(self: "TextEmbeddingPipeline", dataset: Dataset) -> ProvenancePipeline:
         import torch
 
         cuda_mode = torch.cuda.is_available()
-        feature_extractor, model = cls.get_model()
+        feature_extractor, model = self.get_model()
         if cuda_mode:
             model = model.to("cuda:0")
         embedding_transform = functools.partial(
@@ -534,11 +546,11 @@ class TextEmbeddingPipeline(Pipeline, abstract=True, modalities=[TextDatasetMixi
         )
 
         ops = [("embedding", FunctionTransformer(embedding_transform))]
-        return cls(ops)
+        return ProvenancePipeline(ops)
 
 
 # Source: https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2
-class MiniLMEmbeddingPipeline(Pipeline, id="mini-lm", summary="MiniLM Embedding", modalities=[TextDatasetMixin]):
+class MiniLMEmbeddingPipeline(Pipeline, id="mini-lm", longname="MiniLM Embedding", modalities=[TextDatasetMixin]):
     """
     A pipeline that extracts sentence embeddings using a MiniLM model pre-trained on the 1B sentences.
     """
@@ -548,22 +560,21 @@ class MiniLMEmbeddingPipeline(Pipeline, id="mini-lm", summary="MiniLM Embedding"
         embeddings = model.encode(list(X))
         return np.array(embeddings)
 
-    @classmethod
-    def construct(cls: Type["MiniLMEmbeddingPipeline"], dataset: Dataset) -> "MiniLMEmbeddingPipeline":
+    def construct(self: "MiniLMEmbeddingPipeline", dataset: Dataset) -> ProvenancePipeline:
         # if dataset.X_train.ndim > 1:
         #     raise ValueError("The provided dataset features must have either 0 or 1 dimensions.")
         from sentence_transformers import SentenceTransformer
 
         model = SentenceTransformer("all-MiniLM-L6-v2")
-        embedding_transform = functools.partial(cls._embedding_transform, model=model)
+        embedding_transform = functools.partial(self._embedding_transform, model=model)
 
         ops = [("embedding", FunctionTransformer(embedding_transform))]
-        return cls(ops)
+        return ProvenancePipeline(ops)
 
 
 # Source: https://huggingface.co/sentence-transformers/paraphrase-albert-small-v2
 class AlbertSmallEmbeddingPipeline(
-    Pipeline, id="albert-small-v2", summary="ALBERT Small", modalities=[TextDatasetMixin]
+    Pipeline, id="albert-small-v2", longname="ALBERT Small", modalities=[TextDatasetMixin]
 ):
     """
     A pipeline that extracts sentence embeddings using a ALBERT Small model pre-trained on the 1B sentences.
@@ -574,17 +585,16 @@ class AlbertSmallEmbeddingPipeline(
         embeddings = model.encode(list(X))
         return np.array(embeddings)
 
-    @classmethod
-    def construct(cls: Type["AlbertSmallEmbeddingPipeline"], dataset: Dataset) -> "AlbertSmallEmbeddingPipeline":
+    def construct(self: "AlbertSmallEmbeddingPipeline", dataset: Dataset) -> ProvenancePipeline:
         # if dataset.X_train.ndim > 1:
         #     raise ValueError("The provided dataset features must have either 0 or 1 dimensions.")
         from sentence_transformers import SentenceTransformer
 
         model = SentenceTransformer("sentence-transformers/paraphrase-albert-small-v2")
-        embedding_transform = functools.partial(cls._embedding_transform, model=model)
+        embedding_transform = functools.partial(self._embedding_transform, model=model)
 
         ops = [("embedding", FunctionTransformer(embedding_transform))]
-        return cls(ops)
+        return ProvenancePipeline(ops)
 
 
 class FlattenPipeline(sklearn.pipeline.Pipeline):

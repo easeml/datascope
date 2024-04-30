@@ -9,7 +9,7 @@ from itertools import repeat
 from multiprocessing import Pool, Lock
 from multiprocessing.synchronize import Lock as LockType
 from tqdm import tqdm
-from typing import Any, Optional, Sequence, Tuple, List
+from typing import Any, Optional, Sequence, Tuple, List, Type
 
 from ..datasets import DEFAULT_BATCH_SIZE, DEFAULT_CACHE_DIR, Dataset
 from ..pipelines import Pipeline
@@ -131,7 +131,7 @@ def run_scenario(
         if len(scenarios) == 0:
             raise ValueError("The provided attributes do not correspond to any valid scenario.")
         elif len(scenarios) > 1:
-            raise ValueError("The provided attributes correspond to more than one valid scenarios.")
+            raise ValueError("The provided attributes correspond to more than one valid scenario.")
         scenario = scenarios[0]
         path = os.path.join(output_path, scenario.id)
 
@@ -231,10 +231,12 @@ def cache_pipelines(
     batch_size: int = DEFAULT_BATCH_SIZE,
     **kwargs
 ) -> None:
-    for dataset in datasets:
-        for pipeline in pipelines:
-            cls_dataset = Dataset.datasets[dataset]
+    for dataset_id in datasets:
+        for pipeline_id in pipelines:
+            cls_dataset: Type[Dataset] = Dataset.get_subclasses()[dataset_id]
             inst_dataset = cls_dataset()
-            inst_pipeline = Pipeline.pipelines[pipeline].construct(dataset=inst_dataset)
-            print("Processing dataset '%s' with pipeline '%s'." % (dataset, pipeline))
-            cls_dataset.construct_apply_cache(pipeline=inst_pipeline, cache_dir=cache_dir, batch_size=batch_size)
+            cls_pipeline = Pipeline.get_subclasses()[pipeline_id]
+            inst_pipeline = cls_pipeline()
+            pipeline = inst_pipeline.construct(inst_dataset)
+            print("Processing dataset '%s' with pipeline '%s'." % (dataset_id, pipeline_id))
+            cls_dataset.construct_apply_cache(pipeline=pipeline, cache_dir=cache_dir, batch_size=batch_size)

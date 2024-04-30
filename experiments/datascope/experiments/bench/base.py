@@ -24,14 +24,17 @@ import warnings
 import yaml
 import zerorpc
 
-from abc import ABC, abstractmethod
+from abc import abstractmethod
+from dataclasses import dataclass
 from enum import Enum
+from functools import cached_property
 from glob import glob
 from inspect import signature
 from io import TextIOBase, StringIO, SEEK_END
 from itertools import product
 from logging import Logger
 from matplotlib.figure import Figure
+from methodtools import lru_cache
 from multiprocessing import Process, Queue as MultiprocessingQueue
 from numpy import ndarray
 from pandas import DataFrame
@@ -44,6 +47,7 @@ from typing import (
     Any,
     Callable,
     Dict,
+    Generic,
     Iterable,
     List,
     Optional,
@@ -60,18 +64,36 @@ from typing import (
 )
 
 
+def represent(x: Any):
+    if isinstance(x, Enum):
+        return repr(x.value)
+    else:
+        return repr(x)
+
+
+def stringify(x: Any):
+    if isinstance(x, Enum):
+        return str(x.value)
+    else:
+        return str(x)
+
+
 class Queue(Protocol):
     def get(self, block: bool = True, timeout: Optional[float] = None) -> Any: ...
 
     def put(self, item: Any, block: bool = True, timeout: Optional[float] = None) -> None: ...
 
 
+C = TypeVar("C")
+
+
 class PropertyTag(property):
     domain: Optional[Iterable] = None
+    inherit: bool = False
 
     @classmethod
-    def get_properties(cls: Type[property], target: object) -> Dict[str, property]:
-        res: Dict[str, property] = {}
+    def get_properties(cls: Type[C], target: object) -> Dict[str, C]:
+        res: Dict[str, C] = {}
         for name in dir(target):
             if hasattr(target, name):
                 member = getattr(target, name)
@@ -88,9 +110,11 @@ class attribute(PropertyTag):
         fdel: Optional[Callable[[Any], None]] = None,
         doc: Optional[str] = None,
         domain: Optional[Union[Iterable, Dict]] = None,
+        inherit: bool = False,
     ) -> None:
         super().__init__(fget, fset, fdel, doc)
         self.domain = domain
+        self.inherit = inherit
 
     def __call__(
         self,
@@ -107,12 +131,40 @@ class attribute(PropertyTag):
             fdel = self.fdel
         if doc is None:
             doc = self.__doc__
-        return type(self)(fget, fset, fdel, doc, self.domain)
+        return type(self)(fget, fset, fdel, doc, domain=self.domain, inherit=self.inherit)
 
     __isattribute__ = True
 
 
 class result(PropertyTag):
+    def __init__(
+        self,
+        fget: Optional[Callable[[Any], Any]] = None,
+        fset: Optional[Callable[[Any, Any], None]] = None,
+        fdel: Optional[Callable[[Any], None]] = None,
+        doc: Optional[str] = None,
+        lazy: bool = False,
+    ) -> None:
+        super().__init__(fget, fset, fdel, doc)
+        self.lazy = lazy
+
+    def __call__(
+        self,
+        fget: Optional[Callable[[Any], Any]] = None,
+        fset: Optional[Callable[[Any, Any], None]] = None,
+        fdel: Optional[Callable[[Any], None]] = None,
+        doc: Optional[str] = None,
+    ) -> "result":
+        if fget is None:
+            fget = self.fget
+        if fset is None:
+            fset = self.fset
+        if fdel is None:
+            fdel = self.fdel
+        if doc is None:
+            doc = self.__doc__
+        return type(self)(fget, fset, fdel, doc, lazy=self.lazy)
+
     __isresult__ = True
 
 
@@ -156,7 +208,7 @@ def get_property_domain(target: object, name: str) -> List[Any]:
     if isinstance(prop, PropertyTag) and prop.domain is not None:
         return list(prop.domain.keys()) if isinstance(prop.domain, dict) else list(prop.domain)
     elif sign.return_annotation is bool:
-        return [False, True]
+        return [None]
     elif enum is None:
         return [None]
     else:
@@ -196,6 +248,14 @@ def get_property_isiterable(target: object, name: str) -> bool:
     return get_origin(a) in [collections.abc.Sequence, collections.abc.Iterable, list, set]
 
 
+def get_property_is_inheritable(target: object, name: str) -> bool:
+    member = getattr(target, name)
+    if isinstance(member, attribute):
+        return member.inherit
+    else:
+        return False
+
+
 def has_attribute_value(target: object, name: str, value: Any, ignore_none: bool = True) -> bool:
     target_value = get_property_value(target, name)
     if not isinstance(value, Iterable):
@@ -224,6 +284,7 @@ def make_type_parser(target: Optional[type]) -> Callable[[str], Any]:
     return parser
 
 
+# TODO: Delete this function.
 def add_dynamic_arguments(
     parser: argparse.ArgumentParser,
     targets: Iterable[type],
@@ -280,6 +341,23 @@ def add_dynamic_arguments(
         )
 
 
+T = TypeVar("T")
+
+
+class LazyLoader(Generic[T]):
+    loader: Callable[[], T]
+    value: Optional[T]
+
+    def __init__(self, loader: Callable[[], T]) -> None:
+        self.loader = loader
+        self.value: Optional[T] = None
+
+    def __call__(self) -> T:
+        if self.value is None:
+            self.value = self.loader()
+        return self.value
+
+
 def save_dict(source: Dict[str, Any], dirpath: str, basename: str, saveonly: Optional[Sequence[str]] = None) -> None:
     basedict: Dict[str, Any] = dict((k, v) for (k, v) in source.items() if type(v) in [int, float, bool, str])
     basedict.update(dict((k, v.value) for (k, v) in source.items() if isinstance(v, Enum)))
@@ -314,11 +392,12 @@ def save_dict(source: Dict[str, Any], dirpath: str, basename: str, saveonly: Opt
                 raise ValueError("Key '%s' has unsupported type '%s'." % (name, str(type(data))))
 
 
-def load_dict(dirpath: str, basename: str) -> Dict[str, Any]:
+def load_dict(dirpath: str, basename: str, lazy: Optional[Sequence[str]] = None) -> Dict[str, Any]:
     if not os.path.isdir(dirpath):
         raise ValueError("The provided path '%s' does not point to a directory." % dirpath)
 
     res: Dict[str, Any] = {}
+    lazy = [] if lazy is None else lazy
 
     filename = os.path.join(dirpath, ".".join([basename, "yaml"]))
     if os.path.isfile(filename):
@@ -334,9 +413,15 @@ def load_dict(dirpath: str, basename: str) -> Dict[str, Any]:
             continue
 
         if ext == ".npy":
-            res[name] = np.load(path)
+            if name in lazy:
+                res[name] = LazyLoader(lambda: np.load(path))
+            else:
+                res[name] = np.load(path)
         elif ext == ".csv":
-            res[name] = pd.read_csv(path, index_col=0)
+            if name in lazy:
+                res[name] = LazyLoader(lambda: pd.read_csv(path, index_col=0))
+            else:
+                res[name] = pd.read_csv(path, index_col=0)
         elif ext == ".yaml":
             with open(path) as f:
                 res[name] = yaml.safe_load(f)
@@ -426,10 +511,288 @@ class Progress:
             cls.refresh()
 
 
-class Scenario(ABC):
-    scenarios: Dict[str, Type["Scenario"]] = {}
-    attribute_names: Set[str] = set()
-    _scenario: Optional[str] = None
+@dataclass
+class AttributeDescriptor:
+    attr_type: Optional[type]
+    helpstring: Optional[str]
+    is_iterable: bool
+    domain: Iterable
+    default: Any
+    inherit: bool = False
+
+
+def get_all_subclasses(cls):
+    all_subclasses = []
+    for subclass in cls.__subclasses__():
+        all_subclasses.append(subclass)
+        all_subclasses.extend(get_all_subclasses(subclass))
+    return all_subclasses
+
+
+def get_class(class_id: str) -> Optional[type]:
+    import importlib
+
+    module_name, class_name = class_id.rsplit(".", 1)
+    try:
+        module = importlib.import_module(module_name)
+        return getattr(module, class_name)
+    except (ModuleNotFoundError, AttributeError):
+        return None
+
+
+class Configurable:
+    NESTING_SEPARATOR = "_"
+    _class_id: str
+    _class_longname: Optional[str] = None
+    _class_argname: str = "class"
+    _class_abstract: bool = True
+
+    def __init_subclass__(
+        cls: Type["Configurable"],
+        id: Optional[str] = None,
+        longname: Optional[str] = None,
+        argname: Optional[str] = None,
+        abstract: bool = False,
+    ) -> None:
+        cls._class_id = id if id is not None else "%s.%s" % (cls.__module__, cls.__name__)
+        cls._class_longname = longname if longname is not None else cls.__name__
+        if argname is not None:
+            cls._class_argname = argname
+        cls._class_abstract = abstract
+
+    @lru_cache(maxsize=2)
+    @classmethod
+    def get_subclasses(cls: Type["Configurable"], include_abstract: bool = False) -> Dict[str, Type["Configurable"]]:
+        subclasses = {c.get_class_identifier(): c for c in cls.__subclasses__()}
+        subsubclasses: Dict[str, Type["Configurable"]] = {}
+        for c in subclasses.values():
+            subsubclasses.update(**c.get_subclasses())
+        subclasses.update(subsubclasses)
+        if include_abstract:
+            return subclasses
+        else:
+            return {k: v for k, v in subclasses.items() if not v._class_abstract}
+
+    @classmethod
+    def get_class_identifier(cls: Type["Configurable"]) -> str:
+        return cls._class_id
+
+    @lru_cache(maxsize=8)
+    @classmethod
+    def _get_attribute_descriptors(
+        cls: Type["Configurable"],
+        flattened: bool = False,
+        include_subclasses: bool = False,
+        include_classarg: bool = False,
+    ) -> Dict[str, AttributeDescriptor]:
+        attribute_descriptors = {}
+        if include_classarg:
+            attribute_descriptors[cls._class_argname] = AttributeDescriptor(
+                attr_type=str,
+                helpstring="Identifier of the specific %s instance." % cls.__name__.lower(),
+                is_iterable=False,
+                domain=list(cls.get_subclasses().keys()),
+                default=None,
+                inherit=False,
+            )
+        properties = attribute.get_properties(cls)
+        for name, prop in properties.items():
+            attr_type = get_property_type(cls, name)
+            helpstring = get_property_helpstring(cls, name)
+            is_iterable = get_property_isiterable(cls, name)
+            inherit = get_property_is_inheritable(cls, name)
+            default = get_property_default(cls, name)
+            if attr_type is not None and issubclass(attr_type, Configurable) and flattened:
+                domain = list(attr_type.get_subclasses().keys())
+                attribute_descriptors[name] = AttributeDescriptor(
+                    attr_type=str,
+                    helpstring=helpstring,
+                    is_iterable=is_iterable,
+                    domain=domain,
+                    default=default,
+                    inherit=inherit,
+                )
+                nested_attribute_descriptors = attr_type._get_attribute_descriptors(
+                    flattened=True, include_subclasses=True
+                )
+                for nested_name, nested_descriptor in nested_attribute_descriptors.items():
+                    attribute_descriptors[name + cls.NESTING_SEPARATOR + nested_name] = nested_descriptor
+            else:
+                domain = get_property_domain(cls, name)
+                attribute_descriptors[name] = AttributeDescriptor(
+                    attr_type=attr_type,
+                    helpstring=helpstring,
+                    is_iterable=is_iterable,
+                    domain=domain,
+                    default=default,
+                    inherit=inherit,
+                )
+
+        if include_subclasses:
+            for subclass in cls.get_subclasses().values():
+                subclass_descriptors = subclass._get_attribute_descriptors(
+                    flattened=flattened, include_subclasses=False
+                )
+                attribute_descriptors.update(subclass_descriptors)
+
+        return attribute_descriptors
+
+    @cached_property
+    def attributes(self) -> Dict[str, Any]:
+        props = attribute.get_properties(type(self))
+        attributes = dict((name, get_property_value(self, name)) for name in props.keys())
+        attributes[self._class_argname] = self.get_class_identifier()
+        return attributes
+
+    def __repr__(self) -> str:
+        full_class_id = "%s.%s" % (type(self).__module__, type(self).__name__)
+        class_id = self.get_class_identifier()
+        result = str(self)
+        if result.startswith(class_id) and class_id != full_class_id:
+            result = result.replace(class_id, full_class_id, 1)
+        return result
+
+    def __str__(self) -> str:
+        result = self.get_class_identifier()
+        attributes = self.attributes
+        attribute_string = ", ".join(
+            ["%s=%s" % (str(k), stringify(attributes[k])) for k in sorted(attributes) if k != self._class_argname]
+        )
+        if len(attribute_string) > 0:
+            result += "(%s)" % attribute_string
+        return result
+
+    @classmethod
+    def _compose_attributes(cls: Type["Configurable"], attributes: Dict[str, Any]) -> Dict[str, Any]:
+        attribute_descriptors: Dict[str, AttributeDescriptor] = cls._get_attribute_descriptors()
+        result: Dict[str, Any] = {}
+        skip_prefixes: Set[str] = set()
+        for k in sorted(attributes.keys()):
+            if any(k.startswith(prefix) for prefix in skip_prefixes):
+                continue
+            v = attributes[k]
+            result[k] = v
+            if isinstance(v, str) or isinstance(v, dict):
+                target_base_descriptor = attribute_descriptors.get(k, None)
+                if target_base_descriptor is not None:
+                    target_base_cls = target_base_descriptor.attr_type
+                    if target_base_cls is not None and issubclass(target_base_cls, Configurable):
+                        target_cls_id = v if isinstance(v, str) else v.get(target_base_cls._class_argname, None)
+                        if target_cls_id is None:
+                            raise ValueError(
+                                "If the key '%s' contains a nested dictionary, it must have a "
+                                "key '%s' corresponding to the class identifier." % (k, target_base_cls._class_argname)
+                            )
+
+                        target_cls = target_base_cls.get_subclasses().get(target_cls_id, None)
+                        if target_cls is None:
+                            target_cls = get_class(target_cls_id)
+                            if target_cls is not None:
+                                if not issubclass(target_cls, target_base_cls) or not issubclass(
+                                    target_cls, Configurable
+                                ):
+                                    target_cls = None
+
+                        if target_cls is not None:
+                            target_attributes = {}
+
+                            # If any attributes are inheritable, pass them down.
+                            target_attribute_descriptors: Dict[str, AttributeDescriptor] = (
+                                target_cls._get_attribute_descriptors()
+                            )
+                            for kk, vd in target_attribute_descriptors.items():
+                                if vd.inherit:
+                                    target_attributes[kk] = attributes[kk]
+
+                            # Pass down all attributes that are prefixed with the current key.
+                            target_attributes.update(
+                                {
+                                    kk.removeprefix(k + cls.NESTING_SEPARATOR): vv
+                                    for kk, vv in attributes.items()
+                                    if kk.startswith(k + cls.NESTING_SEPARATOR)
+                                }
+                            )
+
+                            # If the value is a nested dictionary, then we reuse its attributes.
+                            if isinstance(v, dict):
+                                target_attributes.update(
+                                    {kk: vv for kk, vv in v.items() if kk != target_base_cls._class_argname}
+                                )
+
+                            # Recursively compose target attributes and instantiate the configurable object.
+                            target_attributes = target_cls._compose_attributes(target_attributes)
+                            result[k] = target_cls(**target_attributes)
+
+                            # Ensure that the nested attributes are not passed to the parent object constructor.
+                            skip_prefixes.add(k + cls.NESTING_SEPARATOR)
+        return result
+
+    @classmethod
+    def _flatten_attributes(cls: Type["Configurable"], attributes: Dict[str, Any]) -> Dict[str, Any]:
+        result: Dict[str, Any] = {}
+        for k, v in attributes.items():
+            if isinstance(v, Configurable):
+                result[k] = v.get_class_identifier()
+                ejected_attributes = v._flatten_attributes(v.attributes)
+                for kk, vv in ejected_attributes.items():
+                    result[k + cls.NESTING_SEPARATOR + kk] = vv
+            else:
+                result[k] = v
+        return result
+
+    @classmethod
+    def from_dict(cls: Type["Configurable"], attributes: Dict[str, Any]) -> "Configurable":
+        class_id = attributes.get(cls._class_argname, None)
+        target_class = cls
+        if class_id is not None and class_id != cls.get_class_identifier():
+            # If class_id is provided, then we need to find the corresponding subclass.
+            target_class = cls.get_subclasses().get(class_id, None)
+            if target_class is None:
+                target_cls = get_class(class_id)
+                if target_cls is not None:
+                    if not issubclass(target_cls, Configurable):
+                        target_cls = None
+            if target_class is None:
+                raise ValueError("The provided class ID '%s' does not correspond to any valid class." % class_id)
+        elif cls._class_abstract:
+            # If class_id is not provided, then we need to ensure that cls is not abstract.
+            raise ValueError(
+                "Function called on abstract class '%s' but argument '%s' specifying subclass is missing."
+                % (cls._class_id, cls._class_argname)
+            )
+        attributes = target_class._compose_attributes(attributes)
+        return target_class(**attributes)
+
+    @classmethod
+    def add_dynamic_arguments(
+        cls: Type["Configurable"],
+        parser: argparse.ArgumentParser,
+        all_iterable: bool = False,
+        single_instance: bool = False,
+    ) -> None:
+        attribute_descriptors: Dict[str, AttributeDescriptor] = cls._get_attribute_descriptors(
+            flattened=True, include_subclasses=True, include_classarg=True
+        )
+        for name, descriptor in attribute_descriptors.items():
+            attribute_domain: Optional[List] = [x.value if isinstance(x, Enum) else x for x in descriptor.domain]
+            if attribute_domain == [None]:
+                attribute_domain = None
+            helpstring = descriptor.helpstring or ("Scenario " + name + ".")
+            if descriptor.default is None:
+                helpstring += " Default: [all]" if not single_instance else ""
+            else:
+                helpstring += " Default: %s" % str(descriptor.default)
+            nargs = (1 if single_instance else "+") if (descriptor.is_iterable or all_iterable) else None
+            parser.add_argument(
+                "--%s" % name.replace("_", "-"),
+                help=helpstring,
+                type=make_type_parser(descriptor.attr_type),
+                choices=attribute_domain,
+                nargs=nargs,  # type: ignore
+            )
+
+
+class Scenario(Configurable, argname="scenario"):
 
     def __init__(self, id: Optional[str] = None, logstream: Optional[TextIOBase] = None, **kwargs: Any) -> None:
         super().__init__()
@@ -437,22 +800,6 @@ class Scenario(ABC):
         self._logstream = logstream if logstream is not None else StringIO()
         self._progress = Progress(id=self._id)
         self._attributes: Optional[Dict[str, Any]] = None
-
-    def __init_subclass__(cls: Type["Scenario"], id: Optional[str] = None, abstract: bool = False) -> None:
-        if abstract or id is None:
-            return
-
-        # Register scenario under the given name.
-        cls._scenario = id
-        Scenario.scenarios[id] = cls
-        assert isinstance(Scenario.scenario, PropertyTag)
-        assert isinstance(Scenario.scenario.domain, set)
-        Scenario.scenario.domain.add(id)
-
-        # Extract scenario attribute names.
-        props = attribute.get_properties(cls)
-        cls.attribute_names = set(props.keys())
-        Scenario.attribute_names.update(cls.attribute_names)
 
     def run(self, progress_bar: bool = True, console_log: bool = True) -> None:
         # Set up logging.
@@ -494,13 +841,6 @@ class Scenario(ABC):
     def dataframe(self) -> DataFrame:
         raise NotImplementedError()
 
-    @attribute(domain=set())
-    def scenario(self) -> str:
-        """Type of scenario."""
-        if self._scenario is None:
-            raise ValueError("Cannot call this on an abstract class instance.")
-        return self._scenario
-
     @attribute
     def id(self) -> str:
         """A unique identifier of the scenario."""
@@ -526,39 +866,40 @@ class Scenario(ABC):
         self._logstream.seek(0, SEEK_END)
         return result
 
-    @property
-    def attributes(self) -> Dict[str, Any]:
-        if self._attributes is None:
-            props = attribute.get_properties(self.__class__)
-            self._attributes = dict((name, get_property_value(self, name)) for name in props.keys())
-        return self._attributes
-
-    @property
-    def keyword_replacements(self) -> Dict[str, str]:
+    @lru_cache(maxsize=1)
+    @classmethod
+    def get_keyword_replacements(cls: Type["Scenario"]) -> Dict[str, str]:
         return {}
 
     @classmethod
-    def get_instances(cls, **kwargs: Any) -> Iterable["Scenario"]:
+    def get_instances(cls: Type["Scenario"], **kwargs: Any) -> Iterable["Scenario"]:
         if cls == Scenario:
-            for id, scenario in Scenario.scenarios.items():
+            # for id, scenario in Scenario.scenarios.items():
+            for id, subclass in Scenario.get_subclasses().items():
                 if kwargs.get("scenario", None) is None or id in kwargs["scenario"]:
-                    for instance in scenario.get_instances(**kwargs):
+                    assert issubclass(subclass, Scenario)
+                    for instance in subclass.get_instances(**kwargs):
                         yield instance
         else:
+            attribute_descriptors: Dict[str, AttributeDescriptor] = cls._get_attribute_descriptors(flattened=True)
             domains = []
-            names = cls.attribute_names
+            names = list(attribute_descriptors.keys())
             for name in names:
                 if name in kwargs and kwargs[name] is not None:
                     domain = kwargs[name]
-                    if not isinstance(domain, Iterable):
+                    if not isinstance(domain, Iterable) or isinstance(domain, str):
                         domain = [domain]
                     domains.append(list(domain))
                 else:
-                    domains.append(get_property_domain(cls, name))
+                    domains.append(list(attribute_descriptors[name].domain))
+            print("len(list(product(*domains)))", len(list(product(*domains))))
             for values in product(*domains):
                 attributes = dict((name, value) for (name, value) in zip(names, values) if value is not None)
-                if cls.is_valid_config(**attributes):
-                    yield cls(**attributes)
+                composed_attributes = cls._compose_attributes(attributes)
+                if cls.is_valid_config(**composed_attributes):
+                    scenario = cls(**composed_attributes)
+                    # assert isinstance(scenario, Scenario)
+                    yield scenario
 
     @classmethod
     def is_valid_config(cls, **attributes: Any) -> bool:
@@ -577,28 +918,13 @@ class Scenario(ABC):
             self._logstream.seek(0, SEEK_END)
 
         # Save attributes as a single yaml file.
-        props = attribute.get_properties(type(self))
-        attributes = dict((name, prop.fget(self) if prop.fget is not None else None) for (name, prop) in props.items())
+        attributes = self._flatten_attributes(self.attributes)
         save_dict(attributes, path, "attributes")
 
         # Save results as separate files.
-        props = result.get_properties(type(self))
+        props: Dict[str, result] = result.get_properties(type(self))
         results = dict((name, prop.fget(self) if prop.fget is not None else None) for (name, prop) in props.items())
         save_dict(results, path, "results")
-
-    def __str__(self) -> str:
-        props = attribute.get_properties(type(self))
-        attributes = dict((name, prop.fget(self) if prop.fget is not None else None) for (name, prop) in props.items())
-        for k, v in attributes.items():
-            if isinstance(v, Enum):
-                attributes[k] = v.value
-        return "(%s)" % ", ".join(["%s=%s" % (str(k), str(v)) for (k, v) in attributes.items()])
-
-    @classmethod
-    def from_dict(cls, source: Dict[str, Any]) -> "Scenario":
-        scenario_id = source["scenario"]
-        scenario_cls = cls.scenarios[scenario_id]
-        return scenario_cls(**source)
 
     @classmethod
     def load(cls, path: str) -> "Scenario":
@@ -613,9 +939,13 @@ class Scenario(ABC):
                 logstream = StringIO(f.read())
 
         attributes = load_dict(path, "attributes")
-        results = load_dict(path, "results")
+        attributes = cls._compose_attributes(attributes)
+        lazy = [k for k, v in result.get_properties(cls).items() if v.lazy]
+        results = load_dict(path, "results", lazy=lazy)
         kwargs = {"logstream": logstream}
-        return cls.from_dict({**attributes, **results, **kwargs})
+        scenario = cls.from_dict({**attributes, **results, **kwargs})
+        assert isinstance(scenario, Scenario)
+        return scenario
 
     @classmethod
     def isscenario(cls, path: str) -> bool:
@@ -862,7 +1192,7 @@ class Study:
         eventstream_host_ip: Optional[str] = None,
         eventstream_host_port: Optional[int] = None,
         eagersave: bool = True,
-        **kwargs: Any
+        **kwargs: Any,
     ) -> None:
         # Set up logging.
         formatter = logging.Formatter("[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s")
@@ -876,7 +1206,6 @@ class Study:
             self.logger.addHandler(ch)
 
         # Set up progress bar.
-        # pbar = None if not progress_bar else tqdm(total=len(self.scenarios), desc="Scenarios", position=0)
         queue: Optional[Queue] = None
         process: Optional[Process] = None
         pickled_queue = backend == Backend.SLURM
@@ -890,18 +1219,6 @@ class Study:
             pbar.start(total=len(self.scenarios), desc="Scenarios")
 
         with logging_redirect_tqdm(loggers=[self.logger]):
-            # for scenario in self.scenarios:
-            #     try:
-            #         scenario.run(logger=self._logger, progress_bar=progress_bar, **kwargs)
-            #     except Exception as e:
-            #         if catch_exceptions:
-            #             trace_output = traceback.format_exc()
-            #             print(trace_output)
-            #         else:
-            #             raise e
-            #     finally:
-            #         if pbar is not None:
-            #             pbar.update(1)
 
             scenarios = []
             runner = get_scenario_runner(
@@ -1076,12 +1393,7 @@ class Study:
             copyfileobj(self._logstream, f)
             self._logstream.seek(0, SEEK_END)
 
-        # Verify that the provided scenario path is unique enough.
-        # self._verify_scenario_path(self._scenario_path_format, self.scenarios)
-
-        # Iterate over all scenarios and compute their target paths.
-        # attributes = re.findall(r"\{(.*?)\}", scenario_path)
-        # scenario_paths: Set[str] = set()
+        # Save all scenarios.
         if save_scenarios:
             for scenario in self.scenarios:
                 self.save_scenario(scenario)
@@ -1172,12 +1484,21 @@ class Study:
 
     @property
     def scenarios(self) -> Table[Scenario]:
-        attributes = sorted(Scenario.attribute_names)
+        attributes = sorted(Scenario._get_attribute_descriptors().keys())
         return Table[Scenario](self._scenarios, attributes, "id")
+
+    def get_keyword_replacements(self) -> Dict[str, str]:
+        scenario_types: Set[Type[Scenario]] = set([type(scenario) for scenario in self.scenarios])
+        result: Dict[str, str] = {}
+        for scenario_type in scenario_types:
+            result.update(scenario_type.get_keyword_replacements())
+        return result
 
     @property
     def dataframe(self) -> DataFrame:
-        df = pd.concat([s.dataframe.assign(scenario=s.scenario, id=s.id) for s in self.scenarios], ignore_index=True)
+        df = pd.concat(
+            [s.dataframe.assign(scenario=s.get_class_identifier(), id=s.id) for s in self.scenarios], ignore_index=True
+        )
         df.sort_index(inplace=True)
         return df
 
@@ -1188,48 +1509,44 @@ class Study:
                 res.append(exp)
         return res
 
+    @classmethod
+    def union(
+        cls: Type["Study"],
+        *studies: "Study",
+        id: Optional[str] = None,
+        outpath: str = DEFAULT_RESULTS_PATH,
+        scenario_path_format: str = DEFAULT_SCENARIO_PATH_FORMAT,
+        logstream: Optional[TextIOBase] = None,
+    ) -> "Study":
+        scenarios: List[Scenario] = []
+        for study in studies:
+            scenarios.extend(study.scenarios)
+        return Study(scenarios, id=id, outpath=outpath, scenario_path_format=scenario_path_format, logstream=logstream)
 
-def represent(x: Any):
-    if isinstance(x, Enum):
-        return repr(x.value)
-    else:
-        return repr(x)
+    def __add__(self, other: "Study") -> "Study":
+        return Study.union(self, other)
+
+    def __radd__(self, other: "Study") -> "Study":
+        return Study.union(other, self)
 
 
-def stringify(x: Any):
-    if isinstance(x, Enum):
-        return str(x.value)
-    else:
-        return str(x)
-
-
-class Report(ABC):
-    reports: Dict[str, Type["Report"]] = {}
-    _report: Optional[str] = None
+class Report(Configurable):
 
     def __init__(
         self,
-        study: Study,
         dataframe: DataFrame,
         id: Optional[str] = None,
+        study: Optional[Study] = None,
         partvals: Optional[Dict[str, Any]] = None,
-        **kwargs: Any
+        keyword_replacements: Optional[Dict[str, str]] = None,
+        **kwargs: Any,
     ) -> None:
         super().__init__()
-        self._study = study
         self._dataframe = dataframe
         self._id = id if id is not None else "".join(random.choices(string.ascii_lowercase + string.digits, k=10))
+        self._study = study
         self._partvals: Dict[str, Any] = {} if partvals is None else partvals
-
-    def __init_subclass__(cls: Type["Report"], id: str) -> None:
-        cls._report = id
-        cls.reports[id] = cls
-
-    @attribute
-    def report(self) -> str:
-        if self._report is None:
-            raise ValueError("Cannot call this on an abstract class instance.")
-        return self._report
+        self._keyword_replacements: Dict[str, str] = {} if keyword_replacements is None else keyword_replacements
 
     @attribute
     def id(self) -> str:
@@ -1241,12 +1558,16 @@ class Report(ABC):
         return self._partvals
 
     @property
-    def study(self) -> Study:
+    def study(self) -> Optional[Study]:
         return self._study
 
     @property
     def dataframe(self) -> DataFrame:
         return self._dataframe
+
+    @property
+    def keyword_replacements(self) -> Dict[str, str]:
+        return self._keyword_replacements
 
     @classmethod
     def is_valid_config(cls, **attributes: Any) -> bool:
@@ -1265,7 +1586,10 @@ class Report(ABC):
         saveonly: Optional[Sequence[str]] = None,
     ) -> None:
         if path is None:
-            path = os.path.join(self._study.path, "reports")
+            if self._study is not None:
+                path = os.path.join(self._study.path, "reports")
+            else:
+                path = os.path.join(DEFAULT_REPORTS_PATH, self._id)
         basename = "report"
         if use_subdirs:
             if use_partvals:
@@ -1294,12 +1618,24 @@ class Report(ABC):
 
     @classmethod
     def get_instances(
-        cls: Type["Report"], study: Study, partby: Optional[Sequence[str]], **kwargs: Any
+        cls: Type["Report"],
+        study: Study,
+        partby: Optional[Sequence[str]],
+        keyword_replacements: Optional[Dict[str, str]] = None,
+        **kwargs: Any,
     ) -> Iterable["Report"]:
+        keyword_replacements = {} if keyword_replacements is None else keyword_replacements
+        keyword_replacements = {
+            **keyword_replacements,
+            **study.get_keyword_replacements(),
+        }
+
         if cls == Report:
-            for id, report in Report.reports.items():
+            for id, report_class in Report.get_subclasses().items():
                 if kwargs.get("report", None) is None or id in kwargs["report"]:
-                    for instance in report.get_instances(study=study, partby=partby, **kwargs):
+                    for instance in report_class.get_instances(
+                        study=study, partby=partby, keyword_replacements=keyword_replacements, **kwargs
+                    ):
                         yield instance
         else:
             # If grouping attributes were not specified, then we return only a single instance.
@@ -1316,4 +1652,11 @@ class Report(ABC):
                 for values in all_values:
                     dataframe = partitioned.get_group(values)
                     partvals = dict((k, v) for (k, v) in zip(partby, values))
-                    yield cls(study=study, dataframe=dataframe, partvals=partvals, **kwargs)
+
+                    yield cls(
+                        study=study,
+                        dataframe=dataframe,
+                        partvals=partvals,
+                        keyword_replacements=keyword_replacements,
+                        **kwargs,
+                    )

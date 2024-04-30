@@ -7,64 +7,61 @@ from datascope.importance.common import (
     SklearnModelRocAuc,
 )
 from datetime import timedelta
+from methodtools import lru_cache
 from numpy.typing import NDArray
 from pandas import DataFrame
-from sklearn.preprocessing import FunctionTransformer
 from sklearn.utils.multiclass import unique_labels
 from time import process_time_ns
-from typing import Any, Optional, Dict
+from typing import Any, Optional, Dict, Type
 
 from ..bench import attribute, result, Scenario
 from .datascope_scenario import (
-    ModelType,
-    ModelSpec,
-    MODEL_TYPES,
-    MODEL_KWARGS,
     DEFAULT_SEED,
     DEFAULT_MODEL,
     KEYWORD_REPLACEMENTS,
     UtilityType,
 )
-from ..datasets import (
-    Dataset,
-    DEFAULT_TRAINSIZE,
-    DEFAULT_TESTSIZE,
-)
-from ..pipelines import Pipeline, get_model
+from ..datasets import Dataset
+from ..pipelines import Pipeline, Model, KNearestNeighborsModel
+
+KEYWORD_REPLACEMENTS = {
+    **KEYWORD_REPLACEMENTS,
+    "cardinality": "Cardinality",
+    "score_without": "Score without",
+    "score_with": "Score with",
+    "score_marginal": "Marginal score",
+}
 
 
 class MarginalContributionScenario(Scenario, id="marginal-contribution"):  # type: ignore
     def __init__(
         self,
-        dataset: str,
-        pipeline: str,
-        iteration: int,
+        dataset: Dataset,
+        pipeline: Pipeline,
         utility: UtilityType = UtilityType.ACCURACY,
-        model: ModelSpec = DEFAULT_MODEL,
+        model: Model = DEFAULT_MODEL,
         seed: int = DEFAULT_SEED,
-        trainsize: int = DEFAULT_TRAINSIZE,
-        testsize: int = DEFAULT_TESTSIZE,
         evolution: Optional[pd.DataFrame] = None,
+        iteration: Optional[int] = None,  # Iteration became seed. Keeping this for back compatibility reasons.
         **kwargs: Any
     ) -> None:
         super().__init__(**kwargs)
         self._dataset = dataset
         self._pipeline = pipeline
-        self._iteration = iteration
         self._utility = utility
         self._model = model
         self._seed = seed
-        self._trainsize = trainsize
-        self._testsize = testsize
+        if iteration is not None:
+            self._seed += iteration
         self._evolution = pd.DataFrame() if evolution is None else evolution
 
-    @attribute(domain=Dataset.datasets)
-    def dataset(self) -> str:
+    @attribute
+    def dataset(self) -> Dataset:
         """Dataset to use for training and validation."""
         return self._dataset
 
-    @attribute(domain=Pipeline.pipelines)
-    def pipeline(self) -> str:
+    @attribute
+    def pipeline(self) -> Pipeline:
         """Pipeline to use for feature extraction."""
         return self._pipeline
 
@@ -73,25 +70,15 @@ class MarginalContributionScenario(Scenario, id="marginal-contribution"):  # typ
         """Utility to measure."""
         return self._utility
 
-    @attribute(domain=[None])
-    def model(self) -> ModelSpec:
+    @attribute
+    def model(self) -> Model:
         """Model used to make predictions."""
         return self._model
 
     @attribute(domain=range(10))
-    def iteration(self) -> int:
-        """The ordinal number of the experiment repetition. Also serves as the random seed."""
-        return self._iteration
-
-    @attribute
-    def trainsize(self) -> int:
-        """The size of the training dataset to use. The value 0 means maximal value."""
-        return self._trainsize
-
-    @attribute
-    def testsize(self) -> int:
-        """The size of the test dataset to use. The value 0 means maximal value."""
-        return self._testsize
+    def seed(self) -> int:
+        """The random seed that applies to all pseudo-random processes in the scenario."""
+        return self._seed
 
     @result
     def evolution(self) -> DataFrame:
@@ -100,53 +87,45 @@ class MarginalContributionScenario(Scenario, id="marginal-contribution"):  # typ
 
     @property
     def completed(self) -> bool:
-        return len(self._evolution.index) > 0 and self._evolution.index[-1] == self._trainsize - 1
+        return len(self._evolution.index) > 0 and self._evolution.index[-1] == self.dataset.trainsize - 1
 
     @property
     def dataframe(self) -> DataFrame:
-        result = self._evolution.assign(
-            dataset=self.dataset,
-            pipeline=self.pipeline,
-            model=str(self.model),
-            utility=str(self.utility),
-            iteration=self.iteration,
-        )
+        attributes = self._flatten_attributes(self.attributes)
+        result = self._evolution.assign(**attributes)
         return result
 
-    @property
-    def keyword_replacements(self) -> Dict[str, str]:
-        return {**KEYWORD_REPLACEMENTS, **Pipeline.summaries, **Dataset.summaries}
+    @lru_cache(maxsize=1)
+    @classmethod
+    def get_keyword_replacements(cls: Type["Scenario"]) -> Dict[str, str]:
+        return {
+            **KEYWORD_REPLACEMENTS,
+            **Dataset.get_keyword_replacements(),
+            **Pipeline.get_keyword_replacements(),
+            **Model.get_keyword_replacements(),
+        }
 
     @classmethod
     def is_valid_config(cls, **attributes: Any) -> bool:
         result = True
-        if "pipeline" in attributes and "dataset" in attributes:
-            dataset = Dataset.datasets[attributes["dataset"]]
-            pipeline = Pipeline.pipelines[attributes["pipeline"]](steps=[("hack", FunctionTransformer())])
-            result = result and any(issubclass(dataset, modality) for modality in pipeline.modalities)
-        if "utility" in attributes:
-            result = result and attributes["utility"] in [UtilityType.ACCURACY, UtilityType.ROC_AUC, UtilityType.EQODDS]
+        dataset: Optional[Dataset] = attributes.get("dataset", None)
+        pipeline: Optional[Pipeline] = attributes.get("pipeline", None)
+        utility: UtilityType = attributes.get("utility", None)
+
+        if pipeline is not None and dataset is not None:
+            result = result and any(isinstance(dataset, modality) for modality in pipeline.modalities)
+        if utility is not None:
+            result = result and utility in [UtilityType.ACCURACY, UtilityType.ROC_AUC, UtilityType.EQODDS]
         return result and super().is_valid_config(**attributes)
 
     def _run(self, progress_bar: bool = True, **kwargs: Any) -> None:
         # Load dataset.
-        seed = self._seed + self._iteration
-        random = np.random.RandomState(seed=seed)
-        dataset = Dataset.datasets[self.dataset](
-            trainsize=self.trainsize, valsize=self.testsize, testsize=self.testsize, seed=seed
-        )
-        dataset.load()
-        self.logger.debug(
-            "Dataset loaded (dataset=%s, trainsize=%d, testsize=%d).",
-            self.dataset,
-            dataset.trainsize,
-            dataset.testsize,
-        )
+        random = np.random.RandomState(seed=self.seed)
+        dataset = self.dataset.load()
+        self.logger.debug("Loaded dataset %s.", dataset)
 
         # Construct the utilities.
-        model_type = MODEL_TYPES[self.model]
-        model_kwargs = MODEL_KWARGS[self.model]
-        model = get_model(model_type, **model_kwargs)
+        model = self.model.construct(dataset)
         utility: Utility
         if self._utility == UtilityType.ACCURACY:
             utility = SklearnModelAccuracy(model)
@@ -157,7 +136,7 @@ class MarginalContributionScenario(Scenario, id="marginal-contribution"):  # typ
 
         # Run the pipeline on the dataset.
         pipeline_runtime_start = process_time_ns()
-        pipeline = Pipeline.pipelines[self.pipeline].construct(dataset)
+        pipeline = self.pipeline.construct(dataset)
         dataset_processed = dataset.apply(pipeline)
         pipeline_runtime_end = process_time_ns()
         self._pipeline_runtime = (pipeline_runtime_end - pipeline_runtime_start) / 1e9
@@ -176,8 +155,8 @@ class MarginalContributionScenario(Scenario, id="marginal-contribution"):  # typ
 
         # Determine the upper and lower bounds of cardinalities.
         cardinalities_lower, cardinalities_upper = len(labels), dataset.trainsize - 1
-        if model_type == ModelType.KNeighbors:
-            cardinalities_lower = max(cardinalities_lower, model_kwargs.get("n_neighbors", 0))
+        if isinstance(self.model, KNearestNeighborsModel):
+            cardinalities_lower = max(cardinalities_lower, self.model.n_neighbors)
         if progress_bar:
             self.progress.start(total=100, desc="(id=%s) Progress" % self.id)
         evolution = []

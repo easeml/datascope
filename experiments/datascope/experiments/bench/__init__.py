@@ -1,4 +1,5 @@
 from .base import (
+    Configurable,
     Scenario,
     Study,
     Report,
@@ -20,6 +21,7 @@ from .base import (
 from .main import main
 
 __all__ = [
+    "Configurable",
     "Scenario",
     "Study",
     "Report",

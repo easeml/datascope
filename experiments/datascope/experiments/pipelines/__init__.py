@@ -1,4 +1,4 @@
-from .base import (
+from .pipelines import (
     Pipeline,
     IdentityPipeline,
     StandardScalerPipeline,
@@ -22,7 +22,27 @@ from .base import (
     FlattenPipeline,
 )
 
-from .models import get_model, ModelType, DistanceModelMixin, KEYWORD_REPLACEMENTS as MODEL_KEYWORD_REPLACEMENTS
+from .models import (
+    Model,
+    LogisticRegressionModel,
+    RandomForestModel,
+    KNearestNeighborsModel,
+    KNearestNeighborsModelK1,
+    KNearestNeighborsModelK3,
+    KNearestNeighborsModelK5,
+    KNearestNeighborsModelK10,
+    KNearestNeighborsModelK50,
+    KNearestNeighborsModelK100,
+    SupportVectorMachineModel,
+    LinearSupportVectorMachineModel,
+    GaussianProcessModel,
+    NaiveBayesModel,
+    MultilevelPerceptronModel,
+    XGBoostModel,
+    Resnet18Model,
+    MatchingNetworkModel,
+    DistanceModelMixin,
+)
 
 from .postprocessors import Postprocessor
 
@@ -48,9 +68,24 @@ __all__ = [
     "MiniLMEmbeddingPipeline",
     "AlbertSmallEmbeddingPipeline",
     "FlattenPipeline",
-    "get_model",
-    "ModelType",
+    "Model",
+    "LogisticRegressionModel",
+    "RandomForestModel",
+    "KNearestNeighborsModel",
+    "KNearestNeighborsModelK1",
+    "KNearestNeighborsModelK3",
+    "KNearestNeighborsModelK5",
+    "KNearestNeighborsModelK10",
+    "KNearestNeighborsModelK50",
+    "KNearestNeighborsModelK100",
+    "SupportVectorMachineModel",
+    "LinearSupportVectorMachineModel",
+    "GaussianProcessModel",
+    "NaiveBayesModel",
+    "MultilevelPerceptronModel",
+    "XGBoostModel",
+    "Resnet18Model",
+    "MatchingNetworkModel",
     "DistanceModelMixin",
-    "MODEL_KEYWORD_REPLACEMENTS",
     "Postprocessor",
 ]

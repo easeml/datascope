@@ -770,21 +770,6 @@ NONE_SYMBOL = "-"
 DEFAULT_PLOTSIZE = [10, 8]
 
 
-# def ensurelist(
-#     x: Optional[Union[List[T], T]],
-#     default: Optional[T] = None,
-#     length: Optional[int] = None,
-# ) -> List[T]:
-#     result = [default] if x is None else x if isinstance(x, list) else [x]
-#     if length is not None and len(result) != length:
-#         if len(result) > 1:
-#             raise ValueError("Expected length to be %d but encountered %d." % (length, len(result)))
-#         else:
-#             result = [result[0] for _ in range(length)]
-#     return result
-#     # return [x if x != NONE_SYMBOL else None for x in result]
-
-
 def ensurelist(
     x: Optional[Union[List[T], T]],
     default: Optional[T] = None,
@@ -826,10 +811,11 @@ def unpackdict(target: Dict[str, Union[Dict, Any]], prefix: str = "") -> Dict[st
 class AggregatePlot(Report, id="aggplot"):
     def __init__(
         self,
-        study: Study,
         dataframe: DataFrame,
         partvals: Optional[Dict[str, Any]] = None,
         id: Optional[str] = None,
+        study: Optional[Study] = None,
+        keyword_replacements: Optional[Dict[str, str]] = None,
         plot: Optional[Union[List[str], str]] = None,
         index: Optional[str] = None,
         targetval: Optional[Union[List[str], str]] = None,
@@ -860,7 +846,14 @@ class AggregatePlot(Report, id="aggplot"):
         titleformat: Optional[List[str]] = None,
         **kwargs: Any,
     ) -> None:
-        super().__init__(study=study, dataframe=dataframe, id=id, partvals=partvals, **kwargs)
+        super().__init__(
+            dataframe=dataframe,
+            id=id,
+            study=study,
+            partvals=partvals,
+            keyword_replacements=keyword_replacements,
+            **kwargs,
+        )
         self._plot = ensurelist(plot, default=None)
         n_plots = len(self._plot)
         self._index = index
@@ -1058,11 +1051,10 @@ class AggregatePlot(Report, id="aggplot"):
         if self.resultfilter is not None:
             dataframe = dataframe.query(self.resultfilter)
 
-        keyword_replacements: Dict[str, str] = {}
+        keyword_replacements: Dict[str, str] = {**self.keyword_replacements}
         summarydict: Dict[str, str] = {}
         if self.study is not None:
-            for scenario in self.study.scenarios:
-                keyword_replacements.update(scenario.keyword_replacements)
+            keyword_replacements.update(self.study.get_keyword_replacements())
 
         if self.index is not None and len(self.targetval) > 0:
             if self._view is None:

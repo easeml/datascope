@@ -14,24 +14,24 @@ from datascope.importance.common import (
 from datascope.importance.importance import Importance
 from datascope.importance.shapley import ShapleyImportance
 from datetime import timedelta
+from methodtools import lru_cache
 from numpy.typing import NDArray
 from time import process_time_ns
-from typing import Any, Optional, Dict
+from typing import Any, Optional, Dict, Type
 
 from .datascope_scenario import (
     DatascopeScenario,
     RepairMethod,
-    ModelSpec,
-    MODEL_TYPES,
-    MODEL_KWARGS,
     IMPORTANCE_METHODS,
     MC_ITERATIONS,
     DEFAULT_SEED,
     DEFAULT_CHECKPOINTS,
+    DEFAULT_PROVIDERS,
     DEFAULT_MODEL,
     DEFAULT_REPAIR_GOAL,
     DEFAULT_TRAIN_BIAS,
     DEFAULT_VAL_BIAS,
+    DEFAULT_AUGMENT_FACTOR,
     DEFAULT_MC_TIMEOUT,
     DEFAULT_MC_TOLERANCE,
     DEFAULT_NN_K,
@@ -41,18 +41,16 @@ from .datascope_scenario import (
 from ..bench import attribute
 from ..datasets import (
     Dataset,
+    RandomDataset,
     BiasMethod,
     BiasedMixin,
     AugmentableMixin,
     TabularDatasetMixin,
     ImageDatasetMixin,
-    DEFAULT_TRAINSIZE,
-    DEFAULT_VALSIZE,
-    DEFAULT_TESTSIZE,
     DEFAULT_BIAS_METHOD,
     DEFAULT_CACHE_DIR,
 )
-from ..pipelines import Pipeline, FlattenPipeline, get_model, DistanceModelMixin, Postprocessor
+from ..pipelines import Pipeline, FlattenPipeline, Model, DistanceModelMixin, Postprocessor, LogisticRegressionModel
 
 
 DEFAULT_MAX_REMOVE = 0.5
@@ -61,6 +59,8 @@ KEYWORD_REPLACEMENTS = {
     "eqodds_rel": "Relative Equalized Odds Difference",
     "accuracy": "Accuracy",
     "accuracy_rel": "Relative Accuracy",
+    "roc_auc": "ROC AUC",
+    "roc_auc_rel": "Relative ROC AUC",
     "discarded": "Number of Data Examples Removed",
     "discarded_rel": "Portion of Data Examples Removed",
     "dataset_bias": "Dataset Bias",
@@ -71,29 +71,29 @@ KEYWORD_REPLACEMENTS = {
 class DataDiscardScenario(DatascopeScenario, id="data-discard"):
     def __init__(
         self,
-        dataset: str,
-        pipeline: str,
+        dataset: Dataset,
+        pipeline: Pipeline,
         method: RepairMethod,
         utility: UtilityType,
-        iteration: int,
-        model: ModelSpec = DEFAULT_MODEL,
-        postprocessor: Optional[str] = None,
+        model: Model = DEFAULT_MODEL,
+        postprocessor: Optional[Postprocessor] = None,
         trainbias: float = DEFAULT_TRAIN_BIAS,
         valbias: float = DEFAULT_VAL_BIAS,
         biasmethod: BiasMethod = DEFAULT_BIAS_METHOD,
-        maxremove: float = DEFAULT_MAX_REMOVE,
-        repairgoal: RepairGoal = DEFAULT_REPAIR_GOAL,
         seed: int = DEFAULT_SEED,
-        trainsize: int = DEFAULT_TRAINSIZE,
-        valsize: int = DEFAULT_VALSIZE,
-        testsize: int = DEFAULT_TESTSIZE,
+        augment_factor: int = DEFAULT_AUGMENT_FACTOR,
+        eager_preprocessing: bool = False,
+        pipeline_cache_dir: str = DEFAULT_CACHE_DIR,
         mc_timeout: int = DEFAULT_MC_TIMEOUT,
         mc_tolerance: float = DEFAULT_MC_TOLERANCE,
         nn_k: int = DEFAULT_NN_K,
         checkpoints: int = DEFAULT_CHECKPOINTS,
-        pipeline_cache_dir: str = DEFAULT_CACHE_DIR,
+        providers: int = DEFAULT_PROVIDERS,
+        repairgoal: RepairGoal = DEFAULT_REPAIR_GOAL,
         evolution: Optional[pd.DataFrame] = None,
         importance_cputime: Optional[float] = None,
+        iteration: Optional[int] = None,  # Iteration became seed. Keeping this for back compatibility reasons.
+        maxremove: float = DEFAULT_MAX_REMOVE,
         **kwargs: Any
     ) -> None:
         super().__init__(
@@ -101,24 +101,23 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
             pipeline=pipeline,
             method=method,
             utility=utility,
-            iteration=iteration,
             model=model,
             postprocessor=postprocessor,
             trainbias=trainbias,
             valbias=valbias,
-            biasmethod=biasmethod,
             seed=seed,
-            trainsize=trainsize,
-            valsize=valsize,
-            testsize=testsize,
+            augment_factor=augment_factor,
+            eager_preprocessing=eager_preprocessing,
+            pipeline_cache_dir=pipeline_cache_dir,
             mc_timeout=mc_timeout,
             mc_tolerance=mc_tolerance,
             nn_k=nn_k,
             checkpoints=checkpoints,
+            providers=providers,
             repairgoal=repairgoal,
-            pipeline_cache_dir=pipeline_cache_dir,
             evolution=evolution,
             importance_cputime=importance_cputime,
+            iteration=iteration,
             **kwargs
         )
         self._maxremove = maxremove
@@ -128,51 +127,47 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
         """The maximum portion of data to remove."""
         return self._maxremove
 
-    @property
-    def keyword_replacements(self) -> Dict[str, str]:
-        result = super().keyword_replacements
+    @lru_cache(maxsize=1)
+    @classmethod
+    def get_keyword_replacements(cls: Type["DataDiscardScenario"]) -> Dict[str, str]:
+        result = super().get_keyword_replacements()
         return {**result, **KEYWORD_REPLACEMENTS}
 
     @classmethod
     def is_valid_config(cls, **attributes: Any) -> bool:
         result = True
-        if "repairgoal" not in attributes or attributes["repairgoal"] == RepairGoal.FAIRNESS:
-            if "dataset" in attributes:
-                dataset = Dataset.datasets[attributes["dataset"]]()
+        dataset: Optional[Dataset] = attributes.get("dataset", None)
+        repairgoal: RepairGoal = attributes.get("repairgoal", None)
+        utility: UtilityType = attributes.get("utility", None)
+        method: RepairMethod = attributes.get("method", None)
+        model: Model = attributes.get("model", None)
+        if repairgoal is not None or repairgoal == RepairGoal.FAIRNESS:
+            if dataset is not None:
                 result = result and isinstance(dataset, BiasedMixin)
-        elif "repairgoal" in attributes and attributes["repairgoal"] == RepairGoal.ACCURACY:
-            if "dataset" in attributes:
-                result = result and (attributes["dataset"] != "random")
-            if "utility" in attributes:
-                result = result and attributes["utility"] in [UtilityType.ACCURACY, UtilityType.ROC_AUC]
-        if "method" in attributes and attributes["method"] == RepairMethod.KNN_Raw:
-            dataset_class = Dataset.datasets[attributes["dataset"]]
+        elif repairgoal is not None and repairgoal == RepairGoal.ACCURACY:
+            if dataset is not None:
+                result = result and not isinstance(dataset, RandomDataset)
+            if utility is not None:
+                result = result and utility in [UtilityType.ACCURACY, UtilityType.ROC_AUC]
+        if method is not None and method == RepairMethod.KNN_Raw:
             result = result and any(
-                issubclass(dataset_class, modality) for modality in [TabularDatasetMixin, ImageDatasetMixin]
+                isinstance(dataset, modality) for modality in [TabularDatasetMixin, ImageDatasetMixin]
             )
-        elif "method" in attributes and attributes["method"] == RepairMethod.INFLUENCE:
-            result = result and attributes.get("model", DEFAULT_MODEL) == ModelSpec.LogisticRegression
+        elif method is not None and method == RepairMethod.INFLUENCE:
+            result = result and isinstance(model, LogisticRegressionModel)
 
         return result and super().is_valid_config(**attributes)
 
     def _run(self, progress_bar: bool = True, **kwargs: Any) -> None:
         # Load dataset.
-        seed = self._seed + self._iteration
-        dataset = Dataset.datasets[self.dataset](
-            trainsize=self.trainsize, valsize=self.valsize, testsize=self.testsize, seed=seed
-        )
         if self._trainbias != 0.0 or self._valbias != 0.0:
-            assert isinstance(dataset, BiasedMixin)
-            dataset.load_biased(train_bias=self._trainbias, val_bias=self._valbias, bias_method=self._biasmethod)
+            assert isinstance(self.dataset, BiasedMixin)
+            dataset = self.dataset.load_biased(
+                train_bias=self._trainbias, val_bias=self._valbias, bias_method=self._biasmethod
+            )
         else:
-            dataset.load()
-        self.logger.debug(
-            "Dataset '%s' loaded (trainsize=%d, valsize=%d, testsize=%d).",
-            self.dataset,
-            dataset.trainsize,
-            dataset.valsize,
-            dataset.testsize,
-        )
+            dataset = self.dataset.load()
+        self.logger.debug("Loaded dataset %s.", dataset)
 
         if self.augment_factor > 0:
             assert isinstance(dataset, AugmentableMixin)
@@ -182,44 +177,18 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
         groupings_val: Optional[NDArray] = None
         groupings_test: Optional[NDArray] = None
         if isinstance(dataset, BiasedMixin):
+            assert isinstance(dataset, Dataset)
             groupings_val = compute_groupings(dataset.X_val, dataset.sensitive_feature)
             groupings_test = compute_groupings(dataset.X_test, dataset.sensitive_feature)
 
-        # Load the pipeline and process the data.
-        pipeline = Pipeline.pipelines[self.pipeline].construct(dataset)
-        # X_train, y_train = dataset.X_train, dataset.y_train
-        # X_val, y_val = dataset.X_val, dataset.y_val
-        # X_train_orig, y_train_orig = dataset.X_train, dataset.y_train
-        # if RepairMethod.is_tmc_nonpipe(self.method):
-        #     raise ValueError("This is not supported at the moment.")
-        # self.logger.debug("Shape of X_train before feature extraction: %s", str(dataset.X_train.shape))
-        # dataset = dataset.apply(pipeline)  # TODO: Fit the pipeline with dirty data.
-        # assert isinstance(dataset, BiasedMixin)
-        # self.logger.debug("Shape of X_train after feature extraction: %s", str(dataset.X_train.shape))
-
-        # Reshape datasets if needed.
-        # if dataset.X_train.ndim > 2:
-        #     dataset.X_train[:] = dataset.X_train.reshape(dataset.X_train.shape[0], -1)
-        #     dataset.X_val[:] = dataset.X_val.reshape(dataset.X_val.shape[0], -1)
-        #     self.logger.debug("Need to reshape. New shape: %s", str(dataset.X_train.shape))
-
-        # # Construct binarized provenance matrix.
-        # provenance = np.expand_dims(np.arange(dataset.trainsize, dtype=int), axis=(1, 2, 3))
-        # provenance = np.pad(provenance, pad_width=((0, 0), (0, 0), (0, 0), (0, 1)))
-        # provenance = binarize(provenance)
-
+        # Load the pipeline and process the data if eager preprocessing was specified.
+        pipeline = self.pipeline.construct(dataset)
         if self.eager_preprocessing:
             dataset.apply(pipeline, cache_dir=self.pipeline_cache_dir, inplace=True)
 
-        # Initialize the model and utility.
-        model_type = MODEL_TYPES[self.model]
-        model_kwargs = MODEL_KWARGS[self.model]
-        model = get_model(model_type, **model_kwargs)
-        # model_pipeline = deepcopy(pipeline)
-        # pipeline.steps.append(("model", model))
-        # if RepairMethod.is_pipe(self.method):
-        #     model = model_pipeline
-        postprocessor = None if self.postprocessor is None else Postprocessor.postprocessors[self.postprocessor]()
+        # Initialize the model, postprocessor and utility.
+        model = self.model.construct(dataset)
+        postprocessor = None if self.postprocessor is None else self.postprocessor.construct(dataset)
         accuracy_utility = SklearnModelAccuracy(model, postprocessor=postprocessor)
         roc_auc_utility = SklearnModelRocAuc(model, postprocessor=postprocessor)
         eqodds_utility: Optional[SklearnModelEqualizedOddsDifference] = None
@@ -232,11 +201,9 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
                 postprocessor=postprocessor,
             )
 
-        # target_model = model if RepairMethod.is_tmc_nonpipe(self.method) else pipeline
         target_utility: Utility
         if self.utility == UtilityType.ACCURACY:
             target_utility = JointUtility(SklearnModelAccuracy(model, postprocessor=postprocessor), weights=[-1.0])
-            # target_utility = SklearnModelAccuracy(model)
         elif self.utility == UtilityType.EQODDS:
             assert self.repairgoal == RepairGoal.FAIRNESS and isinstance(dataset, BiasedMixin)
             target_utility = SklearnModelEqualizedOddsDifference(
@@ -263,7 +230,7 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
             raise ValueError("Unknown utility type '%s'." % repr(self.utility))
 
         # Compute importance scores and time it.
-        random = np.random.RandomState(seed=seed)
+        random = np.random.RandomState(seed=self.seed)
         importance_time_start = process_time_ns()
         importance: Optional[Importance] = None
         importances: Optional[NDArray] = None
@@ -308,7 +275,6 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
         n_units = dataset.provenance.num_units
         discarded_units = np.zeros(n_units, dtype=bool)
         argsorted_importances = (-np.array(importances)).argsort()
-        # argsorted_importances = np.ma.array(importances, mask=discarded_units).argsort()
 
         # Run the model to get initial score.
         dataset_f = dataset if self.eager_preprocessing else dataset.apply(pipeline, cache_dir=self.pipeline_cache_dir)
@@ -366,18 +332,16 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
         val_roc_auc_start = val_roc_auc_utility_result.score
 
         # Set up progress bar.
-        checkpoints = self.checkpoints if self.checkpoints > 0 and self.checkpoints < n_units else n_units
-        n_units_per_checkpoint_f = self._maxremove * n_units / checkpoints
+        n_checkpoints = self.numcheckpoints if self.numcheckpoints > 0 and self.numcheckpoints < n_units else n_units
+        n_units_per_checkpoint_f = self._maxremove * n_units / n_checkpoints
         n_units_covered_f = 0.0
         n_units_covered = 0
         if progress_bar:
-            self.progress.start(total=checkpoints, desc="(id=%s) Repairs" % self.id)
-        # pbar = None if not progress_bar else tqdm(total=dataset.trainsize, desc="%s Repairs" % str(self))
+            self.progress.start(total=n_checkpoints, desc="(id=%s) Repairs" % self.id)
 
         # Iterate over the repair process.
-        # discarded_units = np.zeros(dataset.trainsize, dtype=bool)
         dataset_current = deepcopy(dataset)
-        for i in range(checkpoints):
+        for i in range(n_checkpoints):
             # Update the count of units that were covered and that should be covered in this checkpoint.
             n_units_covered_f += n_units_per_checkpoint_f
             n_units_per_checkpoint = round(n_units_covered_f) - n_units_covered
@@ -390,27 +354,7 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
             discarded_units[target_units] = True
             present_units = np.invert(discarded_units).astype(int)
             present_idx = dataset.provenance.query(present_units)
-            dataset_current = dataset.select_train(present_idx)
-
-            # Display message about current target units that are going to be discarded.
-            # y_train_target = y_train_orig[target_units]
-            # X_train_target_sf = X_train_orig[target_units, dataset.sensitive_feature]
-            # self.logger.debug(
-            #     "Discarding %d units. Label 1 ratio: %.2f. Sensitive feature 1 ratio %.2f. Matching ratio: %.2f.",
-            #     len(target_units),
-            #     y_train_target.mean(),
-            #     X_train_target_sf.mean(),
-            #     np.mean(y_train_target == X_train_target_sf),
-            # )
-
-            # target_query = np.zeros(n_units, dtype=int)
-            # target_query[target_units] = 1
-            # target_unit = np.ma.array(importances, mask=discarded_units).argmin()
-            # target_query = np.eye(1, discarded_units.shape[0], target_unit, dtype=int).flatten()
-
-            # Repair the data example.
-            # y_train_dirty[target_idx] = y_train[target_idx]
-            # discarded_units[target_units] = True
+            dataset_current = dataset.select_train(present_idx)  # type: ignore
 
             # Run the model.
             dataset_current_f = dataset_current.apply(pipeline, cache_dir=self.pipeline_cache_dir)
@@ -465,11 +409,10 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
             )
 
             # Update result table.
-            steps_rel = (i + 1) / float(checkpoints)
+            steps_rel = (i + 1) / float(n_checkpoints)
             discarded = discarded_units.sum(dtype=int)
             discarded_rel = discarded / float(n_units)
             dataset_bias = dataset_current.train_bias if isinstance(dataset_current, BiasedMixin) else None
-            # mean_label = np.mean(dataset_current.y_train)
             evolution.append(
                 [
                     steps_rel,

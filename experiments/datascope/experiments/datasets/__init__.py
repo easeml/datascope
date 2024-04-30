@@ -1,6 +1,4 @@
 from .base import (
-    DatasetId,
-    DatasetModality,
     Dataset,
     TabularDatasetMixin,
     ImageDatasetMixin,
@@ -11,9 +9,9 @@ from .base import (
     BiasedNoisyLabelDataset,
     AugmentableMixin,
     RandomDataset,
-    UCI,
+    UCIAdult,
     FashionMNIST,
-    TwentyNewsGroups,
+    TwentyNewsgroups,
     Higgs,
     DataPerfVision,
     CifarN,
@@ -32,8 +30,6 @@ from .base import (
 )
 
 __all__ = [
-    "DatasetId",
-    "DatasetModality",
     "Dataset",
     "TabularDatasetMixin",
     "ImageDatasetMixin",
@@ -44,13 +40,12 @@ __all__ = [
     "BiasedNoisyLabelDataset",
     "AugmentableMixin",
     "RandomDataset",
-    "UCI",
+    "UCIAdult",
     "FashionMNIST",
-    "TwentyNewsGroups",
+    "TwentyNewsgroups",
     "Higgs",
     "DataPerfVision",
     "CifarN",
-    "load_dataset",
     "DEFAULT_TRAINSIZE",
     "DEFAULT_VALSIZE",
     "DEFAULT_TESTSIZE",

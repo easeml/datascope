@@ -12,7 +12,6 @@ from .base import (
     Scenario,
     Report,
     Backend,
-    add_dynamic_arguments,
     DEFAULT_RESULTS_PATH,
     DEFAULT_RESULTS_SCENARIOS_PATH,
     DEFAULT_STUDY_PATH,
@@ -176,12 +175,7 @@ def main():
     )
 
     # Build arguments from scenario attributes.
-    add_dynamic_arguments(
-        parser=parser_run,
-        targets=Scenario.scenarios.values(),
-        all_iterable=True,
-        single_instance=False,
-    )
+    Scenario.add_dynamic_arguments(parser=parser_run, all_iterable=True, single_instance=False)
 
     parser_run_scenario = subparsers.add_parser("run-scenario")
 
@@ -215,12 +209,8 @@ def main():
         help="The amount of memory allowed for a job.",
     )
 
-    add_dynamic_arguments(
-        parser=parser_run_scenario,
-        targets=Scenario.scenarios.values(),
-        all_iterable=True,
-        single_instance=True,
-    )
+    # Build arguments from scenario attributes.
+    Scenario.add_dynamic_arguments(parser=parser_run_scenario, all_iterable=True, single_instance=True)
 
     parser_report = subparsers.add_parser("report")
 
@@ -267,12 +257,7 @@ def main():
     )
 
     # Build arguments from report attributes.
-    add_dynamic_arguments(
-        parser=parser_report,
-        targets=Report.reports.values(),
-        all_iterable=False,
-        single_instance=False,
-    )
+    Report.add_dynamic_arguments(parser=parser_report, all_iterable=False, single_instance=False)
 
     subparsers.add_parser("preload-datasets")
 
@@ -283,7 +268,7 @@ def main():
         "--datasets",
         nargs="+",
         type=str,
-        choices=Dataset.datasets.keys(),
+        choices=Dataset.get_subclasses().keys(),
         help="The target dataset for which to construct the pipeline cache.",
     )
 
@@ -292,7 +277,7 @@ def main():
         "--pipelines",
         nargs="+",
         type=str,
-        choices=Pipeline.pipelines.keys(),
+        choices=Pipeline.get_subclasses().keys(),
         help="The pipeline to run over the target dataset.",
     )
 
