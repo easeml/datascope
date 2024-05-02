@@ -411,7 +411,9 @@ class ShapleyImportance(Importance):
             X_test = self.pipeline.transform(X_test)
 
         # Compute null score.
-        null_score = self.utility.null_score(X_train, y_train, X_test, y_test)
+        null_score = self.utility.null_score(
+            X_train, y_train, X_test, y_test, metadata_train=metadata_train, metadata_test=metadata_test
+        )
 
         # Ensure X_train
 
@@ -480,8 +482,22 @@ class ShapleyImportance(Importance):
             X_test_preprocessed = self.pipeline.transform(X_test)
 
         # Compute mean score.
-        null_score = self.utility.null_score(X_train_preprocessed, y_train, X_test_preprocessed, y_test)
-        mean_score = self.utility.mean_score(X_train_preprocessed, y_train, X_test_preprocessed, y_test)
+        null_score = self.utility.null_score(
+            X_train_preprocessed,
+            y_train,
+            X_test_preprocessed,
+            y_test,
+            metadata_train=metadata_train,
+            metadata_test=metadata_test,
+        )
+        mean_score = self.utility.mean_score(
+            X_train_preprocessed,
+            y_train,
+            X_test_preprocessed,
+            y_test,
+            metadata_train=metadata_train,
+            metadata_test=metadata_test,
+        )
 
         # If pre-extract was specified, run feature extraction once for the whole dataset.
         if self.mc_preextract:
@@ -619,7 +635,12 @@ class ShapleyImportance(Importance):
 
             # Compute the utilitiy values between training and test labels.
             utilities = self.utility.elementwise_score(
-                X_train=X_train, y_train=y_train, X_test=X_test_batch, y_test=y_test
+                X_train=X_train,
+                y_train=y_train,
+                X_test=X_test_batch,
+                y_test=y_test,
+                metadata_train=metadata_train,
+                metadata_test=metadata_test,
             )
 
             # Compute null scores.
