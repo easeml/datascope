@@ -42,7 +42,7 @@ def main(rootdir: str, dry_run: bool = False) -> None:
     for filetype in FILETYPES:
         filenames.extend(glob(os.path.join(rootdir, "**", filetype), recursive=True))
 
-    # Perform replacements of the text.
+    # # Perform replacements of the text.
     for filename in tqdm(filenames, desc="Replacing file content"):
         with open(filename, "r") as f:
             content = f.read()
@@ -51,7 +51,8 @@ def main(rootdir: str, dry_run: bool = False) -> None:
             # Replace using regex. Do not replace if surrounded by hyphens or alphanumeric characters.
             if dry_run:
                 for m in matcher.finditer(content):
-                    substring = content[m.start() - 5 : m.end() + 5]  # NOQA: E203
+                    a, b = max(m.start(), 0), min(m.end(), len(content))
+                    substring = content[a:b]
                     tqdm.write(
                         "File %s: Replacing '%s' with '%s'."
                         % (filename, substring.replace("\n", "\\n"), matcher.sub(new, substring).replace("\n", "\\n"))
@@ -65,6 +66,7 @@ def main(rootdir: str, dry_run: bool = False) -> None:
     # Go through all filenames and find the ones that contain keywords in their name.
     filepaths = [Path(x) for x in glob(os.path.join(rootdir, "**"), recursive=True)]
     filepaths = [x for x in filepaths if any(m.search(x.name) for m in MATCHERS.keys())]
+    filepaths = sorted(filepaths, key=lambda x: len(x.parts), reverse=True)
     for old_path in tqdm(filepaths, desc="Renaming files"):
         new_path = old_path
         for matcher, (old, new) in MATCHERS.items():
