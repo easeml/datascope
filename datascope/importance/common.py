@@ -54,6 +54,34 @@ MetricCallable = Callable[[NDArray, NDArray], float]
 DistanceCallable = Callable[[NDArray, NDArray], NDArray]
 
 
+class MetadataModelMixin(ABC):
+
+    @abstractmethod
+    def fit_with_metadata(
+        self,
+        X: Union[NDArray, DataFrame],
+        y: Union[NDArray, Series],
+        metadata: Optional[Union[NDArray, DataFrame]] = None,
+    ) -> "MetadataModelMixin":
+        pass
+
+    @abstractmethod
+    def predict_with_metadata(
+        self,
+        X: Union[NDArray, DataFrame],
+        metadata: Optional[Union[NDArray, DataFrame]] = None,
+    ) -> Union[NDArray, Series]:
+        pass
+
+    @abstractmethod
+    def predict_proba_with_metadata(
+        self,
+        X: Union[NDArray, DataFrame],
+        metadata: Optional[Union[NDArray, DataFrame]] = None,
+    ) -> Union[NDArray, Series]:
+        pass
+
+
 DEFAULT_SCORING_MAXITER = 100
 DEFAULT_SEED = 7
 
@@ -150,6 +178,8 @@ class Utility(ABC):
         y_train: Union[NDArray, Series],
         X_test: Union[NDArray, DataFrame],
         y_test: Union[NDArray, Series],
+        metadata_train: Optional[Union[NDArray, DataFrame]] = None,
+        metadata_test: Optional[Union[NDArray, DataFrame]] = None,
     ) -> float:
         pass
 
@@ -160,6 +190,8 @@ class Utility(ABC):
         y_train: Union[NDArray, Series],
         X_test: Union[NDArray, DataFrame],
         y_test: Union[NDArray, Series],
+        metadata_train: Optional[Union[NDArray, DataFrame]] = None,
+        metadata_test: Optional[Union[NDArray, DataFrame]] = None,
         maxiter: int = DEFAULT_SCORING_MAXITER,
         seed: int = DEFAULT_SEED,
     ) -> float:
@@ -171,6 +203,8 @@ class Utility(ABC):
         y_train: Union[NDArray, Series],
         X_test: Union[NDArray, DataFrame],
         y_test: Union[NDArray, Series],
+        metadata_train: Optional[Union[NDArray, DataFrame]] = None,
+        metadata_test: Optional[Union[NDArray, DataFrame]] = None,
     ) -> NDArray:
         raise NotImplementedError("This utility does not implement elementwise scoring.")
 
@@ -180,6 +214,8 @@ class Utility(ABC):
         y_train: Union[NDArray, Series],
         X_test: Union[NDArray, DataFrame],
         y_test: Union[NDArray, Series],
+        metadata_train: Optional[Union[NDArray, DataFrame]] = None,
+        metadata_test: Optional[Union[NDArray, DataFrame]] = None,
     ) -> NDArray:
         raise NotImplementedError("This utility does not implement elementwise scoring.")
 
@@ -230,7 +266,9 @@ class JointUtility(Utility):
             if null_score is not None:
                 result.score = null_score
             else:
-                result.score = self.null_score(X_train, y_train, X_test, y_test)
+                result.score = self.null_score(
+                    X_train, y_train, X_test, y_test, metadata_train=metadata_train, metadata_test=metadata_test
+                )
         else:
             result.score = sum(w * r.score for w, r in zip(self._weights, result.utility_results))
         return result
@@ -241,8 +279,14 @@ class JointUtility(Utility):
         y_train: Union[NDArray, Series],
         X_test: Union[NDArray, DataFrame],
         y_test: Union[NDArray, Series],
+        metadata_train: Optional[Union[NDArray, DataFrame]] = None,
+        metadata_test: Optional[Union[NDArray, DataFrame]] = None,
     ) -> float:
-        return sum(w * u.null_score(X_train, y_train, X_test, y_test) for w, u in zip(self._weights, self._utilities))
+        return sum(
+            w
+            * u.null_score(X_train, y_train, X_test, y_test, metadata_train=metadata_train, metadata_test=metadata_test)
+            for w, u in zip(self._weights, self._utilities)
+        )
 
     def mean_score(
         self,
@@ -250,11 +294,23 @@ class JointUtility(Utility):
         y_train: Union[NDArray, Series],
         X_test: Union[NDArray, DataFrame],
         y_test: Union[NDArray, Series],
+        metadata_train: Optional[Union[NDArray, DataFrame]] = None,
+        metadata_test: Optional[Union[NDArray, DataFrame]] = None,
         maxiter: int = DEFAULT_SCORING_MAXITER,
         seed: int = DEFAULT_SEED,
     ) -> float:
         return sum(
-            w * u.mean_score(X_train, y_train, X_test, y_test, maxiter=maxiter, seed=seed)
+            w
+            * u.mean_score(
+                X_train,
+                y_train,
+                X_test,
+                y_test,
+                metadata_train=metadata_train,
+                metadata_test=metadata_test,
+                maxiter=maxiter,
+                seed=seed,
+            )
             for w, u in zip(self._weights, self._utilities)
         )
 
@@ -264,9 +320,17 @@ class JointUtility(Utility):
         y_train: Union[NDArray, Series],
         X_test: Union[NDArray, DataFrame],
         y_test: Union[NDArray, Series],
+        metadata_train: Optional[Union[NDArray, DataFrame]] = None,
+        metadata_test: Optional[Union[NDArray, DataFrame]] = None,
     ) -> NDArray:
         scores = np.stack(
-            [w * u.elementwise_score(X_train, y_train, X_test, y_test) for w, u in zip(self._weights, self._utilities)]
+            [
+                w
+                * u.elementwise_score(
+                    X_train, y_train, X_test, y_test, metadata_train=metadata_train, metadata_test=metadata_test
+                )
+                for w, u in zip(self._weights, self._utilities)
+            ]
         )
         return np.sum(scores, axis=0)
 
@@ -276,10 +340,15 @@ class JointUtility(Utility):
         y_train: Union[NDArray, Series],
         X_test: Union[NDArray, DataFrame],
         y_test: Union[NDArray, Series],
+        metadata_train: Optional[Union[NDArray, DataFrame]] = None,
+        metadata_test: Optional[Union[NDArray, DataFrame]] = None,
     ) -> NDArray:
         scores = np.stack(
             [
-                w * u.elementwise_null_score(X_train, y_train, X_test, y_test)
+                w
+                * u.elementwise_null_score(
+                    X_train, y_train, X_test, y_test, metadata_train=metadata_train, metadata_test=metadata_test
+                )
                 for w, u in zip(self._weights, self._utilities)
             ]
         )
@@ -349,18 +418,22 @@ class SklearnModelUtility(Utility):
             try:
                 # TODO: Ensure fit clears the model.
                 np.random.seed(seed)
-                result.model = self._model_fit(self.model, X_train, y_train)
-                result.postprocessor = self._postprocessor_fit(self.postprocessor, X_train, y_train, metadata_train)
+                result.model = self._model_fit(self.model, X_train, y_train, metadata=metadata_train)
+                result.postprocessor = self._postprocessor_fit(
+                    self.postprocessor, X_train, y_train, metadata=metadata_train
+                )
                 metrics_require_probabilities = self.metric_requires_probabilities or any(
                     x for x in self.auxiliary_metric_requires_probabilities.values()
                 )
                 classes = np.unique(y_train)
 
                 if metrics_require_probabilities or result.postprocessor.require_probabilities:
-                    result.y_test_pred_proba = self._model_predict_proba(result.model, X_test, classes=classes)
+                    result.y_test_pred_proba = self._model_predict_proba(
+                        result.model, X_test, classes=classes, metadata=metadata_test
+                    )
                     result.y_test_pred = np.argmax(result.y_test_pred_proba, axis=1)
                 else:
-                    result.y_test_pred = self._model_predict(result.model, X_test)
+                    result.y_test_pred = self._model_predict(result.model, X_test, metadata=metadata_test)
 
                 result.y_test_processed = self._postprocessor_transform(
                     postprocessor=result.postprocessor,
@@ -421,10 +494,12 @@ class SklearnModelUtility(Utility):
                 # Repeat the same for the training set, if needed.
                 if self.compute_train_score:
                     if metrics_require_probabilities or result.postprocessor.require_probabilities:
-                        result.y_train_pred_proba = self._model_predict_proba(result.model, X_train, classes=classes)
+                        result.y_train_pred_proba = self._model_predict_proba(
+                            result.model, X_train, classes=classes, metadata=metadata_train
+                        )
                         result.y_train_pred = np.argmax(result.y_train_pred_proba, axis=1)
                     else:
-                        result.y_train_pred = self._model_predict(result.model, X_train)
+                        result.y_train_pred = self._model_predict(result.model, X_train, metadata=metadata_train)
                     assert result.y_train_pred is not None
 
                     result.y_train_processed = self._postprocessor_transform(
@@ -491,26 +566,51 @@ class SklearnModelUtility(Utility):
                     result.score = null_score
                 else:
                     try:
-                        result.score = self.null_score(X_train, y_train, X_test, y_test)
+                        result.score = self.null_score(
+                            X_train, y_train, X_test, y_test, metadata_train=metadata_train, metadata_test=metadata_test
+                        )
                     except (ValueError, RuntimeWarning):
                         return result
         return result
 
     def _model_fit(
-        self, model: SklearnModelOrPipeline, X_train: Union[NDArray, DataFrame], y_train: Union[NDArray, Series]
+        self,
+        model: SklearnModelOrPipeline,
+        X_train: Union[NDArray, DataFrame],
+        y_train: Union[NDArray, Series],
+        metadata: Optional[Union[NDArray, DataFrame]] = None,
     ) -> SklearnModelOrPipeline:
         model = clone(model)
         if not self.model_pretrained:
-            model.fit(X_train, y_train)
+            if isinstance(model, MetadataModelMixin):
+                model.fit_with_metadata(X_train, y_train, metadata=metadata)
+            else:
+                model.fit(X_train, y_train)
         return model
 
-    def _model_predict(self, model: SklearnModelOrPipeline, X_test: Union[NDArray, DataFrame]) -> NDArray:
-        return model.predict(X_test)
+    def _model_predict(
+        self,
+        model: SklearnModelOrPipeline,
+        X_test: Union[NDArray, DataFrame],
+        metadata: Optional[Union[NDArray, DataFrame]] = None,
+    ) -> NDArray:
+        if isinstance(model, MetadataModelMixin):
+            result = model.predict_with_metadata(X_test, metadata=metadata)
+            return result if isinstance(result, np.ndarray) else result.to_numpy()
+        else:
+            return model.predict(X_test)
 
     def _model_predict_proba(
-        self, model: SklearnModelOrPipeline, X_test: Union[NDArray, DataFrame], classes: List[Hashable]
+        self,
+        model: SklearnModelOrPipeline,
+        X_test: Union[NDArray, DataFrame],
+        classes: List[Hashable],
+        metadata: Optional[Union[NDArray, DataFrame]] = None,
     ) -> NDArray:
-        if hasattr(model, "predict_proba"):
+        if isinstance(model, MetadataModelMixin):
+            result = model.predict_proba_with_metadata(X_test, metadata=metadata)
+            return result if isinstance(result, np.ndarray) else result.to_numpy()
+        elif hasattr(model, "predict_proba"):
             return model.predict_proba(X_test)
         else:
             result = model.predict(X_test)
@@ -649,6 +749,8 @@ class SklearnModelUtility(Utility):
         y_train: Union[NDArray, Series],
         X_test: Union[NDArray, DataFrame],
         y_test: Union[NDArray, Series],
+        metadata_train: Optional[Union[NDArray, DataFrame]] = None,
+        metadata_test: Optional[Union[NDArray, DataFrame]] = None,
     ) -> float:
         scores = []
         if not isinstance(y_test, ndarray):
@@ -675,13 +777,15 @@ class SklearnModelUtility(Utility):
         y_train: Union[NDArray, Series],
         X_test: Union[NDArray, DataFrame],
         y_test: Union[NDArray, Series],
+        metadata_train: Optional[Union[NDArray, DataFrame]] = None,
+        metadata_test: Optional[Union[NDArray, DataFrame]] = None,
         maxiter: int = DEFAULT_SCORING_MAXITER,
         seed: int = DEFAULT_SEED,
     ) -> float:
         np.random.seed(seed)
         classes = np.unique(y_train)
-        model = self._model_fit(self.model, X_train, y_train)
-        y_pred = self._model_predict(model, X_test)
+        model = self._model_fit(self.model, X_train, y_train, metadata=metadata_train)
+        y_pred = self._model_predict(model, X_test, metadata=metadata_test)
         if not isinstance(y_test, ndarray):
             y_test = y_test.to_numpy()
         scores = []
@@ -715,6 +819,8 @@ class SklearnModelAccuracy(SklearnModelUtility):
         y_train: Union[NDArray, Series],
         X_test: Union[NDArray, DataFrame],
         y_test: Union[NDArray, Series],
+        metadata_train: Optional[Union[NDArray, DataFrame]] = None,
+        metadata_test: Optional[Union[NDArray, DataFrame]] = None,
     ) -> NDArray:
         classes = np.unique(y_train)
         return np.equal.outer(classes, y_test).astype(float)
@@ -725,6 +831,8 @@ class SklearnModelAccuracy(SklearnModelUtility):
         y_train: Union[NDArray, Series],
         X_test: Union[NDArray, DataFrame],
         y_test: Union[NDArray, Series],
+        metadata_train: Optional[Union[NDArray, DataFrame]] = None,
+        metadata_test: Optional[Union[NDArray, DataFrame]] = None,
     ) -> NDArray:
         min_score = np.inf
         if not isinstance(y_test, ndarray):
@@ -777,6 +885,8 @@ class SklearnModelRocAuc(SklearnModelUtility):
         y_train: Union[NDArray, Series],
         X_test: Union[NDArray, DataFrame],
         y_test: Union[NDArray, Series],
+        metadata_train: Optional[Union[NDArray, DataFrame]] = None,
+        metadata_test: Optional[Union[NDArray, DataFrame]] = None,
     ) -> NDArray:
         classes = np.unique(y_train)
         result = np.zeros((len(classes), len(y_test)))
@@ -796,6 +906,8 @@ class SklearnModelRocAuc(SklearnModelUtility):
         y_train: Union[NDArray, Series],
         X_test: Union[NDArray, DataFrame],
         y_test: Union[NDArray, Series],
+        metadata_train: Optional[Union[NDArray, DataFrame]] = None,
+        metadata_test: Optional[Union[NDArray, DataFrame]] = None,
     ) -> NDArray:
         if not isinstance(y_test, ndarray):
             y_test = y_test.to_numpy()
@@ -913,6 +1025,8 @@ class SklearnModelEqualizedOddsDifference(SklearnModelUtility):
         y_train: Union[NDArray, Series],
         X_test: Union[NDArray, DataFrame],
         y_test: Union[NDArray, Series],
+        metadata_train: Optional[Union[NDArray, DataFrame]] = None,
+        metadata_test: Optional[Union[NDArray, DataFrame]] = None,
     ) -> NDArray:
         if list(sorted(np.unique(y_test))) != [0, 1]:
             raise ValueError("This utility works only on binary classification problems.")
@@ -928,8 +1042,8 @@ class SklearnModelEqualizedOddsDifference(SklearnModelUtility):
             groupings = (
                 self._groupings if self._groupings is not None else compute_groupings(X_test, self._sensitive_features)
             )
-            model = self._model_fit(self.model, X_train, y_train)
-            y_pred = self._model_predict(model, X_test)
+            model = self._model_fit(self.model, X_train, y_train, metadata=metadata_train)
+            y_pred = self._model_predict(model, X_test, metadata=metadata_test)
             tpr, fpr = compute_tpr_and_fpr(y_test, y_pred, groupings=groupings)
 
             utilities_eq = np.equal.outer(classes, y_test).astype(float)
@@ -963,6 +1077,8 @@ class SklearnModelEqualizedOddsDifference(SklearnModelUtility):
         y_train: Union[NDArray, Series],
         X_test: Union[NDArray, DataFrame],
         y_test: Union[NDArray, Series],
+        metadata_train: Optional[Union[NDArray, DataFrame]] = None,
+        metadata_test: Optional[Union[NDArray, DataFrame]] = None,
     ) -> NDArray:
         return np.zeros_like(y_test, dtype=float)
 
