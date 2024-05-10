@@ -257,8 +257,7 @@ def cross_aggregate(
 def replace_keywords(source: str, keyword_replacements: Dict[str, str]) -> str:
     for k, v in sorted(keyword_replacements.items(), key=lambda x: len(x[0]), reverse=True):
         source = re.sub("(?<![a-zA-Z])%s(?![a-z-Z])" % k, v, source)
-        # source = source.replace(k, v)
-    return source
+    return source.replace("_", " ").title()
 
 
 def get_colors(keys: List[Tuple[str, ...]], colors: Optional[Dict[Tuple[str, ...], str]]) -> List[str]:
@@ -418,6 +417,7 @@ def lineplot(
     split_colors = dict((tuple(k.split(",")), v) for (k, v) in colors.items()) if colors is not None else None
     comp_colors = get_colors(comparison, colors=split_colors)
     texts = []
+    ymin, ymax = np.inf, -np.inf
     for i, comp in enumerate(comparison):
         if ",".join(str(c) for c in comp) in dontcompare:
             continue
@@ -426,6 +426,7 @@ def lineplot(
         lowercol = next(c for c in cols if c.endswith("-l"))
         upper = dataframe[comp][targetval][uppercol].to_numpy()
         lower = dataframe[comp][targetval][lowercol].to_numpy()
+        ymax, ymin = max(ymax, np.max(upper)), min(ymin, np.min(lower))
         if errdisplay == ErrorDisplay.SHADE:
             axes.fill_between(dataframe.index.values, upper, lower, color=comp_colors[i], alpha=0.2)
         elif errdisplay == ErrorDisplay.BAR:
@@ -490,6 +491,12 @@ def lineplot(
         fix_text_positioning(texts, axes)
 
     axes.autoscale_view(tight=True)
+
+    # Readjust the y-axis limits to include the error bars.
+    ymin = min(ymin - 0.1 * (ymax - ymin), axes.get_ylim()[0])
+    ymax = max(ymax + 0.1 * (ymax - ymin), axes.get_ylim()[1])
+    axes.set_ylim(ymin, ymax)
+
     figure.canvas.draw()
 
     return figure
@@ -576,6 +583,7 @@ def barplot(
     split_colors = dict((tuple(k.split(",")), v) for (k, v) in colors.items()) if colors is not None else None
     comp_colors = get_colors(comparison, colors=split_colors)
     texts = []
+    ymin, ymax = np.inf, -np.inf
 
     for i, (comp, values) in enumerate(summary_items):
         if ",".join(str(c) for c in comp) in dontcompare:
@@ -591,6 +599,7 @@ def barplot(
         uppercol = next(c for c in values.keys() if c.startswith(targetval) and c.endswith("-h"))
         lowercol = next(c for c in values.keys() if c.startswith(targetval) and c.endswith("-l"))
         yerr = np.abs(np.array([[values[col] - values[lowercol]], [values[col] - values[uppercol]]]))
+        ymax, ymin = max(ymax, np.max(yerr)), min(ymin, np.min(yerr))
         axes.errorbar(
             [i],
             [yval],
@@ -634,6 +643,11 @@ def barplot(
 
     axes.autoscale_view(tight=True)
     figure.canvas.draw()
+
+    # Readjust the y-axis limits to include the error bars.
+    ymin = min(ymin - 0.1 * (ymax - ymin), axes.get_ylim()[0])
+    ymax = max(ymax + 0.1 * (ymax - ymin), axes.get_ylim()[1])
+    axes.set_ylim(ymin, ymax)
 
     return figure
 
