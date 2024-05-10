@@ -57,10 +57,6 @@ from ..pipelines import Pipeline, FlattenPipeline, Model, DistanceModelMixin, Po
 DEFAULT_DIRTY_RATIO = 0.5
 DEFAULT_DIRTY_BIAS = 0.0
 KEYWORD_REPLACEMENTS = {
-    "accuracy": "Accuracy",
-    "accuracy_rel": "Relative Accuracy",
-    "roc_auc": "ROC AUC",
-    "roc_auc_rel": "Relative ROC AUC",
     "repaired": "Number of Labels Examined",
     "repaired_rel": "Portion of Labels Examined",
     "discovered": "Number of Dirty Labels Found",

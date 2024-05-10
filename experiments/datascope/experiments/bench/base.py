@@ -1000,7 +1000,15 @@ class Table(Sequence[V]):
 
     @property
     def df(self):
-        df = pd.DataFrame.from_dict({a: [get_value(x, a) for x in self._data] for a in self._attributes})
+        data = [
+            (
+                x._flatten_attributes(x.attributes)
+                if isinstance(x, Configurable)
+                else {a: get_value(x, a) for a in self._attributes}
+            )
+            for x in self._data
+        ]
+        df = pd.DataFrame.from_dict({a: [x.get(a, None) for x in data] for a in self._attributes})
         if self._key is not None:
             df.set_index(self._key, inplace=True)
         return df
@@ -1116,6 +1124,25 @@ def get_free_port(port: int, max_port: int = 65535) -> int:
         except OSError:
             port += 1
     raise IOError("Cannot find a free port.")
+
+
+def update_keyword_prefixes(
+    keyword_replacements: Dict[str, str],
+    prefix_mappings: Optional[Dict[str, str]] = None,
+    key_separator: str = Configurable.NESTING_SEPARATOR,
+    value_separator: str = " ",
+) -> Dict[str, str]:
+    result = keyword_replacements
+    if prefix_mappings is not None:
+        result = {}
+        for key_prefix, value_prefix in prefix_mappings.items():
+            result.update(
+                {
+                    key_prefix + key_separator + k: value_prefix + value_separator + v
+                    for k, v in keyword_replacements.items()
+                }
+            )
+    return result
 
 
 DEFAULT_RESULTS_PATH = os.path.join("var", "results")
@@ -1484,7 +1511,7 @@ class Study:
 
     @property
     def scenarios(self) -> Table[Scenario]:
-        attributes = sorted(Scenario._get_attribute_descriptors().keys())
+        attributes = sorted(Scenario._get_attribute_descriptors(flattened=True, include_subclasses=True).keys())
         return Table[Scenario](self._scenarios, attributes, "id")
 
     def get_keyword_replacements(self) -> Dict[str, str]:

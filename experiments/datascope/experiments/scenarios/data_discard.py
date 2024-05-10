@@ -55,12 +55,6 @@ from ..pipelines import Pipeline, FlattenPipeline, Model, DistanceModelMixin, Po
 
 DEFAULT_MAX_REMOVE = 0.5
 KEYWORD_REPLACEMENTS = {
-    "eqodds": "Equalized Odds Difference",
-    "eqodds_rel": "Relative Equalized Odds Difference",
-    "accuracy": "Accuracy",
-    "accuracy_rel": "Relative Accuracy",
-    "roc_auc": "ROC AUC",
-    "roc_auc_rel": "Relative ROC AUC",
     "discarded": "Number of Data Examples Removed",
     "discarded_rel": "Portion of Data Examples Removed",
     "dataset_bias": "Dataset Bias",
@@ -333,7 +327,8 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
 
         # Set up progress bar.
         n_checkpoints = self.numcheckpoints if self.numcheckpoints > 0 and self.numcheckpoints < n_units else n_units
-        n_units_per_checkpoint_f = self._maxremove * n_units / n_checkpoints
+        rel_units_per_checkpoint = self._maxremove / n_checkpoints
+        n_units_per_checkpoint_f = rel_units_per_checkpoint * n_units
         n_units_covered_f = 0.0
         n_units_covered = 0
         if progress_bar:
@@ -341,6 +336,7 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
 
         # Iterate over the repair process.
         dataset_current = deepcopy(dataset)
+        discarded_rel = 0.0
         for i in range(n_checkpoints):
             # Update the count of units that were covered and that should be covered in this checkpoint.
             n_units_covered_f += n_units_per_checkpoint_f
@@ -355,6 +351,7 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
             present_units = np.invert(discarded_units).astype(int)
             present_idx = dataset.provenance.query(present_units)
             dataset_current = dataset.select_train(present_idx)  # type: ignore
+            discarded_rel += rel_units_per_checkpoint
 
             # Run the model.
             dataset_current_f = dataset_current.apply(pipeline, cache_dir=self.pipeline_cache_dir)
@@ -411,7 +408,7 @@ class DataDiscardScenario(DatascopeScenario, id="data-discard"):
             # Update result table.
             steps_rel = (i + 1) / float(n_checkpoints)
             discarded = discarded_units.sum(dtype=int)
-            discarded_rel = discarded / float(n_units)
+            # discarded_rel = discarded / float(n_units)
             dataset_bias = dataset_current.train_bias if isinstance(dataset_current, BiasedMixin) else None
             evolution.append(
                 [

@@ -114,7 +114,8 @@ class XGBClassifier(SklearnModel, BaseEstimator, ClassifierMixin):
     def predict(self, X: Union[NDArray, DataFrame]) -> NDArray:
         if isinstance(X, DataFrame):
             X = X.to_numpy()
-        return self.model.predict(X)
+        y_pred = self.model.predict(X)
+        return self.label_encoder.inverse_transform(y_pred)
 
     def predict_proba(self, X: Union[NDArray, DataFrame]) -> NDArray:
         if isinstance(X, DataFrame):

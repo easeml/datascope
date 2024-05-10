@@ -405,8 +405,8 @@ class Dataset(Configurable, abstract=True):
         self, index: Union[Sequence[int], Sequence[bool], NDArray[np.int_], NDArray[np.bool_]]
     ) -> "Dataset":
         result = deepcopy(self)
-        result.X_train = self.X_train[index]
-        result.y_train = self.y_train[index]
+        result._X_train = self.X_train[index]
+        result._y_train = self.y_train[index]
         if self._idx_train is not None:
             result._idx_train = self._idx_train[index]
         if self._metadata_train is not None:
@@ -435,7 +435,7 @@ class TextDatasetMixin:
         raise NotImplementedError()
 
 
-class RandomDataset(Dataset, TabularDatasetMixin, id="random"):
+class RandomDataset(Dataset, TabularDatasetMixin, id="random", longname="Random"):
     """A dataset of randomly generated features and labels."""
 
     def __init__(

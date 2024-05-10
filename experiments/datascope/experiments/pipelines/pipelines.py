@@ -57,6 +57,9 @@ class ProvenancePipeline(sklearn.pipeline.Pipeline):
 class Pipeline(Configurable, abstract=True, argname="pipeline"):
     _modalities: Iterable[DatasetModality]
 
+    def __init__(self, *args, **kwargs) -> None:
+        pass
+
     def __init_subclass__(
         cls: Type["Pipeline"],
         modalities: Iterable[DatasetModality],
