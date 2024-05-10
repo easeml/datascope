@@ -580,8 +580,8 @@ class SklearnModelUtility(Utility):
         y_train: Union[NDArray, Series],
         metadata: Optional[Union[NDArray, DataFrame]] = None,
     ) -> SklearnModelOrPipeline:
-        model = clone(model)
         if not self.model_pretrained:
+            model = clone(model)
             if isinstance(model, MetadataModelMixin):
                 model.fit_with_metadata(X_train, y_train, metadata=metadata)
             else:
