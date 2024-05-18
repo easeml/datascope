@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from functools import partial
 from numpy import ndarray
 from numpy.typing import NDArray
-from pandas import DataFrame, Series
+from pandas import DataFrame, Series, Index, MultiIndex
 from typing import Iterable, Optional, Callable, Sequence, Tuple, List, Dict, Hashable, Union
 from typing_extensions import Protocol
 from sklearn.base import clone
@@ -1249,3 +1249,21 @@ class Provenance(NDArray):
             pad_width[3] = [0, candidates]
         result: NDArray = np.pad(self, pad_width=pad_width)
         return result.view(Provenance)
+
+
+def expand_series_based_on_index(series: Series, index: Index) -> Series:
+    if isinstance(series.index, MultiIndex):
+        if isinstance(index, MultiIndex):
+            if series.index.nlevels > index.nlevels:
+                raise ValueError("The provided index must have at least as many levels as the series index.")
+            return series.reindex(index.droplevel(list(range(series.index.nlevels, index.nlevels))))
+        if series.index.nlevels > 1:
+            raise ValueError(
+                "The provided series has a MultiIndex with multiple levels, but the provided index is not a MultiIndex."
+            )
+        return series.reindex(index)
+    if isinstance(series.index, Index):
+        if isinstance(index, MultiIndex):
+            return series.reindex(index.droplevel(list(range(1, index.nlevels))))
+        else:
+            return series.reindex(index)
