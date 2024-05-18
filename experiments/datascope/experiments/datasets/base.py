@@ -134,16 +134,16 @@ class Dataset(Configurable, abstract=True):
         self._testsize = testsize
         self._seed = seed
         self._idx_train: Optional[Index] = None
-        self._X_train: Optional[NDArray] = None
-        self._y_train: Optional[NDArray] = None
+        self._X_train: Optional[Union[NDArray, DataFrame]] = None
+        self._y_train: Optional[Series] = None
         self._metadata_train: Optional[DataFrame] = None
         self._idx_val: Optional[Index] = None
-        self._X_val: Optional[NDArray] = None
-        self._y_val: Optional[NDArray] = None
+        self._X_val: Optional[Union[NDArray, DataFrame]] = None
+        self._y_val: Optional[Series] = None
         self._metadata_val: Optional[DataFrame] = None
         self._idx_test: Optional[Index] = None
-        self._X_test: Optional[NDArray] = None
-        self._y_test: Optional[NDArray] = None
+        self._X_test: Optional[Union[NDArray, DataFrame]] = None
+        self._y_test: Optional[Series] = None
         self._metadata_test: Optional[DataFrame] = None
         self._provenance: Optional[Provenance] = None
         self._fresh = True
@@ -206,26 +206,26 @@ class Dataset(Configurable, abstract=True):
         return self._idx_train
 
     @property
-    def X_train(self) -> NDArray:
+    def X_train(self) -> Union[NDArray, DataFrame]:
         """Training features."""
         if self._X_train is None:
             raise ValueError("The dataset is not loaded yet.")
         return self._X_train
 
     @X_train.setter
-    def X_train(self, value: NDArray):
+    def X_train(self, value: Union[NDArray, DataFrame]):
         self._X_train = value
         self._fresh = False
 
     @property
-    def y_train(self) -> NDArray:
+    def y_train(self) -> Series:
         """Training labels."""
         if self._y_train is None:
             raise ValueError("The dataset is not loaded yet.")
         return self._y_train
 
     @y_train.setter
-    def y_train(self, value: NDArray):
+    def y_train(self, value: Series):
         self._y_train = value
         self._fresh = False
 
@@ -240,26 +240,26 @@ class Dataset(Configurable, abstract=True):
         return self._idx_val
 
     @property
-    def X_val(self) -> NDArray:
+    def X_val(self) -> Union[NDArray, DataFrame]:
         """Validation features."""
         if self._X_val is None:
             raise ValueError("The dataset is not loaded yet.")
         return self._X_val
 
     @X_val.setter
-    def X_val(self, value: NDArray):
+    def X_val(self, value: Union[NDArray, DataFrame]):
         self._X_val = value
         self._fresh = False
 
     @property
-    def y_val(self) -> NDArray:
+    def y_val(self) -> Series:
         """Validation labels."""
         if self._y_val is None:
             raise ValueError("The dataset is not loaded yet.")
         return self._y_val
 
     @y_val.setter
-    def y_val(self, value: NDArray):
+    def y_val(self, value: Series):
         self._y_val = value
         self._fresh = False
 
@@ -274,26 +274,26 @@ class Dataset(Configurable, abstract=True):
         return self._idx_test
 
     @property
-    def X_test(self) -> NDArray:
+    def X_test(self) -> Union[NDArray, DataFrame]:
         """Test features."""
         if self._X_test is None:
             raise ValueError("The dataset is not loaded yet.")
         return self._X_test
 
     @X_test.setter
-    def X_test(self, value: NDArray):
+    def X_test(self, value: Union[NDArray, DataFrame]):
         self._X_test = value
         self._fresh = False
 
     @property
-    def y_test(self) -> NDArray:
+    def y_test(self) -> Series:
         """Test labels."""
         if self._y_test is None:
             raise ValueError("The dataset is not loaded yet.")
         return self._y_test
 
     @y_test.setter
-    def y_test(self, value: NDArray):
+    def y_test(self, value: Series):
         self._y_test = value
         self._fresh = False
 
@@ -406,7 +406,7 @@ class Dataset(Configurable, abstract=True):
     ) -> "Dataset":
         result = deepcopy(self)
         result._X_train = self.X_train[index]
-        result._y_train = self.y_train[index]
+        result._y_train = self.y_train.iloc[np.array(index)]
         if self._idx_train is not None:
             result._idx_train = self._idx_train[index]
         if self._metadata_train is not None:
@@ -498,7 +498,7 @@ class NoisyLabelDataset(Dataset, abstract=True):
         **kwargs
     ) -> None:
         super().__init__(trainsize=trainsize, valsize=valsize, testsize=testsize, seed=seed, **kwargs)
-        self._y_train_dirty: Optional[NDArray] = None
+        self._y_train_dirty: Optional[Series] = None
         self._units_dirty: Optional[NDArray] = None
         self._groupings: Optional[NDArray] = None
 
@@ -513,18 +513,18 @@ class NoisyLabelDataset(Dataset, abstract=True):
             return self._units_dirty
 
     @property
-    def y_train(self) -> NDArray:
+    def y_train(self) -> Series:
         y_train = super().y_train
         if self._y_train_dirty is not None:
             if self.provenance.is_simple:
-                y_train = np.where(self.units_dirty, self._y_train_dirty, y_train)
+                y_train = y_train.where(~self.units_dirty, self._y_train_dirty)
             else:
                 idx_dirty = self.provenance.query(self.units_dirty)
-                y_train = np.where(idx_dirty, self._y_train_dirty, y_train)
+                y_train = y_train.where(~idx_dirty, self._y_train_dirty)
         return y_train
 
     @y_train.setter
-    def y_train(self, value: NDArray):
+    def y_train(self, value: Series):
         self._y_train = value
         self._fresh = False
 
@@ -918,7 +918,9 @@ UCI_DEFAULT_SENSITIVE_FEATURE = 9
 FOLK_UCI_DEFAULT_SENSITIVE_FEATURE = 8
 
 
-def compute_bias(X: NDArray, y: NDArray, sf: int) -> float:
+def compute_bias(X: Union[NDArray, DataFrame], y: Union[NDArray, Series], sf: int) -> float:
+    X = X if isinstance(X, np.ndarray) else X.to_numpy()
+    y = y if isinstance(y, np.ndarray) else y.to_numpy()
     n_f0_l0 = np.sum((X[:, sf] == 0) & (y == 0))
     n_f0_l1 = np.sum((X[:, sf] == 0) & (y == 1))
     n_f1_l0 = np.sum((X[:, sf] == 1) & (y == 0))
@@ -1244,9 +1246,9 @@ class FolkUCI(
             raise ValueError("Cannot augment a dataset that is not loaded yet.")
         # trainsize = dataset._X_train.shape[0]
         dataset._X_train = np.repeat(dataset._X_train, repeats=factor, axis=0)
-        dataset._y_train = np.repeat(dataset._y_train, repeats=factor, axis=0)
+        dataset._y_train = dataset._y_train.repeat(repeats=factor)
         if dataset._y_train_dirty is not None:
-            dataset._y_train_dirty = np.repeat(dataset._y_train_dirty, repeats=factor, axis=0)
+            dataset._y_train_dirty = dataset._y_train_dirty.repeat(repeats=factor)
         dataset._trainsize = dataset._X_train.shape[0]
         random = np.random.RandomState(seed=self._seed)
         dataset._X_train[:, 0] += random.normal(0, 5, dataset._X_train.shape[0])
@@ -1379,7 +1381,7 @@ class TwentyNewsgroups(NoisyLabelDataset, TextDatasetMixin, id="Twenty-Newsgroup
 
         # Load the train and validaiton data by splitting the original training dataset. Load the test data.
         X, y = np.array(train.data), np.array(train.target)
-        result._X_test, result._y_test = np.array(test.data), np.array(test.target)
+        result._X_test, result._y_test = np.array(test.data), Series(test.target)
         trainsize = result.trainsize if result.trainsize > 0 else None
         valsize = result.valsize if result.valsize > 0 else None
         totsize = X.shape[0]
@@ -1390,9 +1392,10 @@ class TwentyNewsgroups(NoisyLabelDataset, TextDatasetMixin, id="Twenty-Newsgroup
         )
         idx_test = np.arange(result._X_test.shape[0])
         if result._testsize > 0:
+            assert result._y_test is not None
             random = np.random.RandomState(seed=result._seed)
             idx_test = random.choice(idx_test, size=result._testsize, replace=False)
-            result._X_test, result._y_test = result._X_test[idx_test], result._y_test[idx_test]
+            result._X_test, result._y_test = result._X_test[idx_test], result._y_test.iloc[np.array(idx_test)]
 
         result._X_train, result._y_train = X[idx_train], y[idx_train]
         result._X_val, result._y_val = X[idx_val], y[idx_val]
@@ -1668,13 +1671,13 @@ class DataPerfVision(NaturallyNoisyLabelDataset, TabularDatasetMixin, id="DataPe
         result._idx_val = Index(np.arange(result.valsize))
         result._idx_test = Index(np.arange(result.testsize))
 
-        assert result._X_train is not None
-        assert result._X_val is not None
-        assert result._X_test is not None
-        assert result._y_train is not None
-        assert result._y_train_dirty is not None
-        assert result._y_val is not None
-        assert result._y_test is not None
+        assert result._X_train is not None and isinstance(result._X_train, np.ndarray)
+        assert result._X_val is not None and isinstance(result._X_val, np.ndarray)
+        assert result._X_test is not None and isinstance(result._X_test, np.ndarray)
+        assert result._y_train is not None and isinstance(result._y_train, np.ndarray)
+        assert result._y_train_dirty is not None and isinstance(result._y_train_dirty, np.ndarray)
+        assert result._y_val is not None and isinstance(result._y_val, np.ndarray)
+        assert result._y_test is not None and isinstance(result._y_test, np.ndarray)
 
         random = np.random.RandomState(seed=result._seed)
 
@@ -1760,7 +1763,7 @@ class CifarN(NaturallyNoisyLabelDataset, ImageDatasetMixin, id="CIFAR-N"):
         )
         y_train = np.concatenate([batch["labels"] for batch in train_batches])
         X_test = test_batch["data"].reshape((-1, 3, 32, 32)).transpose((0, 2, 3, 1))
-        y_test = np.array(test_batch["labels"])
+        y_test = Series(test_batch["labels"])
 
         # Load the CIFAR-N noisy labels.
         import torch
@@ -1792,7 +1795,7 @@ class CifarN(NaturallyNoisyLabelDataset, ImageDatasetMixin, id="CIFAR-N"):
         if result.testsize > 0:
             idx_test = random.permutation(result.testsize)
         result._X_test = X_test[idx_test, :]
-        result._y_test = y_test[idx_test]
+        result._y_test = y_test.iloc[np.array(idx_test)]
         result._idx_test = Index(idx_test)
 
         result._construct_provenance()
