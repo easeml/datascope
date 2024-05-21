@@ -464,7 +464,7 @@ class SklearnModelUtility(Utility):
     ) -> SklearnModelOrPipeline:
         if not self.model_pretrained:
             model = clone(model)
-            if isinstance(model, ExtendedModelMixin):
+            if isinstance(model, ExtendedModelMixin) and metadata is not None:
                 model.fit_extended(X_train, y_train, metadata=metadata)
             else:
                 model.fit(X_train, y_train)
@@ -476,7 +476,7 @@ class SklearnModelUtility(Utility):
         X_test: Union[NDArray, DataFrame],
         metadata: Optional[Union[NDArray, DataFrame]] = None,
     ) -> NDArray:
-        if isinstance(model, ExtendedModelMixin):
+        if isinstance(model, ExtendedModelMixin) and metadata is not None:
             result = model.predict_extended(X_test, metadata=metadata)
             return result if isinstance(result, np.ndarray) else result.to_numpy()
         else:
@@ -489,7 +489,7 @@ class SklearnModelUtility(Utility):
         classes: List[Hashable],
         metadata: Optional[Union[NDArray, DataFrame]] = None,
     ) -> NDArray:
-        if isinstance(model, ExtendedModelMixin):
+        if isinstance(model, ExtendedModelMixin) and metadata is not None:
             result = model.predict_proba_extended(X_test, metadata=metadata)
             return result if isinstance(result, np.ndarray) else result.to_numpy()
         elif hasattr(model, "predict_proba"):
