@@ -72,7 +72,7 @@ class ExtendedModelMixin(ABC):
         self,
         X: Union[NDArray, DataFrame],
         metadata: Optional[Union[NDArray, DataFrame]] = None,
-    ) -> Union[NDArray, Series]:
+    ) -> Union[NDArray, DataFrame]:
         pass
 
 
