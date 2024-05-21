@@ -3,7 +3,6 @@ import tempfile
 import torch
 
 from abc import abstractmethod
-from enum import Enum
 from huggingface_hub import hf_hub_download
 from logging import Logger
 from methodtools import lru_cache
@@ -14,7 +13,7 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.gaussian_process import GaussianProcessClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, roc_auc_score
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, GroupShuffleSplit
 from sklearn.naive_bayes import MultinomialNB
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.neural_network import MLPClassifier
@@ -39,7 +38,7 @@ from typing import Dict, Optional, Union, Any, List, Type
 from xgboost import XGBClassifier as XGBClassifierOriginal
 
 
-from datascope.importance.common import SklearnModel
+from datascope.importance.common import SklearnModel, ExtendedModelMixin
 from ..bench import Configurable, attribute
 from ..datasets import Dataset
 from .utility import TorchImageDataset, IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
@@ -47,37 +46,6 @@ from ..baselines.matchingnet import resnet12, default_transform, MatchingNetwork
 
 
 disable_default_handler()
-
-
-class ModelType(str, Enum):
-    LogisticRegression = "logreg"
-    RandomForest = "randf"
-    KNeighbors = "knn"
-    SVM = "svm"
-    LinearSVM = "linsvm"
-    GaussianProcess = "gp"
-    NaiveBayes = "nb"
-    NeuralNetwork = "nn"
-    XGBoost = "xgb"
-    ResNet18 = "resnet-18"
-    MiniLM = "mini-lm"
-    MatchingNet = "matchingnet"
-
-
-KEYWORD_REPLACEMENTS: Dict[str, str] = {
-    ModelType.LogisticRegression.value: "Logistic Regression",
-    ModelType.RandomForest.value: "Random Forest",
-    ModelType.KNeighbors.value: "K-Nearest Neighbor",
-    ModelType.SVM.value: "Support Vector Machine",
-    ModelType.LinearSVM.value: "Linear Support Vector Machine",
-    ModelType.GaussianProcess.value: "Gaussian Process",
-    ModelType.NaiveBayes.value: "Naive Bayes Classifier",
-    ModelType.NeuralNetwork.value: "Neural Network",
-    ModelType.XGBoost.value: "XGBoost",
-    ModelType.ResNet18.value: "ResNet-18",
-    ModelType.MiniLM.value: "MiniLM",
-    ModelType.MatchingNet.value: "Matching Network",
-}
 
 
 class XGBClassifier(SklearnModel, BaseEstimator, ClassifierMixin):
@@ -172,23 +140,25 @@ def compute_metrics(eval_pred):
 BATCH_SIZE = 32
 
 
-class ResNet18Classifier(BaseEstimator, ClassifierMixin):
+class ResNet18Classifier(BaseEstimator, ClassifierMixin, ExtendedModelMixin):
+
     def __init__(
         self,
         n_epochs: int = 10,
         learning_rate: float = 1e-5,
         eval_split: Union[float, int] = 0.1,
-        eval_random_sample: bool = True,
+        metadata_grouping_col: Optional[str] = None,
         logger: Optional[Logger] = None,
     ) -> None:
         self.n_epochs = n_epochs
         self.learning_rate = learning_rate
         self.eval_split = eval_split
-        self.eval_random_sample = eval_random_sample
+        self.metadata_grouping_col = metadata_grouping_col
         self.logger = logger
         self.cuda_mode = torch.cuda.is_available()
         self.device = "cuda:0" if self.cuda_mode else "cpu"
         self.label_encoder = LabelEncoder()
+        self.y_type: Optional[type] = None
         self.preprocessor = transforms.Compose(
             [
                 transforms.Resize(224, antialias=True),
@@ -197,21 +167,52 @@ class ResNet18Classifier(BaseEstimator, ClassifierMixin):
             ]
         )
 
+    def fit_extended(
+        self,
+        X: Union[NDArray, DataFrame],
+        y: Union[NDArray, Series],
+        metadata: Optional[Union[NDArray, DataFrame]] = None,
+        X_val: Optional[Union[NDArray, DataFrame]] = None,
+        y_val: Optional[Union[NDArray, Series]] = None,
+        metadata_val: Optional[Union[NDArray, DataFrame]] = None,
+    ) -> ExtendedModelMixin:
+        X = X if isinstance(X, np.ndarray) else X.to_numpy()
+        y = y if isinstance(y, np.ndarray) else y.to_numpy()
+        if (X_val is None or y_val is None) and self.eval_split > 0:
+            if self.metadata_grouping_col is not None and metadata is not None and isinstance(metadata, DataFrame):
+                splitter = GroupShuffleSplit(n_splits=1, test_size=self.eval_split, random_state=0)
+                groups = metadata.reset_index()[self.metadata_grouping_col].to_numpy()
+                idx_train, idx_val = next(splitter.split(X, y, groups=groups))
+                X, X_val, y, y_val = X[idx_train], X[idx_val], y[idx_train], y[idx_val]
+            else:
+                X, X_val, y, y_val = train_test_split(X, y, test_size=self.eval_split, stratify=y, random_state=0)
+
+        assert isinstance(X, np.ndarray)
+        assert isinstance(y, np.ndarray)
+        assert X_val is None or isinstance(X_val, np.ndarray)
+        assert y_val is None or isinstance(y_val, np.ndarray)
+
+        self._fit(X, y, X_val, y_val)
+        return self
+
     def fit(self, X: NDArray, y: NDArray) -> None:
+        self.y_type = type(y)
+        X_val: Optional[NDArray] = None
+        y_val: Optional[NDArray] = None
+        if self.eval_split > 0:
+            X, X_val, y, y_val = train_test_split(X, y, test_size=self.eval_split, stratify=y, random_state=0)
+        self._fit(X, y, X_val, y_val)
+
+    def _fit(self, X: NDArray, y: NDArray, X_val: Optional[NDArray], y_val: Optional[NDArray]) -> None:
         self.classes_ = unique_labels(y)
         y = self.label_encoder.fit_transform(y)
-        self.val_dataset: Optional[TorchImageDataset] = None
-        if self.eval_split > 0:
-            if self.eval_random_sample:
-                X, X_eval, y, y_eval = train_test_split(X, y, test_size=self.eval_split, stratify=y, random_state=0)
-            else:
-                n_eval = int(self.eval_split * len(X)) if isinstance(self.eval_split, float) else self.eval_split
-                X, y, X_eval, y_eval = X[n_eval:], y[n_eval:], X[:n_eval], y[:n_eval]
-            self.eval_dataset = TorchImageDataset(X_eval, y_eval, self.preprocessor, device=self.device)
         self.train_dataset = TorchImageDataset(X, y, self.preprocessor, device=self.device)
-        sucess = False
-        # torch.autograd.set_detect_anomaly(True)
+        self.eval_dataset: Optional[TorchImageDataset] = None
+        if X_val is not None and y_val is not None:
+            self.eval_dataset = TorchImageDataset(X_val, y_val, self.preprocessor, device=self.device)
 
+        # torch.autograd.set_detect_anomaly(True)
+        sucess = False
         while not sucess:
             self.model: ResNetForImageClassification = ResNetForImageClassification.from_pretrained(
                 "microsoft/resnet-18", num_labels=len(self.classes_), ignore_mismatched_sizes=True
@@ -294,6 +295,26 @@ class ResNet18Classifier(BaseEstimator, ClassifierMixin):
     def predict_proba(self, X: NDArray) -> NDArray:
         outputs = self._forward(X)
         return normalize(stable_softmax(outputs, axis=1))
+
+    def predict_extended(
+        self,
+        X: Union[NDArray, DataFrame],
+        metadata: Optional[Union[NDArray, DataFrame]] = None,
+    ) -> Union[NDArray, Series]:
+        assert self.y_type is not None
+        if isinstance(X, DataFrame):
+            X = X.to_numpy()
+        result = self.predict(X)
+        return self.y_type(result)
+
+    def predict_proba_extended(
+        self,
+        X: Union[NDArray, DataFrame],
+        metadata: Optional[Union[NDArray, DataFrame]] = None,
+    ) -> Union[NDArray, DataFrame]:
+        if isinstance(X, DataFrame):
+            X = X.to_numpy()
+        return self.predict_proba(X)
 
     def transform(self, X: NDArray) -> NDArray:
         outputs = self._forward(X, output_embeddings=True)
@@ -583,13 +604,11 @@ class Resnet18Model(Model, id="resnet-18", longname="ResNet-18"):
         n_epochs: int = 10,
         learning_rate: float = 1e-5,
         eval_split: Union[float, int] = 0.1,
-        eval_random_sample: bool = True,
         **kwargs,
     ) -> None:
         self._n_epochs = n_epochs
         self._learning_rate = learning_rate
         self._eval_split = eval_split
-        self._eval_random_sample = eval_random_sample
 
     @attribute
     def n_epochs(self) -> int:
@@ -606,17 +625,12 @@ class Resnet18Model(Model, id="resnet-18", longname="ResNet-18"):
         """The fraction of the dataset to use for evaluation."""
         return self._eval_split
 
-    @attribute
-    def eval_random_sample(self) -> bool:
-        """Whether to randomly sample the evaluation set."""
-        return self._eval_random_sample
-
     def construct(self: "Resnet18Model", dataset: Dataset) -> BaseEstimator:
         return ResNet18Classifier(
             n_epochs=self.n_epochs,
             learning_rate=self.learning_rate,
             eval_split=self.eval_split,
-            eval_random_sample=self.eval_random_sample,
+            metadata_grouping_col=dataset.metadata_grouping_col,
         )
 
 

@@ -303,6 +303,11 @@ class Dataset(Configurable, abstract=True):
         return self._metadata_test
 
     @property
+    def metadata_grouping_col(self) -> Optional[str]:
+        """The column in metadata that is used to determine the groupings of data examples when splitting data."""
+        return None
+
+    @property
     def provenance(self) -> Provenance:
         """A `Provenance` instance which tracks the provenance of all training data examples."""
         if self._provenance is None:
