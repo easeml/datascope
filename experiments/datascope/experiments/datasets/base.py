@@ -471,6 +471,7 @@ class RandomDataset(Dataset, TabularDatasetMixin, id="random", longname="Random"
             n_clusters_per_class=1,
             random_state=self._seed,
         )
+        y = Series(y, index=range(self.trainsize + self.valsize + self.testsize))
 
         result._X_train, result._X_val, result._y_train, result._y_val = train_test_split(
             X, y, train_size=self.trainsize, test_size=self.valsize + self.testsize, random_state=self._seed
@@ -484,6 +485,16 @@ class RandomDataset(Dataset, TabularDatasetMixin, id="random", longname="Random"
         )
         result._construct_provenance()
         return result
+
+
+def random_label_flip(y: Series, random: Optional[np.random.RandomState] = None) -> Series:
+    if random is None:
+        random = np.random.RandomState()
+    y_array = y.to_numpy()
+    labels = np.unique(y_array)
+    replacements = random.choice(len(labels) - 1, size=len(y_array))
+    replacements[replacements >= y_array] += 1
+    return Series(labels[replacements], index=y.index)
 
 
 class NoisyLabelDataset(Dataset, abstract=True):
@@ -557,7 +568,7 @@ class NoisyLabelDataset(Dataset, abstract=True):
         if not isinstance(probabilities, collections.abc.Sequence):
             assert isinstance(probabilities, float)
             dirty_idx = random.choice(a=[False, True], size=(n_examples), p=[1 - probabilities, probabilities])
-            result._y_train_dirty[dirty_idx] = 1 - result._y_train[dirty_idx]
+            result._y_train_dirty.iloc[dirty_idx] = random_label_flip(result._y_train.iloc[dirty_idx], random=random)
             units_dirty = dirty_idx
             groupings = None
         else:
@@ -574,7 +585,7 @@ class NoisyLabelDataset(Dataset, abstract=True):
                 dirty_idx[idx] = True
                 if idx.sum() > 0:
                     units_dirty[i] = True
-                result._y_train_dirty[idx] = 1 - result._y_train[idx]
+                result._y_train_dirty.iloc[idx] = random_label_flip(result._y_train.iloc[dirty_idx], random=random)
         result._construct_provenance(groupings=groupings)
         result._groupings = groupings
         result._units_dirty = units_dirty
@@ -639,7 +650,7 @@ class NaturallyNoisyLabelDataset(NoisyLabelDataset, abstract=True):
                 if dirty_idx[idx].sum() > 0:
                     units_dirty[i] = True
             # Repair the labels that should not be dirty anymore.
-            result._y_train_dirty[~dirty_idx] = result._y_train[~dirty_idx]
+            result._y_train_dirty.iloc[~dirty_idx] = result._y_train.iloc[~dirty_idx]  # type: ignore
 
         result._construct_provenance(groupings=groupings)
         result._groupings = groupings
@@ -875,7 +886,7 @@ class BiasedNoisyLabelDataset(NoisyLabelDataset, BiasedMixin, abstract=True):
             dirty_idx = np.zeros(shape=n_examples, dtype=bool)
             dirty_idx[idx_f0] = random.choice(a=[False, True], size=len(idx_f0), p=[1 - p_f0, p_f0])
             dirty_idx[idx_f1] = random.choice(a=[False, True], size=len(idx_f1), p=[1 - p_f1, p_f1])
-            result._y_train_dirty[dirty_idx] = 1 - result._y_train[dirty_idx]
+            result._y_train_dirty[dirty_idx] = random_label_flip(result._y_train[dirty_idx], random=random)
             units_dirty = dirty_idx
             groupings = None
         else:
@@ -897,8 +908,8 @@ class BiasedNoisyLabelDataset(NoisyLabelDataset, BiasedMixin, abstract=True):
                 idx_g_f1[idx_g_f1] = random.choice(a=[False, True], size=(n_elements_f1), p=[1 - p_f1, p_f1])
                 if idx_g_f0.sum() + idx_g_f1.sum() > 0:
                     units_dirty[i] = True
-                result._y_train_dirty[idx_g_f0] = 1 - result._y_train[idx_g_f0]
-                result._y_train_dirty[idx_g_f1] = 1 - result._y_train[idx_g_f1]
+                result._y_train_dirty[idx_g_f0] = random_label_flip(result._y_train[idx_g_f0], random=random)
+                result._y_train_dirty[idx_g_f1] = random_label_flip(result._y_train[idx_g_f1], random=random)
         result._construct_provenance(groupings=groupings)
         result._groupings = groupings
         result._units_dirty = units_dirty
@@ -995,9 +1006,9 @@ class UCIAdult(BiasedNoisyLabelDataset, TabularDatasetMixin, id="UCI-Adult", lon
         idx_val, idx_test = train_test_split(
             idx_test_val, train_size=valsize, test_size=testsize, random_state=result._seed
         )
-        result._X_train, result._y_train = X[idx_train], y[idx_train]
-        result._X_val, result._y_val = X[idx_val], y[idx_val]
-        result._X_test, result._y_test = X[idx_test], y[idx_test]
+        result._X_train, result._y_train = X[idx_train], Series(y[idx_train], index=idx_train)
+        result._X_val, result._y_val = X[idx_val], Series(y[idx_val], index=idx_val)
+        result._X_test, result._y_test = X[idx_test], Series(y[idx_test], index=idx_test)
         result._idx_train, result._idx_val, result._idx_test = Index(idx_train), Index(idx_val), Index(idx_test)
 
         result._update_sizes()
@@ -1033,9 +1044,9 @@ class UCIAdult(BiasedNoisyLabelDataset, TabularDatasetMixin, id="UCI-Adult", lon
             seed=result._seed,
         )
 
-        result._X_train, result._y_train = X[idx_train], y[idx_train]
-        result._X_val, result._y_val = X[idx_val], y[idx_val]
-        result._X_test, result._y_test = X[idx_test], y[idx_test]
+        result._X_train, result._y_train = X[idx_train], Series(y[idx_train], index=idx_train)
+        result._X_val, result._y_val = X[idx_val], Series(y[idx_val], index=idx_val)
+        result._X_test, result._y_test = X[idx_test], Series(y[idx_test], index=idx_test)
         result._idx_train, result._idx_val, result._idx_test = Index(idx_train), Index(idx_val), Index(idx_test)
 
         result._update_sizes()
@@ -1185,9 +1196,9 @@ class FolkUCI(
         idx_val, idx_test = train_test_split(
             idx_test_val, train_size=valsize, test_size=testsize, random_state=result._seed
         )
-        result._X_train, result._y_train = X[idx_train], y[idx_train]
-        result._X_val, result._y_val = X[idx_val], y[idx_val]
-        result._X_test, result._y_test = X[idx_test], y[idx_test]
+        result._X_train, result._y_train = X[idx_train], Series(y[idx_train], index=idx_train)
+        result._X_val, result._y_val = X[idx_val], Series(y[idx_val], index=idx_val)
+        result._X_test, result._y_test = X[idx_test], Series(y[idx_test], index=idx_test)
         result._idx_train, result._idx_val, result._idx_test = Index(idx_train), Index(idx_val), Index(idx_test)
         del X, y
 
@@ -1231,9 +1242,9 @@ class FolkUCI(
             seed=result._seed,
         )
 
-        result._X_train, result._y_train = X[idx_train], y[idx_train]
-        result._X_val, result._y_val = X[idx_val], y[idx_val]
-        result._X_test, result._y_test = X[idx_test], y[idx_test]
+        result._X_train, result._y_train = X[idx_train], Series(y[idx_train], index=idx_train)
+        result._X_val, result._y_val = X[idx_val], Series(y[idx_val], index=idx_val)
+        result._X_test, result._y_test = X[idx_test], Series(y[idx_test], index=idx_test)
         result._idx_train, result._idx_val, result._idx_test = Index(idx_train), Index(idx_val), Index(idx_test)
 
         result._update_sizes()
@@ -1247,6 +1258,8 @@ class FolkUCI(
         # trainsize = dataset._X_train.shape[0]
         dataset._X_train = np.repeat(dataset._X_train, repeats=factor, axis=0)
         dataset._y_train = dataset._y_train.repeat(repeats=factor)
+        if dataset._idx_train is not None:
+            dataset._idx_train.repeat(repeats=factor)
         if dataset._y_train_dirty is not None:
             dataset._y_train_dirty = dataset._y_train_dirty.repeat(repeats=factor)
         dataset._trainsize = dataset._X_train.shape[0]
@@ -1322,9 +1335,9 @@ class FashionMNIST(NoisyLabelDataset, ImageDatasetMixin, id="Fashion-MNIST"):
 
         # Encode labels.
         encoder = LabelEncoder()
-        result._y_train = encoder.fit_transform(np.array(train_subset["label"], dtype=int))
-        result._y_val = encoder.transform(np.array(val_subset["label"], dtype=int))
-        result._y_test = encoder.transform(np.array(test_subset["label"], dtype=int))
+        result._y_train = Series(encoder.fit_transform(np.array(train_subset["label"], dtype=int)), index=idx_train)
+        result._y_val = Series(encoder.transform(np.array(val_subset["label"], dtype=int)), index=idx_val)
+        result._y_test = Series(encoder.transform(np.array(test_subset["label"], dtype=int)), index=idx_test)
 
         result._update_sizes()
         result._construct_provenance()
@@ -1346,7 +1359,7 @@ class FashionMNIST(NoisyLabelDataset, ImageDatasetMixin, id="Fashion-MNIST"):
         data = datasets.load_dataset("fashion_mnist", cache_dir=DEFAULT_DATA_DIR)
         train, test = data["train"], data["test"]
         assert isinstance(train, datasets.arrow_dataset.Dataset) and isinstance(test, datasets.arrow_dataset.Dataset)
-        X_train, y_train = np.stack(train["image"]), np.array(train["label"], dtype=int)
+        X_train, y_train = np.stack(train["image"]), Series(np.array(train["label"], dtype=int))
         X_test = np.stack(test["image"])
         pipeline = deepcopy(pipeline)
         pipeline.fit(X_train, y_train)
@@ -1395,10 +1408,12 @@ class TwentyNewsgroups(NoisyLabelDataset, TextDatasetMixin, id="Twenty-Newsgroup
             assert result._y_test is not None
             random = np.random.RandomState(seed=result._seed)
             idx_test = random.choice(idx_test, size=result._testsize, replace=False)
-            result._X_test, result._y_test = result._X_test[idx_test], result._y_test.iloc[np.array(idx_test)]
+            result._X_test, result._y_test = result._X_test[idx_test], Series(
+                result._y_test.iloc[np.array(idx_test)], index=idx_test
+            )
 
-        result._X_train, result._y_train = X[idx_train], y[idx_train]
-        result._X_val, result._y_val = X[idx_val], y[idx_val]
+        result._X_train, result._y_train = X[idx_train], Series(y[idx_train], index=idx_train)
+        result._X_val, result._y_val = X[idx_val], Series(y[idx_val], index=idx_val)
         result._idx_train, result._idx_val, result._idx_test = Index(idx_train), Index(idx_val), Index(idx_test)
 
         result._update_sizes()
@@ -1421,7 +1436,7 @@ class TwentyNewsgroups(NoisyLabelDataset, TextDatasetMixin, id="Twenty-Newsgroup
         categories = ["comp.graphics", "sci.med"]
         train = fetch_20newsgroups(subset="train", categories=categories, shuffle=False, data_home=DEFAULT_DATA_DIR)
         test = fetch_20newsgroups(subset="test", categories=categories, shuffle=False, data_home=DEFAULT_DATA_DIR)
-        X_train, y_train = np.array(train.data), np.array(train.target)
+        X_train, y_train = np.array(train.data), Series(np.array(train.target))
         X_test = np.array(test.data)
 
         pipeline = deepcopy(pipeline)
@@ -1502,8 +1517,8 @@ class Higgs(NoisyLabelDataset, TabularDatasetMixin, id="Higgs"):
         idx_train, idx_val = train_test_split(
             np.arange(totsize), train_size=trainsize, test_size=valsize, random_state=result._seed
         )
-        result._X_train, result._y_train = X[idx_train], y[idx_train]
-        result._X_val, result._y_val = X[idx_val], y[idx_val]
+        result._X_train, result._y_train = X[idx_train], Series(y[idx_train], index=idx_train)
+        result._X_val, result._y_val = X[idx_val], Series(y[idx_val], index=idx_val)
         result._idx_train, result._idx_val = Index(idx_train), Index(idx_val)
 
         y_test, X_test = df_ts.iloc[:, 0].to_numpy(dtype=int), df_ts.iloc[:, 1:].to_numpy()
@@ -1512,7 +1527,7 @@ class Higgs(NoisyLabelDataset, TabularDatasetMixin, id="Higgs"):
         if result.testsize > 0:
             idx_test = random.permutation(result.testsize)
         result._X_test = X_test[idx_test, :]
-        result._y_test = y_test[idx_test]
+        result._y_test = Series(y_test[idx_test], index=idx_test)
         result._idx_test = Index(idx_test)
 
         result._construct_provenance()
@@ -1660,42 +1675,44 @@ class DataPerfVision(NaturallyNoisyLabelDataset, TabularDatasetMixin, id="DataPe
     def load(self, inplace: bool = False) -> "DataPerfVision":
         result = self if inplace else deepcopy(self)
 
-        result._X_train = np.load(os.path.join(result.DATA_DIR, "X_train.npy"))
-        result._X_val = np.load(os.path.join(result.DATA_DIR, "X_val.npy"))
-        result._X_test = np.load(os.path.join(result.DATA_DIR, "X_test.npy"))
-        result._y_train = np.load(os.path.join(result.DATA_DIR, "y_train.npy"))
-        result._y_train_dirty = np.load(os.path.join(result.DATA_DIR, "y_train_dirty.npy"))
-        result._y_val = np.load(os.path.join(result.DATA_DIR, "y_val.npy"))
-        result._y_test = np.load(os.path.join(result.DATA_DIR, "y_test.npy"))
         result._idx_train = Index(np.arange(result.trainsize))
         result._idx_val = Index(np.arange(result.valsize))
         result._idx_test = Index(np.arange(result.testsize))
+        result._X_train = np.load(os.path.join(result.DATA_DIR, "X_train.npy"))
+        result._X_val = np.load(os.path.join(result.DATA_DIR, "X_val.npy"))
+        result._X_test = np.load(os.path.join(result.DATA_DIR, "X_test.npy"))
+        result._y_train = Series(np.load(os.path.join(result.DATA_DIR, "y_train.npy")), index=result._idx_train)
+        result._y_train_dirty = Series(
+            np.load(os.path.join(result.DATA_DIR, "y_train_dirty.npy")), index=result._idx_train
+        )
+        result._y_val = Series(np.load(os.path.join(result.DATA_DIR, "y_val.npy")), index=result._idx_val)
+        result._y_test = Series(np.load(os.path.join(result.DATA_DIR, "y_test.npy")), index=result._idx_test)
 
         assert result._X_train is not None and isinstance(result._X_train, np.ndarray)
         assert result._X_val is not None and isinstance(result._X_val, np.ndarray)
         assert result._X_test is not None and isinstance(result._X_test, np.ndarray)
-        assert result._y_train is not None and isinstance(result._y_train, np.ndarray)
-        assert result._y_train_dirty is not None and isinstance(result._y_train_dirty, np.ndarray)
-        assert result._y_val is not None and isinstance(result._y_val, np.ndarray)
-        assert result._y_test is not None and isinstance(result._y_test, np.ndarray)
+        assert result._y_train is not None and isinstance(result._y_train, Series)
+        assert result._y_train_dirty is not None and isinstance(result._y_train_dirty, Series)
+        assert result._y_val is not None and isinstance(result._y_val, Series)
+        assert result._y_test is not None and isinstance(result._y_test, Series)
 
         random = np.random.RandomState(seed=result._seed)
 
         if result.trainsize > 0:
             idx = random.permutation(result.trainsize)
             result._X_train = result._X_train[idx, :]
-            result._y_train = result._y_train[idx]
-            result._y_train_dirty = result._y_train_dirty[idx]
+            result._y_train = result._y_train.iloc[idx]
+            result._y_train_dirty = result._y_train_dirty.iloc[idx]
             result._idx_train = Index(idx)
         if result.valsize > 0:
             idx = random.permutation(result.valsize)
             result._X_val = result._X_val[idx, :]
-            result._y_val = result._y_val[idx]
+            result._y_val = result._y_val.iloc[idx]
             result._idx_val = Index(idx)
         if result.testsize > 0:
             idx = random.permutation(result.testsize)
             result._X_test = result._X_test[idx, :]
-            result._y_test = result._y_test[idx]
+            result._y_test = result._y_test.iloc[idx]
             result._idx_test = Index(idx)
 
         assert result._X_train is not None and result._X_val is not None and result._X_test is not None
@@ -1784,9 +1801,9 @@ class CifarN(NaturallyNoisyLabelDataset, ImageDatasetMixin, id="CIFAR-N"):
         )
         result._X_train = X_train[idx_train]
         result._X_val = X_train[idx_val]
-        result._y_train = y_train[idx_train]
-        result._y_train_dirty = y_train_dirty[idx_train]
-        result._y_val = y_train[idx_val]
+        result._y_train = Series(y_train[idx_train], index=idx_train)
+        result._y_train_dirty = Series(y_train_dirty[idx_train], index=idx_train)
+        result._y_val = Series(y_train[idx_val], index=idx_val)
         result._idx_train, result._idx_val = Index(idx_train), Index(idx_val)
 
         # Select the test dataset.
@@ -1795,7 +1812,7 @@ class CifarN(NaturallyNoisyLabelDataset, ImageDatasetMixin, id="CIFAR-N"):
         if result.testsize > 0:
             idx_test = random.permutation(result.testsize)
         result._X_test = X_test[idx_test, :]
-        result._y_test = y_test.iloc[np.array(idx_test)]
+        result._y_test = Series(y_test.iloc[np.array(idx_test)], index=idx_test)
         result._idx_test = Index(idx_test)
 
         result._construct_provenance()

@@ -892,7 +892,6 @@ class Scenario(Configurable, argname="scenario"):
                     domains.append(list(domain))
                 else:
                     domains.append(list(attribute_descriptors[name].domain))
-            print("len(list(product(*domains)))", len(list(product(*domains))))
             for values in product(*domains):
                 attributes = dict((name, value) for (name, value) in zip(names, values) if value is not None)
                 composed_attributes = cls._compose_attributes(attributes)

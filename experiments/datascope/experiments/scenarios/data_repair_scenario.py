@@ -1,15 +1,21 @@
 import pandas as pd
 
+from datascope.importance.common import SklearnModel, ExtendedModelMixin, Postprocessor as PipelinePostprocessor
 from datascope.importance.shapley import ImportanceMethod, DEFAULT_MC_TIMEOUT, DEFAULT_MC_TOLERANCE, DEFAULT_NN_K
+from datascope.importance.utility import SklearnModelUtility, SklearnModelEqualizedOddsDifference, roc_auc_score
 from enum import Enum
 from methodtools import lru_cache
-from pandas import DataFrame
+from numpy.typing import NDArray
+from pandas import DataFrame, Series
+from sklearn.base import clone
+from sklearn.metrics import accuracy_score
 from typing import Any, Optional, Dict, Type
 
 from ..bench import Scenario, attribute, result
 from ..datasets import (
     Dataset,
     BiasMethod,
+    BiasedMixin,
     AugmentableMixin,
     DEFAULT_BIAS_METHOD,
     DEFAULT_CACHE_DIR,
@@ -195,7 +201,19 @@ DEFAULT_VAL_BIAS = 0.0
 DEFAULT_AUGMENT_FACTOR = 0
 
 
-class DatascopeScenario(Scenario, abstract=True):
+def get_relative_score(scores: Series, lower_is_better: bool = False) -> Series:
+    start_score = scores.iloc[0]
+    if lower_is_better:
+        min_score = min(scores)
+        delta_score = abs(start_score - min_score)
+        return scores.apply(lambda x: (x - min_score) / delta_score)
+    else:
+        max_score = max(scores)
+        delta_score = abs(start_score - max_score)
+        return scores.apply(lambda x: (x - start_score) / delta_score)
+
+
+class DataRepairScenario(Scenario, abstract=True):
     def __init__(
         self,
         dataset: Dataset,
@@ -387,3 +405,93 @@ class DatascopeScenario(Scenario, abstract=True):
         if augment_factor is not None and augment_factor > 0 and dataset is not None:
             result = result and isinstance(dataset, AugmentableMixin)
         return result and super().is_valid_config(**attributes)
+
+    def compute_model_quality_scores(
+        self,
+        model: SklearnModel,
+        dataset: Dataset,
+        postprocessor: Optional[PipelinePostprocessor] = None,
+        compute_eqodds: bool = False,
+        groupings_val: Optional[NDArray] = None,
+        groupings_test: Optional[NDArray] = None,
+    ) -> Dict[str, Any]:
+        result = {}
+
+        # Fit the model to the training data.
+        model = clone(model)
+        if isinstance(model, ExtendedModelMixin):
+            model.fit_extended(
+                X=dataset.X_train,
+                y=dataset.y_train,
+                metadata=dataset.metadata_train,
+                X_val=dataset.X_val,
+                y_val=dataset.y_val,
+                metadata_val=dataset.metadata_val,
+            )
+        else:
+            model.fit(dataset.X_train, dataset.y_train)
+
+        # Initialize the utility and compute the scores.
+        utility = SklearnModelUtility(
+            model=model,
+            metric=accuracy_score,
+            auxiliary_metrics={"roc_auc": roc_auc_score},
+            auxiliary_metric_requires_probabilities={"roc_auc": True},
+            postprocessor=postprocessor,
+            model_pretrained=True,
+            metric_requires_probabilities=False,
+            compute_train_score=True,
+        )
+        utility_result = utility(
+            X_train=dataset.X_val,
+            y_train=dataset.y_val,
+            X_test=dataset.X_test,
+            y_test=dataset.y_test,
+            metadata_train=dataset.metadata_val,
+            metadata_test=dataset.metadata_test,
+            seed=self.seed,
+        )
+        assert utility_result.auxiliary_train_scores is not None
+        result["val_accuracy"] = utility_result.train_score
+        result["test_accuracy"] = utility_result.score
+        result["val_roc_auc"] = utility_result.auxiliary_train_scores["roc_auc"]
+        result["test_roc_auc"] = utility_result.auxiliary_scores["roc_auc"]
+
+        if compute_eqodds:
+            assert isinstance(dataset, BiasedMixin)
+            eqodds_utility_val = SklearnModelEqualizedOddsDifference(
+                model,
+                sensitive_features=dataset.sensitive_feature,
+                groupings=groupings_val,
+                postprocessor=postprocessor,
+                model_pretrained=True,
+            )
+            eqodds_utility_test = SklearnModelEqualizedOddsDifference(
+                model,
+                sensitive_features=dataset.sensitive_feature,
+                groupings=groupings_test,
+                postprocessor=postprocessor,
+                model_pretrained=True,
+            )
+            eqodds_result_val = eqodds_utility_val(
+                X_train=dataset.X_train,
+                y_train=dataset.y_train,
+                X_test=dataset.X_val,
+                y_test=dataset.y_val,
+                metadata_train=dataset.metadata_train,
+                metadata_test=dataset.metadata_val,
+                seed=self.seed,
+            )
+            eqodds_result_test = eqodds_utility_test(
+                X_train=dataset.X_train,
+                y_train=dataset.y_train,
+                X_test=dataset.X_test,
+                y_test=dataset.y_test,
+                metadata_train=dataset.metadata_train,
+                metadata_test=dataset.metadata_test,
+                seed=self.seed,
+            )
+            result["val_eqodds"] = eqodds_result_val.score
+            result["test_eqodds"] = eqodds_result_test.score
+
+        return result

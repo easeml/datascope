@@ -9,11 +9,6 @@ from ..utility import Provenance
 
 
 class Importance:
-    # @abstractmethod
-    # def __call__(
-    #     self, trainset: DataFrame, testset: DataFrame, units: Optional[Iterable[int]] = None
-    # ) -> Iterable[float]:
-    #     raise NotImplementedError()
 
     @abstractmethod
     def _fit(

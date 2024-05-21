@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-from datascope.importance.common import (
+from datascope.importance import (
     Utility,
     SklearnModelAccuracy,
     SklearnModelRocAuc,
@@ -15,7 +15,7 @@ from time import process_time_ns
 from typing import Any, Optional, Dict, Type
 
 from ..bench import attribute, result, Scenario
-from .datascope_scenario import (
+from .data_repair_scenario import (
     DEFAULT_SEED,
     DEFAULT_MODEL,
     KEYWORD_REPLACEMENTS,

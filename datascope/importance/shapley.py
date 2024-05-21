@@ -22,13 +22,13 @@ except ImportError:
 
 from sklearn.pipeline import Pipeline
 
-from typing_extensions import Literal
-from typing import Dict, List, Optional, Iterable, Set, Tuple, Sequence, Hashable, Union
+from typing import Dict, List, Optional, Iterable, Set, Tuple, Sequence, Hashable, Union, Literal
 
 from ..utility import Provenance
-from .common import DEFAULT_SEED, DistanceCallable, Utility
+from .common import DistanceCallable
 from .importance import Importance
 from .oracle import ShapleyOracle, ATally
+from .utility import DEFAULT_SEED, Utility
 
 
 from .shapley_cy import compute_all_importances_cy

@@ -1,7 +1,6 @@
 import numpy as np
 
-from datascope.importance.common import SklearnModelAccuracy
-from datascope.importance.shapley import ShapleyImportance
+from datascope.importance import SklearnModelAccuracy, ShapleyImportance
 from datetime import timedelta
 from methodtools import lru_cache
 from pandas import DataFrame
@@ -9,7 +8,7 @@ from time import process_time_ns
 from typing import Any, Optional, Dict, Type
 
 from ..bench import Scenario, attribute, result
-from .datascope_scenario import (
+from .data_repair_scenario import (
     RepairMethod,
     IMPORTANCE_METHODS,
     MC_ITERATIONS,

@@ -1,5 +1,6 @@
 import functools
 import inspect
+import joblib
 import numpy as np
 import re
 import sklearn.pipeline
@@ -24,7 +25,7 @@ from transformers import ResNetModel, AutoModelForImageClassification
 from transformers.image_processing_utils import BatchFeature, BaseImageProcessor
 from transformers.modeling_outputs import BaseModelOutputWithPoolingAndNoAttention
 from transformers.modeling_utils import PreTrainedModel
-from typing import Dict, Iterable, Type, Optional, Union, List, Tuple, Callable, Any
+from typing import Dict, Iterable, Type, Optional, Union, List, Tuple, Callable, Any, Sequence
 
 from ..bench import Configurable, attribute
 from .utility import TorchImageDataset, IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
@@ -40,6 +41,17 @@ transformers.utils.logging.set_verbosity_error()
 
 class ProvenancePipeline(sklearn.pipeline.Pipeline):
 
+    def __init__(
+        self,
+        steps: Sequence[Tuple],
+        *,
+        memory: None | joblib.Memory | str = None,
+        verbose: bool = False,
+        parent: Optional["Pipeline"] = None,
+    ) -> None:
+        super().__init__(steps, memory=memory, verbose=verbose)
+        self.parent = parent
+
     def fit_transform(self, X, y=None, provenance: Union[Provenance, NDArray, None] = None, **fit_params):
         Xt = super().fit_transform(X=X, y=y, **fit_params)
         if provenance is None:
@@ -52,6 +64,12 @@ class ProvenancePipeline(sklearn.pipeline.Pipeline):
         self, X, y=None, provenance: Union[Provenance, NDArray, None] = None
     ) -> Union[Provenance, NDArray, None]:
         return provenance
+
+    def __str__(self) -> str:
+        if self.parent is not None:
+            return str(self.parent)
+        else:
+            return "%s.%s" % (self.__class__.__module__, self.__class__.__name__)
 
 
 class Pipeline(Configurable, abstract=True, argname="pipeline"):
@@ -105,7 +123,7 @@ class IdentityPipeline(Pipeline, id="identity", longname="Identity", modalities=
             return x
 
         ops = [("identity", FunctionTransformer(identity))]
-        return ProvenancePipeline(ops)
+        return ProvenancePipeline(ops, parent=self)
 
 
 class StandardScalerPipeline(Pipeline, id="std-scaler", longname="Standard Scaler", modalities=[TabularDatasetMixin]):
@@ -113,7 +131,7 @@ class StandardScalerPipeline(Pipeline, id="std-scaler", longname="Standard Scale
 
     def construct(self: "StandardScalerPipeline", dataset: Dataset) -> ProvenancePipeline:
         ops = [("scaler", StandardScaler())]
-        return ProvenancePipeline(ops)
+        return ProvenancePipeline(ops, parent=self)
 
 
 class LogScalerPipeline(Pipeline, id="log-scaler", longname="Logarithmic Scaler", modalities=[TabularDatasetMixin]):
@@ -125,7 +143,7 @@ class LogScalerPipeline(Pipeline, id="log-scaler", longname="Logarithmic Scaler"
 
     def construct(self: "LogScalerPipeline", dataset: Dataset) -> ProvenancePipeline:
         ops = [("log", FunctionTransformer(self._log1p)), ("scaler", StandardScaler())]
-        return ProvenancePipeline(ops)
+        return ProvenancePipeline(ops, parent=self)
 
 
 class PcaPipeline(Pipeline, id="pca", longname="PCA", modalities=[TabularDatasetMixin]):
@@ -133,7 +151,7 @@ class PcaPipeline(Pipeline, id="pca", longname="PCA", modalities=[TabularDataset
 
     def construct(self: "PcaPipeline", dataset: Dataset) -> ProvenancePipeline:
         ops = [("PCA", PCA())]
-        return ProvenancePipeline(ops)
+        return ProvenancePipeline(ops, parent=self)
 
 
 class PcaSvdPipeline(Pipeline, id="pca-svd", longname="PCA + SVD", modalities=[TabularDatasetMixin]):
@@ -145,7 +163,7 @@ class PcaSvdPipeline(Pipeline, id="pca-svd", longname="PCA + SVD", modalities=[T
     def construct(self: "PcaSvdPipeline", dataset: Dataset) -> ProvenancePipeline:
         union = FeatureUnion([("pca", PCA(n_components=2)), ("svd", TruncatedSVD(n_iter=1))])
         ops = [("union", union), ("scaler", StandardScaler())]
-        return ProvenancePipeline(ops)
+        return ProvenancePipeline(ops, parent=self)
 
 
 class KMeansPipeline(
@@ -159,7 +177,7 @@ class KMeansPipeline(
     def construct(self: "KMeansPipeline", dataset: Dataset) -> ProvenancePipeline:
         union = FeatureUnion([("indicator", MissingIndicator()), ("kmeans", KMeans(random_state=0, n_init=10))])
         ops = [("union", union)]
-        return ProvenancePipeline(ops)
+        return ProvenancePipeline(ops, parent=self)
 
 
 class StdScalerKMeansPipeline(
@@ -177,7 +195,7 @@ class StdScalerKMeansPipeline(
         pipe = sklearn.pipeline.Pipeline([("scaler", StandardScaler()), ("kmeans", KMeans(random_state=0, n_init=10))])
         union = FeatureUnion([("indicator", MissingIndicator()), ("scaler-kmeans", pipe)])
         ops = [("union", union)]
-        return ProvenancePipeline(ops)
+        return ProvenancePipeline(ops, parent=self)
 
 
 class GaussBlurPipeline(Pipeline, id="gauss-blur", longname="Gaussian Blur", modalities=[ImageDatasetMixin]):
@@ -195,7 +213,7 @@ class GaussBlurPipeline(Pipeline, id="gauss-blur", longname="Gaussian Blur", mod
 
     def construct(self: "GaussBlurPipeline", dataset: Dataset) -> ProvenancePipeline:
         ops = [("blur", FunctionTransformer(self._gaussian_blur))]
-        return ProvenancePipeline(ops)
+        return ProvenancePipeline(ops, parent=self)
 
 
 DEFAULT_HOG_ORIENTATIONS = 9
@@ -276,7 +294,7 @@ class HogTransformPipeline(
         )
 
         ops = [("hog", FunctionTransformer(hog_transform))]
-        return ProvenancePipeline(ops)
+        return ProvenancePipeline(ops, parent=self)
 
 
 BATCH_SIZE = 32
@@ -363,7 +381,7 @@ class ImageEmbeddingPipeline(Pipeline, abstract=True, modalities=[ImageDatasetMi
         )
 
         ops = [("embedding", FunctionTransformer(embedding_transform))]
-        return ProvenancePipeline(ops)
+        return ProvenancePipeline(ops, parent=self)
 
 
 class ResNet18EmbeddingPipeline(
@@ -447,7 +465,7 @@ class TfidfPipeline(Pipeline, id="tf-idf", longname="TF-IDF", modalities=[TextDa
 
     def construct(self: "TfidfPipeline", dataset: Dataset) -> ProvenancePipeline:
         ops = [("vect", CountVectorizer()), ("tfidf", TfidfTransformer())]
-        return ProvenancePipeline(ops)
+        return ProvenancePipeline(ops, parent=self)
 
 
 class ToLowerUrlRemovePipeline(
@@ -475,7 +493,7 @@ class ToLowerUrlRemovePipeline(
             ("vect", CountVectorizer()),
             ("tfidf", TfidfTransformer()),
         ]
-        return ProvenancePipeline(ops)
+        return ProvenancePipeline(ops, parent=self)
 
 
 class TextEmbeddingPipeline(Pipeline, abstract=True, modalities=[TextDatasetMixin]):
@@ -549,7 +567,7 @@ class TextEmbeddingPipeline(Pipeline, abstract=True, modalities=[TextDatasetMixi
         )
 
         ops = [("embedding", FunctionTransformer(embedding_transform))]
-        return ProvenancePipeline(ops)
+        return ProvenancePipeline(ops, parent=self)
 
 
 # Source: https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2
@@ -572,7 +590,7 @@ class MiniLMEmbeddingPipeline(Pipeline, id="mini-lm", longname="MiniLM Embedding
         embedding_transform = functools.partial(self._embedding_transform, model=model)
 
         ops = [("embedding", FunctionTransformer(embedding_transform))]
-        return ProvenancePipeline(ops)
+        return ProvenancePipeline(ops, parent=self)
 
 
 # Source: https://huggingface.co/sentence-transformers/paraphrase-albert-small-v2
@@ -597,7 +615,7 @@ class AlbertSmallEmbeddingPipeline(
         embedding_transform = functools.partial(self._embedding_transform, model=model)
 
         ops = [("embedding", FunctionTransformer(embedding_transform))]
-        return ProvenancePipeline(ops)
+        return ProvenancePipeline(ops, parent=self)
 
 
 class FlattenPipeline(sklearn.pipeline.Pipeline):
