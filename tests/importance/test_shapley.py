@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from datascope.importance.common import SklearnModelAccuracy
+from datascope.importance.utility import SklearnModelAccuracy
 from datascope.importance.shapley import ShapleyImportance, ImportanceMethod
 from datascope.utility import Units, Provenance
 from sklearn.datasets import make_classification
