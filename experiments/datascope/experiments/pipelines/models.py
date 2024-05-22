@@ -54,16 +54,16 @@ class XGBClassifier(SklearnModel, BaseEstimator, ClassifierMixin):
     def __init__(
         self,
         max_depth: Optional[int] = None,
-        n_estimators: int = 100,
+        num_estimators: int = 100,
         subsample: Optional[float] = None,
         **kwargs: Any,
     ) -> None:
         self.max_depth = max_depth
-        self.n_estimators = n_estimators
+        self.num_estimators = num_estimators
         self.subsample = subsample
         self.model = XGBClassifierOriginal(
             max_depth=max_depth,
-            n_estimators=n_estimators,
+            n_estimators=num_estimators,
             subsample=subsample,
             random_state=0,
             **kwargs,
@@ -144,13 +144,13 @@ class ResNet18Classifier(BaseEstimator, ClassifierMixin, ExtendedModelMixin):
 
     def __init__(
         self,
-        n_epochs: int = 10,
+        num_epochs: int = 10,
         learning_rate: float = 1e-5,
         eval_split: Union[float, int] = 0.1,
         metadata_grouping_col: Optional[str] = None,
         logger: Optional[Logger] = None,
     ) -> None:
-        self.n_epochs = n_epochs
+        self.num_epochs = num_epochs
         self.learning_rate = learning_rate
         self.eval_split = eval_split
         self.metadata_grouping_col = metadata_grouping_col
@@ -225,7 +225,7 @@ class ResNet18Classifier(BaseEstimator, ClassifierMixin, ExtendedModelMixin):
             self.training_args = TrainingArguments(
                 learning_rate=self.learning_rate,
                 output_dir=self.tempdir,
-                num_train_epochs=self.n_epochs,
+                num_train_epochs=self.num_epochs,
                 evaluation_strategy=IntervalStrategy.STEPS,
                 eval_steps=150,  # Evaluation and Save happens every 150 steps
                 save_steps=150,  # Evaluation and Save happens every 150 steps
@@ -251,7 +251,7 @@ class ResNet18Classifier(BaseEstimator, ClassifierMixin, ExtendedModelMixin):
             metrics = self.trainer.evaluate()
             if metrics["eval_loss"] > 1000.0 or np.isnan(metrics["eval_loss"]):
                 self.learning_rate = self.learning_rate / 2
-                self.n_epochs = self.n_epochs * 2
+                self.num_epochs = self.num_epochs * 2
                 if self.logger is not None:
                     self.logger.debug("Training failed, restarting. New learning rate: " + str(self.learning_rate))
             else:
@@ -417,59 +417,59 @@ class LogisticRegressionModel(Model, id="logreg", longname="Logistic Regression"
 
 
 class RandomForestModel(Model, id="randf", longname="Random Forest"):
-    def __init__(self, n_estimators: int = 50, **kwargs) -> None:
-        self._n_estimators = n_estimators
+    def __init__(self, num_estimators: int = 50, **kwargs) -> None:
+        self._num_estimators = num_estimators
 
     @attribute
-    def n_estimators(self) -> int:
+    def num_estimators(self) -> int:
         """The number of trees in the forest."""
-        return self._n_estimators
+        return self._num_estimators
 
     def construct(self: "RandomForestModel", dataset: Dataset) -> BaseEstimator:
-        return RandomForestClassifier(n_estimators=self.n_estimators, random_state=666)
+        return RandomForestClassifier(n_estimators=self.num_estimators, random_state=666)
 
 
 class KNearestNeighborsModel(Model, id="knn", longname="K-Nearest Neighbors"):
-    def __init__(self, n_neighbors: int = 1, **kwargs) -> None:
-        self._n_neighbors = n_neighbors
+    def __init__(self, num_neighbors: int = 1, **kwargs) -> None:
+        self._num_neighbors = num_neighbors
 
     @attribute
-    def n_neighbors(self) -> int:
+    def num_neighbors(self) -> int:
         """Number of neighbors to use."""
-        return self._n_neighbors
+        return self._num_neighbors
 
     def construct(self: "KNearestNeighborsModel", dataset: Dataset) -> BaseEstimator:
-        return KNeighborsClassifier(n_neighbors=self.n_neighbors)
+        return KNeighborsClassifier(n_neighbors=self.num_neighbors)
 
 
 class KNearestNeighborsModelK1(KNearestNeighborsModel, id="knn-1", longname="K-Nearest Neighbors (K=1)"):
     def __init__(self, **kwargs) -> None:
-        super().__init__(n_neighbors=1)
+        super().__init__(num_neighbors=1)
 
 
 class KNearestNeighborsModelK3(KNearestNeighborsModel, id="knn-3", longname="K-Nearest Neighbors (K=3)"):
     def __init__(self, **kwargs) -> None:
-        super().__init__(n_neighbors=3)
+        super().__init__(num_neighbors=3)
 
 
 class KNearestNeighborsModelK5(KNearestNeighborsModel, id="knn-5", longname="K-Nearest Neighbors (K=5)"):
     def __init__(self, **kwargs) -> None:
-        super().__init__(n_neighbors=5)
+        super().__init__(num_neighbors=5)
 
 
 class KNearestNeighborsModelK10(KNearestNeighborsModel, id="knn-10", longname="K-Nearest Neighbors (K=10)"):
     def __init__(self, **kwargs) -> None:
-        super().__init__(n_neighbors=10)
+        super().__init__(num_neighbors=10)
 
 
 class KNearestNeighborsModelK50(KNearestNeighborsModel, id="knn-50", longname="K-Nearest Neighbors (K=50)"):
     def __init__(self, **kwargs) -> None:
-        super().__init__(n_neighbors=50)
+        super().__init__(num_neighbors=50)
 
 
 class KNearestNeighborsModelK100(KNearestNeighborsModel, id="knn-100", longname="K-Nearest Neighbors (K=100)"):
     def __init__(self, **kwargs) -> None:
-        super().__init__(n_neighbors=100)
+        super().__init__(num_neighbors=100)
 
 
 class SupportVectorMachineModel(Model, id="svm", longname="Support Vector Machine"):
@@ -568,15 +568,15 @@ class MultilevelPerceptronModel(Model, id="mlp", longname="Multilevel Perceptron
 
 
 class XGBoostModel(Model, id="xgb", longname="XGBoost"):
-    def __init__(self, n_estimators: int = 100, max_depth: int = 6, subsample: float = 1.0, **kwargs) -> None:
-        self._n_estimators = n_estimators
+    def __init__(self, num_estimators: int = 100, max_depth: int = 6, subsample: float = 1.0, **kwargs) -> None:
+        self._num_estimators = num_estimators
         self._max_depth = max_depth
         self._subsample = subsample
 
     @attribute
-    def n_estimators(self) -> int:
+    def num_estimators(self) -> int:
         """The number of trees in the forest."""
-        return self._n_estimators
+        return self._num_estimators
 
     @attribute
     def max_depth(self) -> int:
@@ -592,7 +592,7 @@ class XGBoostModel(Model, id="xgb", longname="XGBoost"):
         return XGBClassifier(
             nthread=1,
             eval_metric="logloss",
-            n_estimators=self.n_estimators,
+            num_estimators=self.num_estimators,
             max_depth=self.max_depth,
             subsample=self.subsample,
         )
@@ -601,19 +601,19 @@ class XGBoostModel(Model, id="xgb", longname="XGBoost"):
 class Resnet18Model(Model, id="resnet-18", longname="ResNet-18"):
     def __init__(
         self,
-        n_epochs: int = 10,
+        num_epochs: int = 10,
         learning_rate: float = 1e-5,
         eval_split: Union[float, int] = 0.1,
         **kwargs,
     ) -> None:
-        self._n_epochs = n_epochs
+        self._num_epochs = num_epochs
         self._learning_rate = learning_rate
         self._eval_split = eval_split
 
     @attribute
-    def n_epochs(self) -> int:
+    def num_epochs(self) -> int:
         """The number of epochs to train the model."""
-        return self._n_epochs
+        return self._num_epochs
 
     @attribute
     def learning_rate(self) -> float:
@@ -627,7 +627,7 @@ class Resnet18Model(Model, id="resnet-18", longname="ResNet-18"):
 
     def construct(self: "Resnet18Model", dataset: Dataset) -> BaseEstimator:
         return ResNet18Classifier(
-            n_epochs=self.n_epochs,
+            num_epochs=self.num_epochs,
             learning_rate=self.learning_rate,
             eval_split=self.eval_split,
             metadata_grouping_col=dataset.metadata_grouping_col,
