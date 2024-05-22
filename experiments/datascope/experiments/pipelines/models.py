@@ -397,7 +397,11 @@ class Model(Configurable, abstract=True, argname="model"):
         pass
 
 
-class LogisticRegressionModel(Model, id="logreg", longname="Logistic Regression"):
+class BaseModel(Model, abstract=True, id="base", longname="Base Model"):
+    pass
+
+
+class LogisticRegressionModel(BaseModel, id="logreg", longname="Logistic Regression"):
 
     def __init__(self, solver: str = "liblinear", max_iter: int = 5000, **kwargs) -> None:
         self._solver = solver
@@ -416,7 +420,7 @@ class LogisticRegressionModel(Model, id="logreg", longname="Logistic Regression"
         return LogisticRegression(solver=self.solver, max_iter=self.max_iter, random_state=666)
 
 
-class RandomForestModel(Model, id="randf", longname="Random Forest"):
+class RandomForestModel(BaseModel, id="randf", longname="Random Forest"):
     def __init__(self, num_estimators: int = 50, **kwargs) -> None:
         self._num_estimators = num_estimators
 
@@ -429,7 +433,7 @@ class RandomForestModel(Model, id="randf", longname="Random Forest"):
         return RandomForestClassifier(n_estimators=self.num_estimators, random_state=666)
 
 
-class KNearestNeighborsModel(Model, id="knn", longname="K-Nearest Neighbors"):
+class KNearestNeighborsModel(BaseModel, id="knn", longname="K-Nearest Neighbors"):
     def __init__(self, num_neighbors: int = 1, **kwargs) -> None:
         self._num_neighbors = num_neighbors
 
@@ -472,7 +476,7 @@ class KNearestNeighborsModelK100(KNearestNeighborsModel, id="knn-100", longname=
         super().__init__(num_neighbors=100)
 
 
-class SupportVectorMachineModel(Model, id="svm", longname="Support Vector Machine"):
+class SupportVectorMachineModel(BaseModel, id="svm", longname="Support Vector Machine"):
     def __init__(self, kernel: str = "rbf", **kwargs) -> None:
         self._kernel = kernel
 
@@ -485,22 +489,22 @@ class SupportVectorMachineModel(Model, id="svm", longname="Support Vector Machin
         return SVC(kernel=self.kernel, random_state=666)
 
 
-class LinearSupportVectorMachineModel(Model, id="linsvm", longname="Linear Support Vector Machine"):
+class LinearSupportVectorMachineModel(BaseModel, id="linsvm", longname="Linear Support Vector Machine"):
     def construct(self: "LinearSupportVectorMachineModel", dataset: Dataset) -> BaseEstimator:
         return LinearSVC(loss="hinge", random_state=666)
 
 
-class GaussianProcessModel(Model, id="gp", longname="Gaussian Process"):
+class GaussianProcessModel(BaseModel, id="gp", longname="Gaussian Process"):
     def construct(self: "GaussianProcessModel", dataset: Dataset) -> BaseEstimator:
         return GaussianProcessClassifier(random_state=666)
 
 
-class NaiveBayesModel(Model, id="nb", longname="Naive Bayes Classifier"):
+class NaiveBayesModel(BaseModel, id="nb", longname="Naive Bayes Classifier"):
     def construct(self: "NaiveBayesModel", dataset: Dataset) -> BaseEstimator:
         return MultinomialNB()
 
 
-class MultilevelPerceptronModel(Model, id="mlp", longname="Multilevel Perceptron"):
+class MultilevelPerceptronModel(BaseModel, id="mlp", longname="Multilevel Perceptron"):
     def __init__(
         self,
         solver: str = "sgd",
@@ -567,7 +571,7 @@ class MultilevelPerceptronModel(Model, id="mlp", longname="Multilevel Perceptron
         )
 
 
-class XGBoostModel(Model, id="xgb", longname="XGBoost"):
+class XGBoostModel(BaseModel, id="xgb", longname="XGBoost"):
     def __init__(self, num_estimators: int = 100, max_depth: int = 6, subsample: float = 1.0, **kwargs) -> None:
         self._num_estimators = num_estimators
         self._max_depth = max_depth
@@ -598,7 +602,7 @@ class XGBoostModel(Model, id="xgb", longname="XGBoost"):
         )
 
 
-class Resnet18Model(Model, id="resnet-18", longname="ResNet-18"):
+class Resnet18Model(BaseModel, id="resnet-18", longname="ResNet-18"):
     def __init__(
         self,
         num_epochs: int = 10,
@@ -634,6 +638,6 @@ class Resnet18Model(Model, id="resnet-18", longname="ResNet-18"):
         )
 
 
-class MatchingNetworkModel(Model, id="matchingnet", longname="Matching Network"):
+class MatchingNetworkModel(BaseModel, id="matchingnet", longname="Matching Network"):
     def construct(self: "MatchingNetworkModel", dataset: Dataset) -> BaseEstimator:
         return MatchingNetworkClassifier()
