@@ -891,7 +891,7 @@ class Scenario(Configurable, argname="scenario"):
                         domain = [domain]
                     domains.append(list(domain))
                 else:
-                    domains.append(list(attribute_descriptors[name].domain))
+                    domains.append([None])
             for values in product(*domains):
                 attributes = dict((name, value) for (name, value) in zip(names, values) if value is not None)
                 composed_attributes = cls._compose_attributes(attributes)
@@ -1010,7 +1010,7 @@ class Table(Sequence[V]):
         df = pd.DataFrame.from_dict({a: [x.get(a, None) for x in data] for a in self._attributes})
         if self._key is not None:
             df.set_index(self._key, inplace=True)
-        return df
+        return df.dropna(axis=1, how="all")
 
     def __repr__(self) -> str:
         return self.df.__repr__()
