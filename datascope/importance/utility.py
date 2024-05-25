@@ -14,6 +14,7 @@ from pandas import DataFrame, Series
 from typing import Iterable, Optional, Sequence, Tuple, List, Dict, Hashable, Union
 from sklearn.base import clone
 from sklearn.metrics import accuracy_score, roc_auc_score as sklearn_roc_auc_score
+from sklearn.preprocessing import LabelEncoder
 
 from .common import (
     MetricCallable,
@@ -308,12 +309,13 @@ class SklearnModelUtility(Utility):
                     x for x in self.auxiliary_metric_requires_probabilities.values()
                 )
                 classes = np.unique(y_train)
+                label_encoder = LabelEncoder().fit(y_train)
 
                 if metrics_require_probabilities or result.postprocessor.require_probabilities:
                     result.y_test_pred_proba = self._model_predict_proba(
                         result.model, X_test, classes=classes, metadata=metadata_test
                     )
-                    result.y_test_pred = np.argmax(result.y_test_pred_proba, axis=1)
+                    result.y_test_pred = label_encoder.inverse_transform(np.argmax(result.y_test_pred_proba, axis=1))
                 else:
                     result.y_test_pred = self._model_predict(result.model, X_test, metadata=metadata_test)
 
@@ -379,7 +381,9 @@ class SklearnModelUtility(Utility):
                         result.y_train_pred_proba = self._model_predict_proba(
                             result.model, X_train, classes=classes, metadata=metadata_train
                         )
-                        result.y_train_pred = np.argmax(result.y_train_pred_proba, axis=1)
+                        result.y_train_pred = label_encoder.inverse_transform(
+                            np.argmax(result.y_train_pred_proba, axis=1)
+                        )
                     else:
                         result.y_train_pred = self._model_predict(result.model, X_train, metadata=metadata_train)
                     assert result.y_train_pred is not None
