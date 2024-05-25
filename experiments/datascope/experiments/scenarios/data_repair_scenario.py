@@ -206,11 +206,11 @@ def get_relative_score(scores: Series, lower_is_better: bool = False) -> Series:
     if lower_is_better:
         min_score = min(scores)
         delta_score = abs(start_score - min_score)
-        return scores.apply(lambda x: (x - min_score) / delta_score)
+        return scores.apply(lambda x: (x - min_score) / (delta_score + 1e-9))
     else:
         max_score = max(scores)
         delta_score = abs(start_score - max_score)
-        return scores.apply(lambda x: (x - start_score) / delta_score)
+        return scores.apply(lambda x: (x - start_score) / (delta_score + 1e-9))
 
 
 class DataRepairScenario(Scenario, abstract=True):

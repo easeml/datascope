@@ -220,7 +220,7 @@ class DataDiscardScenario(DataRepairScenario, id="data-discard"):
         importance: Optional[Importance] = None
         importances: Optional[NDArray] = None
         if self.method == RepairMethod.RANDOM:
-            importances = np.array(random.rand(dataset.trainsize))
+            importances = np.array(random.rand(dataset.provenance.num_units))
         elif self.method == RepairMethod.INFLUENCE:
             from ..baselines.influence.importance import InfluenceImportance
 
@@ -320,7 +320,11 @@ class DataDiscardScenario(DataRepairScenario, id="data-discard"):
             discarded_rel += rel_units_per_checkpoint
 
             # Compute quality metrics.
-            dataset_current_f = dataset_current.apply(pipeline, cache_dir=self.pipeline_cache_dir)
+            dataset_current_f = (
+                dataset_current
+                if self.eager_preprocessing
+                else dataset_current.apply(pipeline, cache_dir=self.pipeline_cache_dir)
+            )
             scores = self.compute_model_quality_scores(
                 model=model,
                 dataset=dataset_current_f,
