@@ -12,6 +12,7 @@ import pandas as pd
 import pickle
 import random
 import re
+import shutil
 import signal
 import socket
 import string
@@ -414,9 +415,9 @@ def load_dict(dirpath: str, basename: str, lazy: Optional[Sequence[str]] = None)
 
         if ext == ".npy":
             if name in lazy:
-                res[name] = LazyLoader(lambda: np.load(path))
+                res[name] = LazyLoader(lambda: np.load(path, allow_pickle=True))
             else:
-                res[name] = np.load(path)
+                res[name] = np.load(path, allow_pickle=True)
         elif ext == ".csv":
             if name in lazy:
                 res[name] = LazyLoader(lambda: pd.read_csv(path, index_col=0))
@@ -644,6 +645,10 @@ class Configurable:
         attributes[self._class_argname] = self.get_class_identifier()
         return attributes
 
+    @cached_property
+    def flattened_attributes(self) -> Dict[str, Any]:
+        return self._flatten_attributes(self.attributes)
+
     def __repr__(self) -> str:
         full_class_id = "%s.%s" % (type(self).__module__, type(self).__name__)
         class_id = self.get_class_identifier()
@@ -665,13 +670,19 @@ class Configurable:
     @classmethod
     def _compose_attributes(cls: Type["Configurable"], attributes: Dict[str, Any]) -> Dict[str, Any]:
         attribute_descriptors: Dict[str, AttributeDescriptor] = cls._get_attribute_descriptors()
-        result: Dict[str, Any] = {}
+        result_properties = result.get_properties(cls)
+
+        composed_result: Dict[str, Any] = {}
         skip_prefixes: Set[str] = set()
         for k in sorted(attributes.keys()):
-            if any(k.startswith(prefix) for prefix in skip_prefixes):
+            if (
+                any(k.startswith(prefix) for prefix in skip_prefixes)
+                and k not in attribute_descriptors
+                and k not in result_properties
+            ):
                 continue
             v = attributes[k]
-            result[k] = v
+            composed_result[k] = v
             if isinstance(v, str) or isinstance(v, dict):
                 target_base_descriptor = attribute_descriptors.get(k, None)
                 if target_base_descriptor is not None:
@@ -721,11 +732,11 @@ class Configurable:
 
                             # Recursively compose target attributes and instantiate the configurable object.
                             target_attributes = target_cls._compose_attributes(target_attributes)
-                            result[k] = target_cls(**target_attributes)
+                            composed_result[k] = target_cls(**target_attributes)
 
                             # Ensure that the nested attributes are not passed to the parent object constructor.
                             skip_prefixes.add(k + cls.NESTING_SEPARATOR)
-        return result
+        return composed_result
 
     @classmethod
     def _flatten_attributes(cls: Type["Configurable"], attributes: Dict[str, Any]) -> Dict[str, Any]:
@@ -904,7 +915,7 @@ class Scenario(Configurable, argname="scenario"):
     def is_valid_config(cls, **attributes: Any) -> bool:
         return True
 
-    def save(self, path: str) -> None:
+    def save(self, path: str, include_results: bool = True) -> None:
         if os.path.splitext(path)[1] != "":
             raise ValueError("The provided path '%s' is not a valid directory path." % path)
         os.makedirs(path, exist_ok=True)
@@ -917,13 +928,14 @@ class Scenario(Configurable, argname="scenario"):
             self._logstream.seek(0, SEEK_END)
 
         # Save attributes as a single yaml file.
-        attributes = self._flatten_attributes(self.attributes)
+        attributes = self.flattened_attributes
         save_dict(attributes, path, "attributes")
 
         # Save results as separate files.
-        props: Dict[str, result] = result.get_properties(type(self))
-        results = dict((name, prop.fget(self) if prop.fget is not None else None) for (name, prop) in props.items())
-        save_dict(results, path, "results")
+        if include_results:
+            props: Dict[str, result] = result.get_properties(type(self))
+            results = dict((name, prop.fget(self) if prop.fget is not None else None) for (name, prop) in props.items())
+            save_dict(results, path, "results")
 
     @classmethod
     def load(cls, path: str) -> "Scenario":
@@ -937,12 +949,21 @@ class Scenario(Configurable, argname="scenario"):
             with open(logpath, "r") as f:
                 logstream = StringIO(f.read())
 
+        # Load config attributes and determine scenario type.
         attributes = load_dict(path, "attributes")
-        attributes = cls._compose_attributes(attributes)
-        lazy = [k for k, v in result.get_properties(cls).items() if v.lazy]
+        class_id = attributes.get(cls._class_argname, None)
+        if class_id is None:
+            raise ValueError("The file '%s' does not contain a valid scenario class identifier." % path)
+        target_class: Type[Scenario] = cls.get_subclasses().get(class_id, None)
+        if target_class is None:
+            raise ValueError("The provided class ID '%s' does not correspond to any valid scenario class." % class_id)
+
+        # Load results.
+        attributes = target_class._compose_attributes(attributes)
+        lazy = [k for k, v in result.get_properties(target_class).items() if v.lazy]
         results = load_dict(path, "results", lazy=lazy)
         kwargs = {"logstream": logstream}
-        scenario = cls.from_dict({**attributes, **results, **kwargs})
+        scenario = target_class.from_dict({**attributes, **results, **kwargs})
         assert isinstance(scenario, Scenario)
         return scenario
 
@@ -951,9 +972,23 @@ class Scenario(Configurable, argname="scenario"):
         attributes_filename = os.path.join(path, ".".join(["attributes", "yaml"]))
         return os.path.isdir(path) and os.path.isfile(attributes_filename)  # TODO: Refine this check.
 
-    def is_match(self, other: "Scenario") -> bool:
-        other_attributes = other.attributes
-        return all(other_attributes.get(k, None) == v for (k, v) in self.attributes.items() if k != "id")
+    def is_match(self, other: Union["Scenario", Dict[str, Any]], ignore_id: bool = True) -> bool:
+        self_attributes = self.flattened_attributes
+        other_attributes = other.flattened_attributes if isinstance(other, Scenario) else other
+        for key, self_value in self_attributes.items():
+            if key == "id" and ignore_id:
+                continue
+            other_value = other_attributes.get(key, None)
+            if other_value is not None:
+                if isinstance(other_value, Iterable) and not isinstance(other_value, str):
+                    if isinstance(self_value, Iterable) and not isinstance(self_value, str):
+                        raise ValueError("Both values are iterable. This is not supported.")
+                    if self_value not in other_value:
+                        return False
+                else:
+                    if self_value != other_value:
+                        return False
+        return True
 
 
 class ScenarioEvent:
@@ -1000,11 +1035,7 @@ class Table(Sequence[V]):
     @property
     def df(self):
         data = [
-            (
-                x._flatten_attributes(x.attributes)
-                if isinstance(x, Configurable)
-                else {a: get_value(x, a) for a in self._attributes}
-            )
+            (x.flattened_attributes if isinstance(x, Configurable) else {a: get_value(x, a) for a in self._attributes})
             for x in self._data
         ]
         df = pd.DataFrame.from_dict({a: [x.get(a, None) for x in data] for a in self._attributes})
@@ -1316,7 +1347,7 @@ class Study:
                             if pbar is not None:
                                 pbar.update(1)
                         else:
-                            path = self.save_scenario(scenario)
+                            path = self.save_scenario(scenario, include_results=False)
                             logpath = os.path.join(path, "slurm.log")
                             run_command = "python -m datascope.experiments run-scenario -o %s -e %s -m %s" % (
                                 path,
@@ -1393,17 +1424,26 @@ class Study:
                 )
             scenario_paths.add(exppath)
 
-    def save_scenario(self, scenario: Scenario) -> str:
+    def save_scenario(self, scenario: Scenario, include_results: bool = True) -> str:
         if self.path is None:
             raise ValueError("This study has no output path.")
         attributes = re.findall(r"\{(.*?)\}", self._scenario_path_format)
         replacements = dict((name, get_property_value(scenario, name)) for name in attributes)
         exppath = self._scenario_path_format.format_map(replacements)
         full_exppath = os.path.join(self.path, "scenarios", exppath)
-        scenario.save(full_exppath)
+        scenario.save(full_exppath, include_results=include_results)
         return full_exppath
 
-    def save(self, save_scenarios: bool = True) -> None:
+    def delete_scenario(self, scenario: Scenario) -> None:
+        if self.path is None:
+            raise ValueError("This study has no output path.")
+        attributes = re.findall(r"\{(.*?)\}", self._scenario_path_format)
+        replacements = dict((name, get_property_value(scenario, name)) for name in attributes)
+        exppath = self._scenario_path_format.format_map(replacements)
+        full_exppath = os.path.join(self.path, "scenarios", exppath)
+        shutil.rmtree(full_exppath)
+
+    def save(self, save_scenarios: bool = True, include_results: bool = True) -> None:
         # Make directory that will contain the study.
         os.makedirs(self.path, exist_ok=True)
 
@@ -1422,7 +1462,7 @@ class Study:
         # Save all scenarios.
         if save_scenarios:
             for scenario in self.scenarios:
-                self.save_scenario(scenario)
+                self.save_scenario(scenario, include_results=include_results)
 
     @classmethod
     def load_scenarios(cls, path: str) -> List[Scenario]:
@@ -1529,11 +1569,11 @@ class Study:
         return df
 
     def get_scenarios(self, **attributes: Dict[str, Any]) -> Sequence[Scenario]:
-        res: List[Scenario] = []
-        for exp in self.scenarios:
-            if all(has_attribute_value(exp, name, value) for (name, value) in attributes.items() if hasattr(exp, name)):
-                res.append(exp)
-        return res
+        result: List[Scenario] = []
+        for scenario in self.scenarios:
+            if scenario.is_match(attributes, ignore_id=False):
+                result.append(scenario)
+        return result
 
     @classmethod
     def union(

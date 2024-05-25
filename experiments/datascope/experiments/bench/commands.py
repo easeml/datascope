@@ -84,7 +84,7 @@ def run(
 
     # Eagerly save the study with all unfinished scenarios.
     if not no_save:
-        study.save()
+        study.save(include_results=False)
 
     # Run the study.
     study.run(
@@ -135,9 +135,9 @@ def run_scenario(
         scenario = scenarios[0]
         path = os.path.join(output_path, scenario.id)
 
-        # Eagerly save the scenario.
+        # Eagerly save the scenario (config attributes only).
         if not no_save:
-            scenario.save(path)
+            scenario.save(path, include_results=False)
     queue: Optional[QueueProtocol] = None
     pickled_queue = False
     if event_server is not None:
