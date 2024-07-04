@@ -92,15 +92,38 @@ class XGBClassifier(SklearnModel, BaseEstimator, ClassifierMixin):
 
 
 class EvalLoggerCallback(TrainerCallback):
-    def __init__(self, logger: Optional[Logger] = None, prefix: str = "") -> None:
+    def __init__(
+        self,
+        logger: Optional[Logger] = None,
+        prefix: str = "",
+        trim_metric_prefix: Optional[str] = None,
+        drop_metrics_with_suffix: Optional[List[str]] = None,
+    ) -> None:
         self.logger = logger
         self.prefix = prefix
+        self.trim_metric_prefix = trim_metric_prefix
+        self.drop_metrics_with_suffix = drop_metrics_with_suffix
 
     def on_evaluate(
         self, args: TrainingArguments, state: TrainerState, control: TrainerControl, metrics: Dict[str, float], **kwargs
     ):
         if self.logger is not None:
+
+            # Add prefix to the message.
             prefix = "[%s] " % self.prefix if self.prefix else ""
+
+            # Drop metrics with specified suffix is provided.
+            if self.drop_metrics_with_suffix is not None:
+                metrics = {
+                    k: v
+                    for k, v in metrics.items()
+                    if not any(k.endswith(suffix) for suffix in self.drop_metrics_with_suffix)
+                }
+            # Trim metric prefix if specified.
+            if self.trim_metric_prefix is not None:
+                metrics = {k.removeprefix(self.trim_metric_prefix): v for k, v in metrics.items()}
+
+            # Construct the message and log it.
             message = prefix + ", ".join(["%s=%.3f" % (k, v) for k, v in metrics.items()])
             self.logger.debug(message)
 
