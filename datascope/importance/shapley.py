@@ -10,7 +10,7 @@ from scipy.special import comb
 from logging import Logger, getLogger
 from numpy import ndarray
 from numpy.typing import NDArray
-from pandas import DataFrame, Series
+from pandas import DataFrame, Series, Index
 from scipy.sparse import csr_matrix, issparse, spmatrix
 from scipy.sparse.csgraph import connected_components
 from sklearn.preprocessing import LabelEncoder
@@ -24,11 +24,11 @@ from sklearn.pipeline import Pipeline
 
 from typing import Dict, List, Optional, Iterable, Set, Tuple, Sequence, Hashable, Union, Literal
 
-from ..utility import Provenance
-from .common import DistanceCallable
+from .common import DistanceCallable, expand_series_based_on_index
 from .importance import Importance
 from .oracle import ShapleyOracle, ATally
 from .utility import DEFAULT_SEED, Utility
+from ..utility import Provenance
 
 
 from .shapley_cy import compute_all_importances_cy
@@ -278,7 +278,7 @@ class ShapleyImportance(Importance):
         self.nn_k = nn_k
         self.nn_distance = nn_distance
         self.X_train: Optional[Union[NDArray, DataFrame]] = None
-        self.y_train: Optional[NDArray] = None
+        self.y_train: Optional[Union[NDArray, Series]] = None
         self.metadata_train: Optional[Union[NDArray, DataFrame]] = None
         self.provenance: Optional[Provenance] = None
         self.randomstate = np.random.RandomState(seed)
@@ -293,7 +293,8 @@ class ShapleyImportance(Importance):
         provenance: Provenance,
     ) -> "ShapleyImportance":
         self.X_train = X
-        self.y_train = np.array(self.label_encoder.fit_transform(y))
+        # self.y_train = np.array(self.label_encoder.fit_transform(y))
+        self.y_train = y
         self.metadata_train = metadata
         self.provenance = provenance
         return self
@@ -311,9 +312,9 @@ class ShapleyImportance(Importance):
             raise ValueError("The fit function was not called first.")
         if y is None:
             raise ValueError("The 'y' argument cannot be None.")
-        else:
-            y = np.array(self.label_encoder.transform(y))
-            assert y is not None
+        # else:
+        #     y = np.array(self.label_encoder.transform(y))
+        #     assert y is not None
 
         if units is None:
             units = np.arange(self.provenance.num_units)
@@ -338,9 +339,9 @@ class ShapleyImportance(Importance):
     def _shapley(
         self,
         X_train: Union[NDArray, DataFrame],
-        y_train: NDArray,
+        y_train: Union[NDArray, Series],
         X_test: Union[NDArray, DataFrame],
-        y_test: NDArray,
+        y_test: Union[NDArray, Series],
         metadata_train: Optional[Union[NDArray, DataFrame]],
         metadata_test: Optional[Union[NDArray, DataFrame]],
         provenance: Provenance,
@@ -395,9 +396,9 @@ class ShapleyImportance(Importance):
     def _shapley_bruteforce(
         self,
         X_train: Union[NDArray, DataFrame],
-        y_train: NDArray,
+        y_train: Union[NDArray, Series],
         X_test: Union[NDArray, DataFrame],
-        y_test: NDArray,
+        y_test: Union[NDArray, Series],
         metadata_train: Optional[Union[NDArray, DataFrame]],
         metadata_test: Optional[Union[NDArray, DataFrame]],
         provenance: Provenance,
@@ -415,8 +416,6 @@ class ShapleyImportance(Importance):
             X_train, y_train, X_test, y_test, metadata_train=metadata_train, metadata_test=metadata_test
         )
 
-        # Ensure X_train
-
         # Iterate over all subsets of units.
         n_units = len(units)
         importance = np.zeros(n_units)
@@ -433,16 +432,49 @@ class ShapleyImportance(Importance):
                 warnings.simplefilter("error", category=RuntimeWarning)
                 warnings.simplefilter("error", category=UserWarning)
                 try:
-                    X_train_subset = X_train[indices]
-                    y_train_subset = y_train[indices]
+                    # Select the data points based on the query.
+                    X_train_subset = X_train[indices] if isinstance(X_train, ndarray) else X_train.iloc[indices]
+                    metadata_train_subset = (
+                        None
+                        if metadata_train is None
+                        else (
+                            metadata_train[indices]
+                            if isinstance(metadata_train, ndarray)
+                            else metadata_train.iloc[indices]
+                        )
+                    )
+                    y_train_subset: Union[NDArray, Series]
+                    if isinstance(y_train, ndarray):
+                        y_train_subset = y_train[indices]
+                    else:
+                        idx_train: Optional[Index] = None
+                        if isinstance(X_train_subset, DataFrame):
+                            idx_train = X_train_subset.index
+                        elif metadata_train_subset is not None and isinstance(metadata_train_subset, DataFrame):
+                            idx_train = metadata_train_subset.index
+                        y_train_subset = (
+                            y_train.loc[idx_train.get_level_values(0).drop_duplicates()]
+                            if idx_train is not None
+                            else y_train.iloc[np.array(indices)]
+                        )
+
+                    # Apply the pipeline if it was provided.
                     if self.pipeline is not None:
                         X_train_subset = self.pipeline.fit_transform(X_train_subset, y=y_train_subset)
+
+                    assert isinstance(X_train_subset, DataFrame) or isinstance(X_train_subset, ndarray)
+                    assert (
+                        metadata_train_subset is None
+                        or isinstance(metadata_train_subset, DataFrame)
+                        or isinstance(metadata_train_subset, ndarray)
+                    )
+
                     utility_result = self.utility(
                         X_train_subset,
                         y_train_subset,
                         X_test,
                         y_test,
-                        metadata_train,
+                        metadata_train_subset,
                         metadata_test,
                         null_score=null_score,
                     )
@@ -460,9 +492,9 @@ class ShapleyImportance(Importance):
     def _shapley_montecarlo(
         self,
         X_train: Union[NDArray, DataFrame],
-        y_train: NDArray,
+        y_train: Union[NDArray, Series],
         X_test: Union[NDArray, DataFrame],
-        y_test: NDArray,
+        y_test: Union[NDArray, Series],
         metadata_train: Optional[Union[NDArray, DataFrame]],
         metadata_test: Optional[Union[NDArray, DataFrame]],
         provenance: Provenance,
@@ -531,18 +563,50 @@ class ShapleyImportance(Importance):
                     warnings.simplefilter("error", category=RuntimeWarning)
                     warnings.simplefilter("error", category=UserWarning)
                     try:
-                        X_train_subset = X_train[indices]
-                        y_train_subset = y_train[indices]
+                        # Select the data points based on the query.
+                        X_train_subset = X_train[indices] if isinstance(X_train, ndarray) else X_train.iloc[indices]
+                        metadata_train_subset = (
+                            None
+                            if metadata_train is None
+                            else (
+                                metadata_train[indices]
+                                if isinstance(metadata_train, ndarray)
+                                else metadata_train.iloc[indices]
+                            )
+                        )
+                        y_train_subset: Union[NDArray, Series]
+                        if isinstance(y_train, ndarray):
+                            y_train_subset = y_train[indices]
+                        else:
+                            idx_train: Optional[Index] = None
+                            if isinstance(X_train_subset, DataFrame):
+                                idx_train = X_train_subset.index
+                            elif metadata_train_subset is not None and isinstance(metadata_train_subset, DataFrame):
+                                idx_train = metadata_train_subset.index
+                            y_train_subset = (
+                                y_train.loc[idx_train.get_level_values(0).drop_duplicates()]
+                                if idx_train is not None
+                                else y_train.iloc[np.array(indices)]
+                            )
+
                         X_test_preprocessed = X_test
                         if self.pipeline is not None and not self.mc_preextract:
                             X_train_subset = self.pipeline.fit_transform(X_train_subset, y=y_train_subset)
                             X_test_preprocessed = self.pipeline.transform(X_test)
+
+                        assert isinstance(X_train_subset, DataFrame) or isinstance(X_train_subset, ndarray)
+                        assert (
+                            metadata_train_subset is None
+                            or isinstance(metadata_train_subset, DataFrame)
+                            or isinstance(metadata_train_subset, ndarray)
+                        )
+
                         utility_result = self.utility(
                             X_train_subset,
                             y_train_subset,
                             X_test_preprocessed,
                             y_test,
-                            metadata_train,
+                            metadata_train_subset,
                             metadata_test,
                             null_score=null_score,
                         )
@@ -576,9 +640,9 @@ class ShapleyImportance(Importance):
     def _shapley_neighbor(
         self,
         X_train: Union[NDArray, DataFrame],
-        y_train: NDArray,
+        y_train: Union[NDArray, Series],
         X_test: Union[NDArray, DataFrame],
-        y_test: NDArray,
+        y_test: Union[NDArray, Series],
         metadata_train: Optional[Union[NDArray, DataFrame]],
         metadata_test: Optional[Union[NDArray, DataFrame]],
         provenance: Provenance,
@@ -596,6 +660,33 @@ class ShapleyImportance(Importance):
         if self.pipeline is not None:
             X_train = self.pipeline.fit_transform(X_train, y=y_train)
             X_test = self.pipeline.transform(X_test)
+
+        # Realign labels and convert them to numpy arrays if they were provided as series.
+        if isinstance(y_train, Series):
+            if len(y_train) != len(X_train):
+                if isinstance(X_train, DataFrame):
+                    y_train = expand_series_based_on_index(y_train, X_train.index)
+                elif metadata_train is not None and isinstance(metadata_train, DataFrame):
+                    y_train = expand_series_based_on_index(y_train, metadata_train.index)
+                y_train = y_train.dropna()
+                if len(y_train) != len(X_train):
+                    raise ValueError("Length of y is not equal to X, even after reindexing.")
+            y_train = y_train.to_numpy()
+        if isinstance(y_test, Series):
+            if len(y_test) != len(X_test):
+                if isinstance(X_test, DataFrame):
+                    y_test = expand_series_based_on_index(y_test, X_test.index)
+                elif metadata_train is not None and isinstance(metadata_train, DataFrame):
+                    y_test = expand_series_based_on_index(y_test, metadata_train.index)
+                y_test = y_test.dropna()
+                if len(y_test) != len(X_test):
+                    raise ValueError("Length of y is not equal to X, even after reindexing.")
+            y_test = y_test.to_numpy()
+
+        # Encode labels.
+        label_encoder = LabelEncoder()
+        y_train = label_encoder.fit_transform(y_train)
+        y_test = label_encoder.transform(y_test)
 
         # Ensure that X_train and X_test are not dataframes.
         if isinstance(X_train, DataFrame):
@@ -624,6 +715,8 @@ class ShapleyImportance(Importance):
 
         assert isinstance(X_train, ndarray)
         assert isinstance(X_test, ndarray)
+        assert isinstance(y_train, ndarray)
+        assert isinstance(y_test, ndarray)
 
         # We iterate over all batches of test data and compute importances.
         for start in range(0, n_test, batch_size):
