@@ -136,7 +136,7 @@ class DataDiscardScenario(DataRepairScenario, id="data-discard"):
         utility: UtilityType = attributes.get("utility", None)
         method: RepairMethod = attributes.get("method", None)
         model: Model = attributes.get("model", None)
-        if repairgoal is not None or repairgoal == RepairGoal.FAIRNESS:
+        if repairgoal is not None and repairgoal == RepairGoal.FAIRNESS:
             if dataset is not None:
                 result = result and isinstance(dataset, BiasedMixin)
         elif repairgoal is not None and repairgoal == RepairGoal.ACCURACY:
