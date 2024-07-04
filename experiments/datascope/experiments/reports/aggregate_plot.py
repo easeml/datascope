@@ -495,6 +495,8 @@ def lineplot(
     # Readjust the y-axis limits to include the error bars.
     ymin = min(ymin - 0.1 * (ymax - ymin), axes.get_ylim()[0])
     ymax = max(ymax + 0.1 * (ymax - ymin), axes.get_ylim()[1])
+    if axes.get_yscale() == "log":
+        ymin = max(0.01 * ymax, ymin)
     axes.set_ylim(ymin, ymax)
 
     figure.canvas.draw()
@@ -647,6 +649,8 @@ def barplot(
     # Readjust the y-axis limits to include the error bars.
     ymin = min(ymin - 0.1 * (ymax - ymin), axes.get_ylim()[0])
     ymax = max(ymax + 0.1 * (ymax - ymin), axes.get_ylim()[1])
+    if axes.get_yscale() == "log":
+        ymin = max(0.01 * ymax, ymin)
     axes.set_ylim(ymin, ymax)
 
     return figure
