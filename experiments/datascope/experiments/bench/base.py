@@ -415,12 +415,14 @@ def load_dict(dirpath: str, basename: str, lazy: Optional[Sequence[str]] = None)
 
         if ext == ".npy":
             if name in lazy:
-                res[name] = LazyLoader(lambda: np.load(path, allow_pickle=True))
+                # The path from the outside scope is captured according to https://stackoverflow.com/a/21054087.
+                res[name] = LazyLoader(lambda path=path: np.load(path, allow_pickle=True))  # type: ignore
             else:
                 res[name] = np.load(path, allow_pickle=True)
         elif ext == ".csv":
             if name in lazy:
-                res[name] = LazyLoader(lambda: pd.read_csv(path, index_col=0))
+                # The path from the outside scope is captured according to https://stackoverflow.com/a/21054087.
+                res[name] = LazyLoader(lambda path=path: pd.read_csv(path, index_col=0))  # type: ignore
             else:
                 res[name] = pd.read_csv(path, index_col=0)
         elif ext == ".yaml":
