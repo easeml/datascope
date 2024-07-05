@@ -4,21 +4,21 @@
 import numpy as np
 
 
-cimport numpy as np
+cimport numpy as cnp
 cimport cython
-np.import_array()
+cnp.import_array()
 
 FLOAT = np.float64
 INT = np.int64
-ctypedef np.float_t FLOAT_t
-ctypedef np.int_t INT_t
+ctypedef cnp.float64_t FLOAT_t
+ctypedef cnp.int64_t INT_t
 
 
 @cython.boundscheck(False) # turn off bounds-checking for entire function
 @cython.wraparound(False)  # turn off negative index wrapping for entire function
 @cython.cdivision(True)
 @cython.profile(True)
-def compute_all_importances_cy(np.ndarray[INT_t, ndim=2] unit_labels, np.ndarray[FLOAT_t, ndim=2] unit_distances, np.ndarray[FLOAT_t, ndim=2] label_utilities, np.ndarray[FLOAT_t, ndim=1] null_scores):
+def compute_all_importances_cy(cnp.ndarray[INT_t, ndim=2] unit_labels, cnp.ndarray[FLOAT_t, ndim=2] unit_distances, cnp.ndarray[FLOAT_t, ndim=2] label_utilities, cnp.ndarray[FLOAT_t, ndim=1] null_scores):
 
     assert unit_labels.dtype == INT and unit_distances.dtype == FLOAT and label_utilities.dtype == FLOAT
 
@@ -27,8 +27,8 @@ def compute_all_importances_cy(np.ndarray[INT_t, ndim=2] unit_labels, np.ndarray
     cdef int n_units_p = n_units + 1
     cdef int n_test = unit_distances.shape[1]
     cdef int n_classes = label_utilities.shape[0]
-    cdef np.ndarray[np.int_t, ndim=2] idxs
-    cdef np.ndarray[FLOAT_t, ndim=1] all_importances
+    cdef cnp.ndarray[INT_t, ndim=2] idxs
+    cdef cnp.ndarray[FLOAT_t, ndim=1] all_importances
     cdef int i, j
     cdef int i_1, i_2
     cdef float current

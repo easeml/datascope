@@ -6,9 +6,9 @@ pytest-benchmark >= 3.4
 pytest-cov >= 3.0
 black
 types-PyYAML >= 6.0
-cython >= 0.29
+cython >= 3.0
 jupyterlab >= 3.3
-twine >= 4.0
-build >= 0.9
-numpy >= 1.21
-wheel
+twine >= 5.0
+build >= 1.2
+numpy >= 2.0
+wheel >= 0.43
