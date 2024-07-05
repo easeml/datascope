@@ -282,7 +282,6 @@ class ShapleyImportance(Importance):
         self.metadata_train: Optional[Union[NDArray, DataFrame]] = None
         self.provenance: Optional[Provenance] = None
         self.randomstate = np.random.RandomState(seed)
-        self.label_encoder = LabelEncoder()
         self.logger = logger if logger is not None else getLogger(__name__)
 
     def _fit(
@@ -759,7 +758,7 @@ class ShapleyImportance(Importance):
                     units,
                     world,
                     num_neighbors=k,
-                    num_classes=len(self.label_encoder.classes_),
+                    num_classes=len(label_encoder.classes_),
                     null_scores=null_scores,
                 )
 
