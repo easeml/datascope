@@ -9,7 +9,7 @@ from itertools import repeat
 from multiprocessing import Pool, Lock
 from multiprocessing.synchronize import Lock as LockType
 from tqdm import tqdm
-from typing import Any, Optional, Sequence, Tuple, List, Type
+from typing import Any, Optional, Sequence, Tuple, List, Type, Union
 
 from ..datasets import DEFAULT_BATCH_SIZE, DEFAULT_CACHE_DIR, Dataset
 from ..pipelines import Pipeline
@@ -44,6 +44,8 @@ def run(
     slurm_args: Optional[str] = None,
     eventstream_host_ip: Optional[str] = None,
     eventstream_host_port: Optional[int] = None,
+    subset_sample_size: Union[int, float] = -1,
+    subset_grid_attributes: Optional[List[str]] = None,
     **attributes: Any
 ) -> None:
     # If we should continue the execution of an existing study, then we should load it.
@@ -65,7 +67,11 @@ def run(
             )
 
     # Construct a study from a set of scenarios.
-    scenarios = list(Scenario.get_instances(**attributes))
+    scenarios = list(
+        Scenario.get_instances(
+            **attributes, subset_sample_size=subset_sample_size, subset_grid_attributes=subset_grid_attributes
+        )
+    )
     if study is not None:
         existing_scenarios = list(study.scenarios)
         for cs in scenarios:

@@ -174,6 +174,25 @@ def main():
         help="The port to use for receiving events from distributed jobs (if slurm is used as backend).",
     )
 
+    parser_run.add_argument(
+        "--subset-sample-size",
+        type=int,
+        action=env_default("SUBSET_SAMPLE_SIZE"),
+        required=False,
+        default=-1,
+        help="The number of samples to take from the scenario configuration space. Default: -1 (no sampling).",
+    )
+
+    parser_run.add_argument(
+        "--subset-grid-attributes",
+        type=str,
+        nargs="+",
+        action=env_default("SUBSET_GRID_ATTRIBUTES"),
+        required=False,
+        default=None,
+        help="The attributes that will be treated as grid attributes when sampling the scenario configuration space.",
+    )
+
     # Build arguments from scenario attributes.
     Scenario.add_dynamic_arguments(parser=parser_run, all_iterable=True, single_instance=False)
 

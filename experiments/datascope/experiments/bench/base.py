@@ -32,7 +32,6 @@ from functools import cached_property
 from glob import glob
 from inspect import signature
 from io import TextIOBase, StringIO, SEEK_END
-from itertools import product
 from logging import Logger
 from matplotlib.figure import Figure
 from methodtools import lru_cache
@@ -49,6 +48,7 @@ from typing import (
     Callable,
     Dict,
     Generic,
+    Hashable,
     Iterable,
     List,
     Optional,
@@ -63,6 +63,8 @@ from typing import (
     Union,
     Protocol,
 )
+
+from .generator import ConfigGenerator, GridConfigGenerator, RandomConfigGenerator, CombinedConfigGenerator
 
 
 def represent(x: Any):
@@ -714,7 +716,7 @@ class Configurable:
                                 target_cls._get_attribute_descriptors()
                             )
                             for kk, vd in target_attribute_descriptors.items():
-                                if vd.inherit:
+                                if vd.inherit and kk in attributes:
                                     target_attributes[kk] = attributes[kk]
 
                             # Pass down all attributes that are prefixed with the current key.
@@ -885,33 +887,58 @@ class Scenario(Configurable, argname="scenario"):
         return {}
 
     @classmethod
-    def get_instances(cls: Type["Scenario"], **kwargs: Any) -> Iterable["Scenario"]:
+    def get_instances(
+        cls: Type["Scenario"],
+        subset_sample_size: Union[int, float] = -1,
+        subset_grid_attributes: Optional[List[str]] = None,
+        **kwargs: Any,
+    ) -> Iterable["Scenario"]:
         if cls == Scenario:
-            # for id, scenario in Scenario.scenarios.items():
             for id, subclass in Scenario.get_subclasses().items():
                 if kwargs.get("scenario", None) is None or id in kwargs["scenario"]:
                     assert issubclass(subclass, Scenario)
-                    for instance in subclass.get_instances(**kwargs):
+                    for instance in subclass.get_instances(
+                        **kwargs,
+                        subset_sample_size=subset_sample_size,
+                        subset_grid_attributes=subset_grid_attributes,
+                    ):
                         yield instance
         else:
+            # Build a dictionary of attribute domains.
             attribute_descriptors: Dict[str, AttributeDescriptor] = cls._get_attribute_descriptors(flattened=True)
-            domains = []
-            names = list(attribute_descriptors.keys())
-            for name in names:
-                if name in kwargs and kwargs[name] is not None:
-                    domain = kwargs[name]
-                    if not isinstance(domain, Iterable) or isinstance(domain, str):
-                        domain = [domain]
-                    domains.append(list(domain))
-                else:
-                    domains.append([None])
-            for values in product(*domains):
-                attributes = dict((name, value) for (name, value) in zip(names, values) if value is not None)
-                composed_attributes = cls._compose_attributes(attributes)
+            attribute_domains: Dict[str, List[Hashable]] = dict(
+                {
+                    name: ([domain] if not isinstance(domain, Iterable) or isinstance(domain, str) else list(domain))
+                    for name, domain in kwargs.items()
+                    if name in attribute_descriptors
+                }
+            )
+
+            # Initialize the appropriate config generator based on the provided attributes.
+            generator: Optional[ConfigGenerator] = None
+            if subset_sample_size > 0:
+                subset_grid_attributes = subset_grid_attributes or []
+                random_config_space = {k: v for k, v in attribute_domains.items() if k not in subset_grid_attributes}
+                grid_config_space = {k: v for k, v in attribute_domains.items() if k in subset_grid_attributes}
+                genrators: List[ConfigGenerator] = []
+                if len(random_config_space) > 0:
+                    genrators.append(RandomConfigGenerator(random_config_space, subset_sample_size))
+                if len(grid_config_space) > 0:
+                    genrators.append(GridConfigGenerator(grid_config_space))
+                generator = CombinedConfigGenerator(*genrators)
+
+            else:
+                generator = GridConfigGenerator(attribute_domains)
+
+            assert generator is not None
+            for config in generator:
+                instance_attributes = {k: v for k, v in config.items() if v is not None}
+                composed_attributes = cls._compose_attributes(instance_attributes)
                 if cls.is_valid_config(**composed_attributes):
                     scenario = cls(**composed_attributes)
-                    # assert isinstance(scenario, Scenario)
                     yield scenario
+                else:
+                    generator.register_invalid_config(config)
 
     @classmethod
     def is_valid_config(cls, **attributes: Any) -> bool:
