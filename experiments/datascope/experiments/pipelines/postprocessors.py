@@ -10,6 +10,9 @@ from ..datasets import Dataset
 class Postprocessor(Configurable, abstract=True, argname="postprocessor"):
     """This is a configurable class that can be plugged into a scenario and used to construct a postprocessor."""
 
+    def __init__(self, *args, **kwargs) -> None:
+        pass
+
     @abstractmethod
     def construct(self: "Postprocessor", dataset: Dataset) -> common.Postprocessor:
         pass
