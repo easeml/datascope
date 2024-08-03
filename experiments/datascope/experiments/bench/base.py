@@ -66,6 +66,14 @@ from typing import (
 
 from .generator import ConfigGenerator, GridConfigGenerator, RandomConfigGenerator, CombinedConfigGenerator
 
+UNION_TYPES: List[Any] = [Union]
+try:
+    from types import UnionType
+
+    UNION_TYPES.append(UnionType)
+except ImportError:
+    pass
+
 
 def represent(x: Any):
     if isinstance(x, Enum):
@@ -197,11 +205,19 @@ def get_property_type(target: object, name: str) -> Optional[Type]:
     _, getter = get_property_and_getter(target, name)
     sign = signature(getter)
     a = sign.return_annotation
-    if get_origin(a) in [collections.abc.Sequence, collections.abc.Iterable, list, set] and len(get_args(a)) > 0:
-        a = get_args(a)[0]
-    if get_origin(a) == Union:
-        a = next(x for x in get_args(a) if x is not None)
-    return a if isinstance(a, type) else None
+    # if get_origin(a) in [collections.abc.Sequence, collections.abc.Iterable, list, set] and len(get_args(a)) > 0:
+    #     a = get_args(a)[0]
+
+    # If the type is optional, we extract the inner type(s).
+    if get_origin(a) in UNION_TYPES:
+        args: Tuple[type, ...] = tuple(x for x in get_args(a) if x is not type(None))
+        if len(args) == 1:
+            a = args[0]
+        else:
+            a = Union[args]
+
+    return a
+    # return a if isinstance(a, type) else None
 
 
 def get_property_domain(target: object, name: str) -> List[Any]:
@@ -251,12 +267,40 @@ def get_property_isiterable(target: object, name: str) -> bool:
     return get_origin(a) in [collections.abc.Sequence, collections.abc.Iterable, list, set]
 
 
+# TODO: This should be decided based on the __init__ argument type. Or, better yet, if no default is provided.
+# def get_property_isoptional(target: object, name: str) -> bool:
+#     _, getter = get_property_and_getter(target, name)
+#     sign = signature(getter)
+#     a = sign.return_annotation
+#     return get_origin(a) == Union and type(None) in get_args(a)
+
+
+def get_property_isoptional(target: object, name: str) -> bool:
+    member = getattr(target, "__init__")
+    sign = signature(member)
+    param = sign.parameters.get(name, None)
+    return param is None or param.default is param.empty
+
+
 def get_property_is_inheritable(target: object, name: str) -> bool:
     member = getattr(target, name)
     if isinstance(member, attribute):
         return member.inherit
     else:
         return False
+
+
+def extract_sequence_type_and_argument(target: Optional[Type]) -> Tuple[Optional[Type], Optional[Type]]:
+    origin = get_origin(target)
+    if (
+        origin is not None
+        and isinstance(origin, type)
+        and (issubclass(origin, collections.abc.Sequence) or issubclass(origin, collections.abc.Set))
+    ):
+        args = get_args(target)
+        if len(args) == 1:
+            return origin, args[0]
+    return None, target
 
 
 def has_attribute_value(target: object, name: str, value: Any, ignore_none: bool = True) -> bool:
@@ -269,79 +313,143 @@ def has_attribute_value(target: object, name: str, value: Any, ignore_none: bool
         return target_value in value
 
 
+comma_outside_of_brackets = re.compile(r",\s*(?![^\(\)\[\]\{\}]*[\)\]\}])")
+colon_outside_of_brackets = re.compile(r":\s*(?![^\(\)\[\]\{\}]*[\)\]\}])")
+equals_outside_of_brackets = re.compile(r"=\s*(?![^\(\)\[\]\{\}]*[\)\]\}])")
+identifier_outside_of_brackets = re.compile(r"[\w-]+\s*(?![^\(\)\[\]\{\}]*[\)\]\}])")
+
+
 def make_type_parser(target: Optional[type]) -> Callable[[str], Any]:
-    def parser(source: str) -> Any:
-        if target is None:
-            return source
-        result: Any = source
-        if issubclass(target, bool):
-            result = result in ["True", "true", "T", "t", "Yes", "yes", "y"]
-        elif issubclass(target, int):
-            result = int(result)
-        elif issubclass(target, float):
-            result = float(result)
-        elif issubclass(target, Enum):
-            result = target(result)
-        return result
 
-    return parser
+    parser: Callable[[str], Any]
+    origin = get_origin(target)
 
+    if target is None:
 
-# TODO: Delete this function.
-def add_dynamic_arguments(
-    parser: argparse.ArgumentParser,
-    targets: Iterable[type],
-    all_iterable: bool = False,
-    single_instance: bool = False,
-) -> None:
-    attribute_domains: Dict[str, Set[Any]] = {}
-    attribute_helpstrings: Dict[str, Optional[str]] = {}
-    attribute_types: Dict[str, Optional[type]] = {}
-    attribute_defaults: Dict[str, Optional[Any]] = {}
-    attribute_isiterable: Dict[str, bool] = {}
+        def parser(source: str) -> None:
+            if source.lower() not in ["-", "none"]:
+                raise ValueError("Invalid value '%s'. None type expects '-'." % source)
 
-    for cls in targets:
-        # Extract domain of scenario.
-        props = attribute.get_properties(cls)
-        domain = dict((name, set(get_property_domain(cls, name))) for name in props.keys())
+    elif origin in UNION_TYPES:
 
-        # Include the new domain into the total domain.
-        for name, values in domain.items():
-            attribute_domains.setdefault(name, set()).update(values)
+        type_parsers = [make_type_parser(arg) for arg in get_args(target)]
 
-        # Extract types of the scenario attributes.
-        types = dict((name, get_property_type(cls, name)) for name in props.keys())
-        attribute_types.update(types)
+        def parser(source: str) -> Any:
+            for type_parser in type_parsers:
+                try:
+                    return type_parser(source)
+                except ValueError:
+                    pass
+            raise ValueError("Invalid value '%s'." % source)
 
-        # Extract helpstrings of the scenario attributes.
-        helpstrings = dict((name, get_property_helpstring(cls, name)) for name in props.keys())
-        attribute_helpstrings.update(helpstrings)
+    elif origin is not None and (
+        issubclass(origin, collections.abc.Sequence) or issubclass(origin, collections.abc.Set)
+    ):
 
-        # Extract types of the scenario attributes.
-        defaults = dict((name, get_property_default(cls, name)) for name in props.keys())
-        attribute_defaults.update(defaults)
+        arg = get_args(target)[0]
+        subparser = make_type_parser(arg)
 
-        # Set all attributes to be iterable when passed to get_instances.
-        isiterable = dict((name, True if all_iterable else get_property_isiterable(cls, name)) for name in props.keys())
-        attribute_isiterable.update(isiterable)
+        def parser(source: str) -> List:
+            return origin(subparser(x) for x in comma_outside_of_brackets.split(source))
 
-    for name in attribute_domains:
-        default = attribute_defaults[name]
-        attribute_domain: Optional[List] = [x.value if isinstance(x, Enum) else x for x in attribute_domains[name]]
-        if attribute_domain == [None]:
-            attribute_domain = None
-        helpstring = attribute_helpstrings[name] or ("Scenario " + name + ".")
-        if default is None:
-            helpstring += " Default: [all]" if not single_instance else ""
-        else:
-            helpstring += " Default: %s" % str(default)
-        parser.add_argument(
-            "--%s" % name.replace("_", "-"),
-            help=helpstring,
-            type=make_type_parser(attribute_types[name]),
-            choices=attribute_domain,
-            nargs=(1 if single_instance else "+") if attribute_isiterable[name] else None,  # type: ignore
+    elif origin is not None and issubclass(origin, collections.abc.Mapping):
+        key_type: type = get_args(target)[0]
+        value_type: type = get_args(target)[1]
+        key_parser = make_type_parser(key_type)
+        value_parser = make_type_parser(value_type)
+
+        def parser(source: str) -> Dict:
+            source_items = comma_outside_of_brackets.split(source)
+            items: list[tuple[Any, Any]] = []
+            for source_item in source_items:
+                source_item_splits = colon_outside_of_brackets.split(source_item)
+                if len(source_item_splits) != 2:
+                    raise ValueError("Invalid key-value pair '%s'." % source_item)
+                source_key, source_value = source_item_splits
+                items.append((key_parser(source_key), value_parser(source_value)))
+
+            return origin(items)
+
+    elif issubclass(target, bool):
+
+        def parser(source: str) -> bool:
+            if source.lower() in ["true", "t", "yes", "y"]:
+                return True
+            elif source.lower() in ["false", "f", "no", "n"]:
+                return False
+            else:
+                raise ValueError("Invalid boolean value '%s'." % source)
+
+    elif issubclass(target, int):
+
+        def parser(source: str) -> int:
+            return int(source)
+
+    elif issubclass(target, float):
+
+        def parser(source: str) -> float:
+            return float(source.strip().strip("\"'`"))
+
+    elif issubclass(target, Enum):
+
+        def parser(source: str) -> Enum:
+            return target(source)
+
+    elif issubclass(target, str):
+
+        def parser(source: str) -> str:
+            return str(source)
+
+    elif issubclass(target, Configurable):
+
+        attribute_descriptors: Dict[str, AttributeDescriptor] = target._get_attribute_descriptors(
+            include_subclasses=True
         )
+        attribute_names = list(attribute_descriptors.keys())
+        attribute_parsers: Dict[str, Callable[[str], Any]] = {
+            k: make_type_parser(v.attr_type) for k, v in attribute_descriptors.items()
+        }
+
+        def parser(source: str) -> Configurable:
+
+            # We will collect attributes in a dictionary and use it to initialize the configurable object.
+            attributes: Dict[str, Any] = {}
+
+            # We will match the class ID if it is the first part of the source followed by attributes in brackets.
+            # class_id: Optional[str] = None
+            class_id_match = identifier_outside_of_brackets.search(source)
+            if class_id_match is not None:
+                attributes[target._class_argname] = class_id_match.group(0).strip()
+                source = source[class_id_match.end() :]  # noqa: E203
+
+            # We assume the attributes lie within brackets separated with commas.
+            source = source.strip(string.whitespace + "()[]{}")
+            if len(source) > 0:
+                source_attributes = comma_outside_of_brackets.split(source)
+                for i, source_attribute in enumerate(source_attributes):
+                    source_attribute_splits = equals_outside_of_brackets.split(source_attribute)
+                    if len(source_attribute_splits) not in [1, 2]:
+                        raise ValueError("Invalid attribute assignment '%s'." % source_attribute)
+                    source_name = (
+                        source_attribute_splits[0].strip() if len(source_attribute_splits) == 2 else attribute_names[i]
+                    )
+                    source_value = source_attribute_splits[-1].strip()
+                    if source_name not in attribute_names:
+                        raise ValueError(
+                            "Attribute '%s' is not supported by configurable '%s'." % source_name, target._class_id
+                        )
+                    attributes[source_name] = attribute_parsers[source_name](source_value)
+
+            return target.from_dict(attributes)
+
+    else:
+
+        raise ValueError("Unsupported type '%s'." % str(target))
+
+    def strip_and_parse(source: str) -> Any:
+        return parser(source.strip(string.whitespace + "()[]{}"))
+
+    return strip_and_parse
 
 
 T = TypeVar("T")
@@ -516,11 +624,32 @@ class Progress:
             cls.refresh()
 
 
+class IterableTypeCast(argparse.Action):
+    def __init__(self, option_strings: List[str], dest: str, nargs="+", iterable_type: Type = list, **kwargs):
+        if nargs != "+":
+            raise ValueError("Only '+' nargs is supported.")
+        if not issubclass(iterable_type, collections.abc.Sequence) and not issubclass(
+            iterable_type, collections.abc.Set
+        ):
+            raise ValueError("Only Sequence and Set iterable types are supported.")
+        super().__init__(option_strings, dest, nargs=nargs, **kwargs)
+        self.iterable_type = iterable_type
+
+    def __call__(
+        self,
+        parser: argparse.ArgumentParser,
+        namespace: argparse.Namespace,
+        values: zerorpc.str | Sequence[Any] | None,
+        option_string: zerorpc.str | None = None,
+    ) -> None:
+        setattr(namespace, self.dest, self.iterable_type(values))  # type: ignore
+
+
 @dataclass
 class AttributeDescriptor:
     attr_type: Optional[type]
     helpstring: Optional[str]
-    is_iterable: bool
+    is_optional: bool
     domain: Iterable
     default: Any
     inherit: bool = False
@@ -595,7 +724,7 @@ class Configurable:
             attribute_descriptors[cls._class_argname] = AttributeDescriptor(
                 attr_type=str,
                 helpstring="Identifier of the specific %s instance." % cls.__name__.lower(),
-                is_iterable=False,
+                is_optional=False,
                 domain=list(cls.get_subclasses().keys()),
                 default=None,
                 inherit=False,
@@ -604,15 +733,20 @@ class Configurable:
         for name, prop in properties.items():
             attr_type = get_property_type(cls, name)
             helpstring = get_property_helpstring(cls, name)
-            is_iterable = get_property_isiterable(cls, name)
+            is_optional = get_property_isoptional(cls, name)
             inherit = get_property_is_inheritable(cls, name)
             default = get_property_default(cls, name)
-            if attr_type is not None and issubclass(attr_type, Configurable) and flattened:
+            if (
+                attr_type is not None
+                and isinstance(attr_type, type)
+                and issubclass(attr_type, Configurable)
+                and flattened
+            ):
                 domain = list(attr_type.get_subclasses().keys())
                 attribute_descriptors[name] = AttributeDescriptor(
                     attr_type=str,
                     helpstring=helpstring,
-                    is_iterable=is_iterable,
+                    is_optional=is_optional,
                     domain=domain,
                     default=default,
                     inherit=inherit,
@@ -627,7 +761,7 @@ class Configurable:
                 attribute_descriptors[name] = AttributeDescriptor(
                     attr_type=attr_type,
                     helpstring=helpstring,
-                    is_iterable=is_iterable,
+                    is_optional=is_optional,
                     domain=domain,
                     default=default,
                     inherit=inherit,
@@ -691,7 +825,11 @@ class Configurable:
                 target_base_descriptor = attribute_descriptors.get(k, None)
                 if target_base_descriptor is not None:
                     target_base_cls = target_base_descriptor.attr_type
-                    if target_base_cls is not None and issubclass(target_base_cls, Configurable):
+                    if (
+                        target_base_cls is not None
+                        and isinstance(target_base_cls, type)
+                        and issubclass(target_base_cls, Configurable)
+                    ):
                         target_cls_id = v if isinstance(v, str) else v.get(target_base_cls._class_argname, None)
                         if target_cls_id is None:
                             raise ValueError(
@@ -782,8 +920,9 @@ class Configurable:
     def add_dynamic_arguments(
         cls: Type["Configurable"],
         parser: argparse.ArgumentParser,
-        all_iterable: bool = False,
-        single_instance: bool = False,
+        collection_mode: bool = False,
+        # all_iterable: bool = False,
+        # single_instance: bool = False,
     ) -> None:
         attribute_descriptors: Dict[str, AttributeDescriptor] = cls._get_attribute_descriptors(
             flattened=True, include_subclasses=True, include_classarg=True
@@ -794,16 +933,25 @@ class Configurable:
                 attribute_domain = None
             helpstring = descriptor.helpstring or ("Scenario " + name + ".")
             if descriptor.default is None:
-                helpstring += " Default: [all]" if not single_instance else ""
+                # helpstring += " Default: [all]" if not single_instance else ""
+                helpstring += " Default: -"
             else:
-                helpstring += " Default: %s" % str(descriptor.default)
-            nargs = (1 if single_instance else "+") if (descriptor.is_iterable or all_iterable) else None
+                helpstring += " Default: %s" % stringify(descriptor.default)
+
+            iterable_type, attr_type = extract_sequence_type_and_argument(descriptor.attr_type)
+            is_iterable = iterable_type is not None
+            # nargs = (1 if single_instance else "+") if (descriptor.is_iterable or all_iterable) else None
+            nargs = "+" if (is_iterable or collection_mode) else None
+            kwargs = {"iterable_type": iterable_type} if is_iterable else {}
             parser.add_argument(
                 "--%s" % name.replace("_", "-"),
                 help=helpstring,
                 type=make_type_parser(descriptor.attr_type),
+                # required=not descriptor.is_optional,
                 choices=attribute_domain,
                 nargs=nargs,  # type: ignore
+                action=IterableTypeCast if is_iterable else "store",
+                **kwargs,  # type: ignore
             )
 
 
@@ -1735,7 +1883,7 @@ class Report(Configurable):
         else:
             # If grouping attributes were not specified, then we return only a single instance.
             if partby is None or len(partby) == 0:
-                yield cls(study=study, dataframe=study.dataframe, **kwargs)
+                yield cls(study=study, dataframe=study.dataframe, keyword_replacements=keyword_replacements, **kwargs)
 
             else:
                 # Find distinct grouping attribute assignments.

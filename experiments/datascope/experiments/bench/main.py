@@ -194,7 +194,7 @@ def main():
     )
 
     # Build arguments from scenario attributes.
-    Scenario.add_dynamic_arguments(parser=parser_run, all_iterable=True, single_instance=False)
+    Scenario.add_dynamic_arguments(parser=parser_run, collection_mode=True)
 
     parser_run_scenario = subparsers.add_parser("run-scenario")
 
@@ -229,7 +229,7 @@ def main():
     )
 
     # Build arguments from scenario attributes.
-    Scenario.add_dynamic_arguments(parser=parser_run_scenario, all_iterable=True, single_instance=True)
+    Scenario.add_dynamic_arguments(parser=parser_run_scenario, collection_mode=False)
 
     parser_report = subparsers.add_parser("report")
 
@@ -276,7 +276,7 @@ def main():
     )
 
     # Build arguments from report attributes.
-    Report.add_dynamic_arguments(parser=parser_report, all_iterable=False, single_instance=False)
+    Report.add_dynamic_arguments(parser=parser_report, collection_mode=False)
 
     subparsers.add_parser("preload-datasets")
 

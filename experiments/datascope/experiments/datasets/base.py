@@ -109,7 +109,7 @@ def load_cached_features(idx: NDArray, targetdir: str, name: str) -> NDArray:
     return result
 
 
-class Dataset(Configurable, abstract=True):
+class Dataset(Configurable, abstract=True, argname="dataset"):
     """The base class for all datasets that are used in experiments."""
 
     def __init__(
