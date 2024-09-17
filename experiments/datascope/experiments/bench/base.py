@@ -155,9 +155,11 @@ class result(PropertyTag):
         fdel: Optional[Callable[[Any], None]] = None,
         doc: Optional[str] = None,
         lazy: bool = False,
+        storage: Optional[str] = None,
     ) -> None:
         super().__init__(fget, fset, fdel, doc)
         self.lazy = lazy
+        self.storage = storage
 
     def __call__(
         self,
@@ -174,7 +176,7 @@ class result(PropertyTag):
             fdel = self.fdel
         if doc is None:
             doc = self.__doc__
-        return type(self)(fget, fset, fdel, doc, lazy=self.lazy)
+        return type(self)(fget, fset, fdel, doc, lazy=self.lazy, storage=self.storage)
 
     __isresult__ = True
 
@@ -319,6 +321,17 @@ equals_outside_of_brackets = re.compile(r"=\s*(?![^\(\)\[\]\{\}]*[\)\]\}])")
 identifier_outside_of_brackets = re.compile(r"[\w-]+\s*(?![^\(\)\[\]\{\}]*[\)\]\}])")
 
 
+def remove_brackets(source: str) -> str:
+    source = source.strip()
+    while (
+        (source.startswith("(") and source.endswith(")"))
+        or (source.startswith("[") and source.endswith("]"))
+        or (source.startswith("{") and source.endswith("}"))
+    ):
+        source = source[1:-1].strip()
+    return source
+
+
 def make_type_parser(target: Optional[type]) -> Callable[[str], Any]:
 
     parser: Callable[[str], Any]
@@ -423,7 +436,7 @@ def make_type_parser(target: Optional[type]) -> Callable[[str], Any]:
                 source = source[class_id_match.end() :]  # noqa: E203
 
             # We assume the attributes lie within brackets separated with commas.
-            source = source.strip(string.whitespace + "()[]{}")
+            source = remove_brackets(source)
             if len(source) > 0:
                 source_attributes = comma_outside_of_brackets.split(source)
                 for i, source_attribute in enumerate(source_attributes):
@@ -436,7 +449,7 @@ def make_type_parser(target: Optional[type]) -> Callable[[str], Any]:
                     source_value = source_attribute_splits[-1].strip()
                     if source_name not in attribute_names:
                         raise ValueError(
-                            "Attribute '%s' is not supported by configurable '%s'." % source_name, target._class_id
+                            "Attribute '%s' is not supported by configurable '%s'." % (source_name, target._class_id)
                         )
                     attributes[source_name] = attribute_parsers[source_name](source_value)
 
@@ -447,7 +460,7 @@ def make_type_parser(target: Optional[type]) -> Callable[[str], Any]:
         raise ValueError("Unsupported type '%s'." % str(target))
 
     def strip_and_parse(source: str) -> Any:
-        return parser(source.strip(string.whitespace + "()[]{}"))
+        return parser(remove_brackets(source))
 
     return strip_and_parse
 
@@ -469,12 +482,19 @@ class LazyLoader(Generic[T]):
         return self.value
 
 
-def save_dict(source: Dict[str, Any], dirpath: str, basename: str, saveonly: Optional[Sequence[str]] = None) -> None:
+def save_dict(
+    source: Dict[str, Any],
+    dirpath: str,
+    basename: str,
+    saveonly: Optional[Sequence[str]] = None,
+    storage: Optional[Dict[str, Optional[str]]] = None,
+) -> None:
     basedict: Dict[str, Any] = dict((k, v) for (k, v) in source.items() if type(v) in [int, float, bool, str])
     basedict.update(dict((k, v.value) for (k, v) in source.items() if isinstance(v, Enum)))
     if len(basedict) > 0:
         with open(os.path.join(dirpath, ".".join([basename, "yaml"])), "w") as f:
             yaml.safe_dump(basedict, f)
+    storage = {} if storage is None else storage
 
     for name, data in source.items():
         if data is None:
@@ -487,8 +507,15 @@ def save_dict(source: Dict[str, Any], dirpath: str, basename: str, saveonly: Opt
                 filename = os.path.join(dirpath, ".".join([basename, name, "npy"]))
                 np.save(filename, data)
             elif isinstance(data, DataFrame):
-                filename = os.path.join(dirpath, ".".join([basename, name, "csv"]))
-                data.to_csv(filename)
+                if storage.get(name, None) == "feather":
+                    filename = os.path.join(dirpath, ".".join([basename, name, "feather"]))
+                    data.to_feather(filename)
+                elif storage.get(name, None) == "parquet":
+                    filename = os.path.join(dirpath, ".".join([basename, name, "parquet"]))
+                    data.to_parquet(filename, index=True)
+                else:
+                    filename = os.path.join(dirpath, ".".join([basename, name, "csv"]))
+                    data.to_csv(filename)
             elif isinstance(data, dict):
                 filename = os.path.join(dirpath, ".".join([basename, name, "yaml"]))
                 with open(filename, "w") as f:
@@ -535,6 +562,18 @@ def load_dict(dirpath: str, basename: str, lazy: Optional[Sequence[str]] = None)
                 res[name] = LazyLoader(lambda path=path: pd.read_csv(path, index_col=0))  # type: ignore
             else:
                 res[name] = pd.read_csv(path, index_col=0)
+        elif ext == ".feather":
+            if name in lazy:
+                # The path from the outside scope is captured according to https://stackoverflow.com/a/21054087.
+                res[name] = LazyLoader(lambda path=path: pd.read_feather(path))  # type: ignore
+            else:
+                res[name] = pd.read_feather(path)
+        elif ext == ".parquet":
+            if name in lazy:
+                # The path from the outside scope is captured according to https://stackoverflow.com/a/21054087.
+                res[name] = LazyLoader(lambda path=path: pd.read_parquet(path))  # type: ignore
+            else:
+                res[name] = pd.read_parquet(path)
         elif ext == ".yaml":
             with open(path) as f:
                 res[name] = yaml.safe_load(f)
@@ -1112,7 +1151,8 @@ class Scenario(Configurable, argname="scenario"):
         if include_results:
             props: Dict[str, result] = result.get_properties(type(self))
             results = dict((name, prop.fget(self) if prop.fget is not None else None) for (name, prop) in props.items())
-            save_dict(results, path, "results")
+            storage = {name: prop.storage for (name, prop) in props.items()}
+            save_dict(results, path, "results", storage=storage)
 
     @classmethod
     def load(cls, path: str) -> "Scenario":
@@ -1857,7 +1897,8 @@ class Report(Configurable):
         # Save results as separate files.
         props = result.get_properties(type(self))
         results = dict((name, prop.fget(self) if prop.fget is not None else None) for (name, prop) in props.items())
-        save_dict(results, path, basename, saveonly=saveonly)
+        storage = {name: prop.storage for (name, prop) in props.items()}
+        save_dict(results, path, basename, saveonly=saveonly, storage=storage)
 
     @classmethod
     def get_instances(
