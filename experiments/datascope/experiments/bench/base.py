@@ -53,6 +53,7 @@ from typing import (
     List,
     Optional,
     Sequence,
+    Mapping,
     Set,
     Tuple,
     Type,
@@ -482,6 +483,18 @@ class LazyLoader(Generic[T]):
         return self.value
 
 
+def is_simplestruct(target: Any) -> bool:
+    if type(target) in [int, float, bool, str]:
+        return True
+    if isinstance(target, Enum):
+        return True
+    if isinstance(target, Sequence):
+        return all(is_simplestruct(x) for x in target)
+    if isinstance(target, Mapping):
+        return all(is_simplestruct(x) for x in target.keys()) and all(is_simplestruct(x) for x in target.values())
+    return False
+
+
 def save_dict(
     source: Dict[str, Any],
     dirpath: str,
@@ -489,8 +502,7 @@ def save_dict(
     saveonly: Optional[Sequence[str]] = None,
     storage: Optional[Dict[str, Optional[str]]] = None,
 ) -> None:
-    basedict: Dict[str, Any] = dict((k, v) for (k, v) in source.items() if type(v) in [int, float, bool, str])
-    basedict.update(dict((k, v.value) for (k, v) in source.items() if isinstance(v, Enum)))
+    basedict: Dict[str, Any] = dict((k, v) for (k, v) in source.items() if is_simplestruct(v))
     if len(basedict) > 0:
         with open(os.path.join(dirpath, ".".join([basename, "yaml"])), "w") as f:
             yaml.safe_dump(basedict, f)
@@ -549,6 +561,16 @@ def load_dict(dirpath: str, basename: str, lazy: Optional[Sequence[str]] = None)
 
         if name == "":
             continue
+
+        # If name contains a dot, then we assume that it is a nested dictionary.
+        # TODO: Add equivalent of this in save_dict.
+        if "." in name:
+            name = name.split(".")[0]
+            res[name] = load_dict(
+                dirpath,
+                ".".join([basename, name]),
+                [x.removeprefix(name + ".") for x in lazy if x.startswith(name + ".")],
+            )
 
         if ext == ".npy":
             if name in lazy:
