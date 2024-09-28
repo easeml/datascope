@@ -1,3 +1,4 @@
+import faiss
 import numpy as np
 import tempfile
 import torch
@@ -89,6 +90,36 @@ class XGBClassifier(SklearnModel, BaseEstimator, ClassifierMixin):
         if isinstance(X, DataFrame):
             X = X.to_numpy()
         return self.model.predict_proba(X)
+
+
+class FaissKNN(BaseEstimator, ClassifierMixin):
+    def __init__(self, n_neighbors=5):
+        self.n_neighbors = n_neighbors
+        self.index = None
+        self.y = None
+        self.label_encoder = LabelEncoder()
+
+    def fit(self, X, y):
+        self.X = X.astype(np.float32)
+        self.y = self.label_encoder.fit_transform(y)
+        d = self.X.shape[1]
+        self.index = faiss.IndexFlatL2(d)  # L2 distance index
+        self.index.add(self.X)
+        return self
+
+    def predict(self, X):
+        X = X.astype(np.float32)
+        distances, indices = self.index.search(X, self.n_neighbors)
+        votes = self.y[indices.reshape(-1)].reshape(-1, self.n_neighbors)
+        predictions = np.array([np.argmax(np.bincount(v, minlength=len(self.label_encoder.classes_))) for v in votes])
+        return predictions
+
+    def predict_proba(self, X):
+        X = X.astype(np.float32)
+        distances, indices = self.index.search(X, self.n_neighbors)
+        votes = self.y[indices.reshape(-1)].reshape(-1, self.n_neighbors)
+        proba = np.array([np.bincount(v, minlength=len(self.label_encoder.classes_)) / self.n_neighbors for v in votes])
+        return proba
 
 
 class EvalLoggerCallback(TrainerCallback):
@@ -457,6 +488,55 @@ class RandomForestModel(BaseModel, id="randf", longname="Random Forest"):
 
 
 class KNearestNeighborsModel(BaseModel, id="knn", longname="K-Nearest Neighbors"):
+    def __init__(self, num_neighbors: int = 1, metric: str = "minkowski", **kwargs) -> None:
+        self._num_neighbors = num_neighbors
+        self._metric = metric
+
+    @attribute
+    def num_neighbors(self) -> int:
+        """Number of neighbors to use."""
+        return self._num_neighbors
+
+    @attribute
+    def metric(self) -> str:
+        """The distance metric to use."""
+        return self._metric
+
+    def construct(self: "KNearestNeighborsModel", dataset: Dataset) -> BaseEstimator:
+        return KNeighborsClassifier(n_neighbors=self.num_neighbors, metric=self.metric)
+
+
+class KNearestNeighborsModelK1(KNearestNeighborsModel, id="knn-1", longname="K-Nearest Neighbors (K=1)"):
+    def __init__(self, metric: str = "minkowski", **kwargs) -> None:
+        super().__init__(num_neighbors=1, metric=metric)
+
+
+class KNearestNeighborsModelK3(KNearestNeighborsModel, id="knn-3", longname="K-Nearest Neighbors (K=3)"):
+    def __init__(self, metric: str = "minkowski", **kwargs) -> None:
+        super().__init__(num_neighbors=3, metric=metric)
+
+
+class KNearestNeighborsModelK5(KNearestNeighborsModel, id="knn-5", longname="K-Nearest Neighbors (K=5)"):
+    def __init__(self, metric: str = "minkowski", **kwargs) -> None:
+        super().__init__(num_neighbors=5, metric=metric)
+
+
+class KNearestNeighborsModelK10(KNearestNeighborsModel, id="knn-10", longname="K-Nearest Neighbors (K=10)"):
+    def __init__(self, metric: str = "minkowski", **kwargs) -> None:
+        super().__init__(num_neighbors=10, metric=metric)
+
+
+class KNearestNeighborsModelK50(KNearestNeighborsModel, id="knn-50", longname="K-Nearest Neighbors (K=50)"):
+    def __init__(self, metric: str = "minkowski", **kwargs) -> None:
+        super().__init__(num_neighbors=50, metric=metric)
+
+
+class KNearestNeighborsModelK100(KNearestNeighborsModel, id="knn-100", longname="K-Nearest Neighbors (K=100)"):
+    def __init__(self, metric: str = "minkowski", **kwargs) -> None:
+        super().__init__(num_neighbors=100, metric=metric)
+
+
+class FastKNearestNeighborsModel(BaseModel, id="fast-knn", longname="Fast K-Nearest Neighbors"):
     def __init__(self, num_neighbors: int = 1, **kwargs) -> None:
         self._num_neighbors = num_neighbors
 
@@ -465,36 +545,48 @@ class KNearestNeighborsModel(BaseModel, id="knn", longname="K-Nearest Neighbors"
         """Number of neighbors to use."""
         return self._num_neighbors
 
-    def construct(self: "KNearestNeighborsModel", dataset: Dataset) -> BaseEstimator:
-        return KNeighborsClassifier(n_neighbors=self.num_neighbors)
+    def construct(self: "FastKNearestNeighborsModel", dataset: Dataset) -> BaseEstimator:
+        return FaissKNN(n_neighbors=self.num_neighbors)
 
 
-class KNearestNeighborsModelK1(KNearestNeighborsModel, id="knn-1", longname="K-Nearest Neighbors (K=1)"):
+class FastKNearestNeighborsModelK1(
+    FastKNearestNeighborsModel, id="fast-knn-1", longname="Fast K-Nearest Neighbors (K=1)"
+):
     def __init__(self, **kwargs) -> None:
         super().__init__(num_neighbors=1)
 
 
-class KNearestNeighborsModelK3(KNearestNeighborsModel, id="knn-3", longname="K-Nearest Neighbors (K=3)"):
+class FastKNearestNeighborsModelK3(
+    FastKNearestNeighborsModel, id="fast-knn-3", longname="Fast K-Nearest Neighbors (K=3)"
+):
     def __init__(self, **kwargs) -> None:
         super().__init__(num_neighbors=3)
 
 
-class KNearestNeighborsModelK5(KNearestNeighborsModel, id="knn-5", longname="K-Nearest Neighbors (K=5)"):
+class FastKNearestNeighborsModelK5(
+    FastKNearestNeighborsModel, id="fast-knn-5", longname="Fast K-Nearest Neighbors (K=5)"
+):
     def __init__(self, **kwargs) -> None:
         super().__init__(num_neighbors=5)
 
 
-class KNearestNeighborsModelK10(KNearestNeighborsModel, id="knn-10", longname="K-Nearest Neighbors (K=10)"):
+class FastKNearestNeighborsModelK10(
+    FastKNearestNeighborsModel, id="fast-knn-10", longname="Fast K-Nearest Neighbors (K=10)"
+):
     def __init__(self, **kwargs) -> None:
         super().__init__(num_neighbors=10)
 
 
-class KNearestNeighborsModelK50(KNearestNeighborsModel, id="knn-50", longname="K-Nearest Neighbors (K=50)"):
+class FastKNearestNeighborsModelK50(
+    FastKNearestNeighborsModel, id="fast-knn-50", longname="Fast K-Nearest Neighbors (K=50)"
+):
     def __init__(self, **kwargs) -> None:
         super().__init__(num_neighbors=50)
 
 
-class KNearestNeighborsModelK100(KNearestNeighborsModel, id="knn-100", longname="K-Nearest Neighbors (K=100)"):
+class FastKNearestNeighborsModelK100(
+    KNearestNeighborsModel, id="fast-knn-100", longname="Fast K-Nearest Neighbors (K=100)"
+):
     def __init__(self, **kwargs) -> None:
         super().__init__(num_neighbors=100)
 
