@@ -1,4 +1,4 @@
-import faiss
+# import faiss
 import numpy as np
 import tempfile
 import torch
@@ -100,6 +100,8 @@ class FaissKNN(BaseEstimator, ClassifierMixin):
         self.label_encoder = LabelEncoder()
 
     def fit(self, X, y):
+        import faiss
+
         self.X = X.astype(np.float32)
         self.y = self.label_encoder.fit_transform(y)
         d = self.X.shape[1]
