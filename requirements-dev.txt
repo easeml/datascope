@@ -10,5 +10,5 @@ cython >= 3.0
 jupyterlab >= 3.3
 twine >= 5.0
 build >= 1.2
-numpy >= 2.0
+numpy >= 1.26.4, < 2.0.0
 wheel >= 0.43
