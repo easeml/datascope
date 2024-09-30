@@ -305,6 +305,8 @@ class ImageEmbeddingPipeline(Pipeline, abstract=True, modalities=[ImageDatasetMi
     A pipeline that extracts embeddings using a pre-trained deep learning model.
     """
 
+    AUTOCAST_TYPE: Optional[Type] = None
+
     @classmethod
     def get_preprocessor(cls: Type["ImageEmbeddingPipeline"]) -> transforms.Transform:
         # By default we return the standard ResNet x ImageNet preprocessor.
@@ -335,6 +337,7 @@ class ImageEmbeddingPipeline(Pipeline, abstract=True, modalities=[ImageDatasetMi
         preprocessor: transforms.Transform,
         model: PreTrainedModel,
         model_forward_function: Callable[[PreTrainedModel, Union[Dict[str, Tensor], List[Tensor], Tensor]], Tensor],
+        autocast_type: Optional[Type] = None,
     ) -> np.ndarray:
         import torch
         from torch.utils.data import DataLoader
@@ -350,8 +353,13 @@ class ImageEmbeddingPipeline(Pipeline, abstract=True, modalities=[ImageDatasetMi
             try:
                 loader = DataLoader(dataset=dataset, batch_size=batch_size, shuffle=False)
                 for batch in loader:
-                    with torch.no_grad():
-                        result = model_forward_function(model, batch)
+                    with torch.inference_mode():
+                        if cuda_mode and autocast_type is not None:
+                            assert isinstance(autocast_type, torch.dtype)
+                            with torch.autocast(device_type="cuda", dtype=autocast_type):
+                                result = model_forward_function(model, batch)
+                        else:
+                            result = model_forward_function(model, batch)
                     if cuda_mode:
                         result = result.cpu()
                     results.append(result.numpy())
@@ -378,6 +386,7 @@ class ImageEmbeddingPipeline(Pipeline, abstract=True, modalities=[ImageDatasetMi
             preprocessor=preprocessor,
             model=model,
             model_forward_function=self.model_forward,
+            autocast_type=self.AUTOCAST_TYPE,
         )
 
         ops = [("embedding", FunctionTransformer(embedding_transform))]
