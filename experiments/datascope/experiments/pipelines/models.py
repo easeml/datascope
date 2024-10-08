@@ -4,6 +4,7 @@ import tempfile
 import torch
 
 from abc import abstractmethod
+from enum import Enum
 from huggingface_hub import hf_hub_download
 from logging import Logger
 from methodtools import lru_cache
@@ -14,6 +15,7 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.gaussian_process import GaussianProcessClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, roc_auc_score
+from sklearn.metrics.pairwise import rbf_kernel
 from sklearn.model_selection import train_test_split, GroupShuffleSplit
 from sklearn.naive_bayes import MultinomialNB
 from sklearn.neighbors import KNeighborsClassifier
@@ -489,10 +491,32 @@ class RandomForestModel(BaseModel, id="randf", longname="Random Forest"):
         return RandomForestClassifier(n_estimators=self.num_estimators, random_state=666)
 
 
+class NearestNeighborsDistanceMetric(str, Enum):
+    COSINE = "cosine"
+    RBF = "rbf"
+    MINKOWSKI = "minkowski"
+
+
+def rbf_metric(x: NDArray, y: NDArray) -> float:
+    return rbf_kernel(np.expand_dims(x, axis=0), np.expand_dims(y, axis=0))
+
+
+class NearestNeighborsWeights(str, Enum):
+    UNIFORM = "uniform"
+    DISTANCE = "distance"
+
+
 class KNearestNeighborsModel(BaseModel, id="knn", longname="K-Nearest Neighbors"):
-    def __init__(self, num_neighbors: int = 1, metric: str = "minkowski", **kwargs) -> None:
+    def __init__(
+        self,
+        num_neighbors: int = 1,
+        metric: NearestNeighborsDistanceMetric = NearestNeighborsDistanceMetric.MINKOWSKI,
+        weights: NearestNeighborsWeights = NearestNeighborsWeights.UNIFORM,
+        **kwargs,
+    ) -> None:
         self._num_neighbors = num_neighbors
         self._metric = metric
+        self._weights = weights
 
     @attribute
     def num_neighbors(self) -> int:
@@ -500,42 +524,78 @@ class KNearestNeighborsModel(BaseModel, id="knn", longname="K-Nearest Neighbors"
         return self._num_neighbors
 
     @attribute
-    def metric(self) -> str:
+    def metric(self) -> NearestNeighborsDistanceMetric:
         """The distance metric to use."""
         return self._metric
 
+    @attribute
+    def weights(self) -> NearestNeighborsWeights:
+        """The weight function used in prediction."""
+        return self._weights
+
     def construct(self: "KNearestNeighborsModel", dataset: Dataset) -> BaseEstimator:
-        return KNeighborsClassifier(n_neighbors=self.num_neighbors, metric=self.metric)
+        metric = rbf_metric if self.metric == NearestNeighborsDistanceMetric.RBF else str(self.metric)
+        return KNeighborsClassifier(n_neighbors=self.num_neighbors, metric=metric, weights=str(self.weights))
 
 
 class KNearestNeighborsModelK1(KNearestNeighborsModel, id="knn-1", longname="K-Nearest Neighbors (K=1)"):
-    def __init__(self, metric: str = "minkowski", **kwargs) -> None:
-        super().__init__(num_neighbors=1, metric=metric)
+    def __init__(
+        self,
+        metric: NearestNeighborsDistanceMetric = NearestNeighborsDistanceMetric.MINKOWSKI,
+        weights: NearestNeighborsWeights = NearestNeighborsWeights.UNIFORM,
+        **kwargs,
+    ) -> None:
+        super().__init__(num_neighbors=1, metric=metric, weights=weights)
 
 
 class KNearestNeighborsModelK3(KNearestNeighborsModel, id="knn-3", longname="K-Nearest Neighbors (K=3)"):
-    def __init__(self, metric: str = "minkowski", **kwargs) -> None:
-        super().__init__(num_neighbors=3, metric=metric)
+    def __init__(
+        self,
+        metric: NearestNeighborsDistanceMetric = NearestNeighborsDistanceMetric.MINKOWSKI,
+        weights: NearestNeighborsWeights = NearestNeighborsWeights.UNIFORM,
+        **kwargs,
+    ) -> None:
+        super().__init__(num_neighbors=3, metric=metric, weights=weights)
 
 
 class KNearestNeighborsModelK5(KNearestNeighborsModel, id="knn-5", longname="K-Nearest Neighbors (K=5)"):
-    def __init__(self, metric: str = "minkowski", **kwargs) -> None:
-        super().__init__(num_neighbors=5, metric=metric)
+    def __init__(
+        self,
+        metric: NearestNeighborsDistanceMetric = NearestNeighborsDistanceMetric.MINKOWSKI,
+        weights: NearestNeighborsWeights = NearestNeighborsWeights.UNIFORM,
+        **kwargs,
+    ) -> None:
+        super().__init__(num_neighbors=5, metric=metric, weights=weights)
 
 
 class KNearestNeighborsModelK10(KNearestNeighborsModel, id="knn-10", longname="K-Nearest Neighbors (K=10)"):
-    def __init__(self, metric: str = "minkowski", **kwargs) -> None:
-        super().__init__(num_neighbors=10, metric=metric)
+    def __init__(
+        self,
+        metric: NearestNeighborsDistanceMetric = NearestNeighborsDistanceMetric.MINKOWSKI,
+        weights: NearestNeighborsWeights = NearestNeighborsWeights.UNIFORM,
+        **kwargs,
+    ) -> None:
+        super().__init__(num_neighbors=10, metric=metric, weights=weights)
 
 
 class KNearestNeighborsModelK50(KNearestNeighborsModel, id="knn-50", longname="K-Nearest Neighbors (K=50)"):
-    def __init__(self, metric: str = "minkowski", **kwargs) -> None:
-        super().__init__(num_neighbors=50, metric=metric)
+    def __init__(
+        self,
+        metric: NearestNeighborsDistanceMetric = NearestNeighborsDistanceMetric.MINKOWSKI,
+        weights: NearestNeighborsWeights = NearestNeighborsWeights.UNIFORM,
+        **kwargs,
+    ) -> None:
+        super().__init__(num_neighbors=50, metric=metric, weights=weights)
 
 
 class KNearestNeighborsModelK100(KNearestNeighborsModel, id="knn-100", longname="K-Nearest Neighbors (K=100)"):
-    def __init__(self, metric: str = "minkowski", **kwargs) -> None:
-        super().__init__(num_neighbors=100, metric=metric)
+    def __init__(
+        self,
+        metric: NearestNeighborsDistanceMetric = NearestNeighborsDistanceMetric.MINKOWSKI,
+        weights: NearestNeighborsWeights = NearestNeighborsWeights.UNIFORM,
+        **kwargs,
+    ) -> None:
+        super().__init__(num_neighbors=100, metric=metric, weights=weights)
 
 
 class FastKNearestNeighborsModel(BaseModel, id="fast-knn", longname="Fast K-Nearest Neighbors"):
