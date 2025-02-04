@@ -675,8 +675,8 @@ class ShapleyImportance(Importance):
             if len(y_test) != len(X_test):
                 if isinstance(X_test, DataFrame):
                     y_test = expand_series_based_on_index(y_test, X_test.index)
-                elif metadata_train is not None and isinstance(metadata_train, DataFrame):
-                    y_test = expand_series_based_on_index(y_test, metadata_train.index)
+                elif metadata_test is not None and isinstance(metadata_test, DataFrame):
+                    y_test = expand_series_based_on_index(y_test, metadata_test.index)
                 y_test = y_test.dropna()
                 if len(y_test) != len(X_test):
                     raise ValueError("Length of y is not equal to X, even after reindexing.")
