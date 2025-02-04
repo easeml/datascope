@@ -23,6 +23,7 @@ import time
 import traceback
 import warnings
 import yaml
+import zarr
 import zerorpc
 
 from abc import abstractmethod
@@ -66,6 +67,9 @@ from typing import (
 )
 
 from .generator import ConfigGenerator, GridConfigGenerator, RandomConfigGenerator, CombinedConfigGenerator
+
+# Add the representer for string Enum types to fix the "cannot represent an object" PyYAML error.
+yaml.SafeDumper.add_multi_representer(str, yaml.representer.SafeRepresenter.represent_str)
 
 UNION_TYPES: List[Any] = [Union]
 try:
@@ -516,8 +520,12 @@ def save_dict(
                 continue
 
             if isinstance(data, ndarray):
-                filename = os.path.join(dirpath, ".".join([basename, name, "npy"]))
-                np.save(filename, data)
+                if storage.get(name, None) == "zarr":
+                    filename = os.path.join(dirpath, ".".join([basename, name, "zarr"]))
+                    zarr.convenience.save(filename, data)
+                else:
+                    filename = os.path.join(dirpath, ".".join([basename, name, "npy"]))
+                    np.save(filename, data)
             elif isinstance(data, DataFrame):
                 if storage.get(name, None) == "feather":
                     filename = os.path.join(dirpath, ".".join([basename, name, "feather"]))
@@ -578,6 +586,11 @@ def load_dict(dirpath: str, basename: str, lazy: Optional[Sequence[str]] = None)
                 res[name] = LazyLoader(lambda path=path: np.load(path, allow_pickle=True))  # type: ignore
             else:
                 res[name] = np.load(path, allow_pickle=True)
+        elif ext == ".zarr":
+            if name in lazy:
+                res[name] = LazyLoader(lambda path=path: zarr.convenience.load(path))  # type: ignore
+            else:
+                res[name] = zarr.convenience.load(path)
         elif ext == ".csv":
             if name in lazy:
                 # The path from the outside scope is captured according to https://stackoverflow.com/a/21054087.
