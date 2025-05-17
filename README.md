@@ -51,7 +51,7 @@ pip install datascope
 We can compute the Shapley importance scores for some scikit-learn pipeline `pipeline` using a training dataset `(X_train, y_train)` and a validation dataset `(X_val, y_val)` as such:
 
 ```python
-from datascope.importance.common import SklearnModelAccuracy
+from datascope.importance.utility import SklearnModelAccuracy
 from datascope.importance.shapley import ShapleyImportance
 
 utility = SklearnModelAccuracy(pipeline)
